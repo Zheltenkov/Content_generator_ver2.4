@@ -1,0 +1,2544 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>✅ Проверка README - Школа 21</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        window.MathJax = window.MathJax || {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            chtml: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            svg: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        /* Стили для diff визуализации */
+        .diff-container {
+            margin-bottom: 1.5rem;
+        }
+        
+        .diff-header {
+            background: rgba(118, 75, 162, 0.2);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .diff-stats h3 {
+            color: #64ffda;
+            margin: 0 0 0.5rem 0;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 0.75rem;
+        }
+        
+        .stat-item {
+            padding: 0.5rem;
+            background: rgba(118, 75, 162, 0.1);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        .stat-label {
+            color: #b8c5d6;
+            margin-right: 0.5rem;
+        }
+        
+        .stat-value {
+            color: #64ffda;
+            font-weight: bold;
+        }
+        
+        .stat-added .stat-value {
+            color: #51cf66;
+        }
+        
+        .stat-deleted .stat-value {
+            color: #ff6b6b;
+        }
+        
+        .stat-modified .stat-value {
+            color: #ffc107;
+        }
+        
+        .diff-controls {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .diff-btn {
+            padding: 0.5rem 1rem;
+            background: rgba(118, 75, 162, 0.3);
+            border: 1px solid rgba(118, 75, 162, 0.5);
+            border-radius: 4px;
+            color: #b8c5d6;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        .diff-btn:hover:not(:disabled) {
+            background: rgba(118, 75, 162, 0.5);
+            border-color: rgba(118, 75, 162, 0.7);
+            color: #64ffda;
+        }
+        
+        .diff-btn.active {
+            background: rgba(100, 255, 218, 0.2);
+            border-color: #64ffda;
+            color: #64ffda;
+        }
+        
+        .diff-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .diff-table-wrapper {
+            overflow-x: auto;
+            border: 1px solid rgba(118, 75, 162, 0.3);
+            border-radius: 8px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+        
+        .diff-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+        }
+        
+        .diff-header-cell {
+            background: rgba(118, 75, 162, 0.3);
+            color: #64ffda;
+            padding: 0.75rem;
+            text-align: left;
+            font-weight: bold;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        .diff-line {
+            transition: background-color 0.2s;
+        }
+        
+        .diff-line:hover {
+            background-color: rgba(118, 75, 162, 0.1);
+        }
+        
+        .diff-equal {
+            background: transparent;
+        }
+        
+        .diff-delete {
+            background: rgba(255, 107, 107, 0.15);
+        }
+        
+        .diff-delete .line-content.original {
+            background: rgba(255, 107, 107, 0.25);
+        }
+        
+        .diff-insert {
+            background: rgba(81, 207, 102, 0.15);
+        }
+        
+        .diff-insert .line-content.improved {
+            background: rgba(81, 207, 102, 0.25);
+        }
+        
+        .diff-replace {
+            background: rgba(255, 193, 7, 0.15);
+        }
+        
+        .diff-replace .line-content.original {
+            background: rgba(255, 107, 107, 0.2);
+        }
+        
+        .diff-replace .line-content.improved {
+            background: rgba(81, 207, 102, 0.2);
+        }
+        
+        .line-number {
+            padding: 0.5rem;
+            text-align: right;
+            color: #888;
+            background: rgba(118, 75, 162, 0.1);
+            border-right: 1px solid rgba(118, 75, 162, 0.3);
+            min-width: 50px;
+            user-select: none;
+        }
+        
+        .line-number.original {
+            border-right: 2px solid rgba(255, 107, 107, 0.5);
+        }
+        
+        .line-number.improved {
+            border-right: 2px solid rgba(81, 207, 102, 0.5);
+        }
+        
+        .line-content {
+            padding: 0.5rem;
+            white-space: pre-wrap;
+            word-break: break-word;
+            color: #b8c5d6;
+        }
+        
+        .line-content.original {
+            border-right: 1px solid rgba(118, 75, 162, 0.3);
+        }
+        
+        .line-content.improved {
+            border-left: 1px solid rgba(118, 75, 162, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>✅ Проверка собственного README</h1>
+        <p>Проверка готовых README по критериям рубрики Школы 21</p>
+    </div>
+
+    <div class="container">
+        <div class="two-columns">
+            <!-- Левая колонка: ввод -->
+            <div class="column">
+                <h2>📝 Входные данные</h2>
+
+                <div class="form-group">
+                    <label>Загрузите README.md</label>
+                    <div class="file-upload" onclick="document.getElementById('readmeFile').click()">
+                        <input type="file" id="readmeFile" accept=".md" onchange="handleReadmeFileSelect(event)">
+                        <p>📁 Нажмите для загрузки README.md</p>
+                        <small id="readmeFileNameChecker"></small>
+                    </div>
+                </div>
+
+                <div class="expander">
+                    <div class="expander-header" onclick="toggleExpander('checkerLoExpander')">
+                        <span>Образовательные результаты</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="expander-content" id="checkerLoExpander">
+                        <div class="form-group">
+                            <label>Образовательные результаты (по одному в строке)</label>
+                            <textarea id="learningOutcomes" rows="5" placeholder="Если заполните, критерии по соответствию ЗУН будут точнее"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="expander">
+                    <div class="expander-header" onclick="toggleExpander('checkerCurriculumExpander')">
+                        <span>📚 Учебный план (УП) — для «Улучшить README»</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="expander-content" id="checkerCurriculumExpander">
+                        <p style="color: #b8c5d6; font-size: 0.9rem; margin-bottom: 0.75rem;">Если загрузите УП и выберете блок и проект, при нажатии «Улучшить README» все входные данные подтянутся из УП (как в Генераторе). Иначе данные будут извлечены из README.</p>
+                        <div class="form-group">
+                            <label>Загрузите CSV учебного плана</label>
+                            <div class="file-upload" onclick="document.getElementById('checkerCurriculumFile').click()" style="border-color: rgba(100, 255, 218, 0.3);">
+                                <input type="file" id="checkerCurriculumFile" accept=".csv" onchange="handleCheckerCurriculumUpload(event)">
+                                <p>📁 Нажмите для загрузки CSV</p>
+                                <small id="checkerCurriculumFileName" style="color: #64ffda;"></small>
+                            </div>
+                        </div>
+                        <div class="form-group" id="checkerCurriculumBlockGroup" style="display: none;">
+                            <label>Тематический блок</label>
+                            <select id="checkerCurriculumBlock" onchange="onCheckerCurriculumBlockChange()">
+                                <option value="">— Выберите блок —</option>
+                            </select>
+                        </div>
+                        <div class="form-group" id="checkerCurriculumProjectGroup" style="display: none;">
+                            <label>Проект в блоке</label>
+                            <select id="checkerCurriculumProject" onchange="onCheckerCurriculumProjectChange()">
+                                <option value="">— Выберите проект —</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn" id="checkBtn" onclick="checkReadme()">✅ Проверить README</button>
+
+                <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: center; align-items: center;">
+                    <button class="btn btn-secondary" onclick="goBackToMode()" style="width: auto; padding: 0.75rem 1.5rem;">⬅ Вернуться к выбору режима</button>
+                    <button class="btn btn-secondary" id="clearResultsBtn" onclick="clearCheckerResults()" style="width: auto; padding: 0.75rem 1.5rem; display: none;">🗑️ Очистить результат</button>
+                </div>
+            </div>
+
+            <!-- Правая колонка: результаты -->
+            <div class="column">
+                <h2>📊 Результаты проверки</h2>
+
+                <div id="noResults" class="info-box">
+                    <p>Загрузите README и нажмите «Проверить», чтобы увидеть результаты.</p>
+                </div>
+
+                <div id="resultsArea" style="display: none;">
+                    <div id="warningsArea"></div>
+                    
+                    <!-- Кнопка улучшения README -->
+                    <div id="improveReadmeSection" style="margin-top: 1.5rem; display: none;">
+                        <div id="improveReadmeWarning" style="display: none; background: rgba(255, 193, 7, 0.1); border-left: 4px solid #ffc107; padding: 0.75rem; margin-bottom: 1rem; border-radius: 4px;">
+                            <p style="margin: 0; color: #ffc107; font-size: 0.9rem;">
+                                ⚠️ <strong>Рекомендуется:</strong> Ваш README набрал менее 70% по критериям. Используйте кнопку ниже для автоматического улучшения.
+                            </p>
+                        </div>
+                        <button class="btn" id="improveReadmeBtn" onclick="startImprovement()" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); width: 100%;">
+                            ✨ Улучшить README
+                        </button>
+                        <p style="text-align: center; color: #64ffda; margin-top: 0.5rem; font-size: 0.9rem;">
+                            Извлечет данные из вашего README и сгенерирует улучшенную версию по стандарту Школы 21
+                        </p>
+                    </div>
+
+                    <!-- Секция отображения процесса генерации улучшенного README -->
+                    <div id="improvementGenerationProgress" style="display: none; margin-top: 1.5rem; padding: 1rem; background: rgba(118, 75, 162, 0.2); border-radius: 8px; border-left: 4px solid #764ba2;">
+                        <div style="text-align: center; margin-bottom: 1rem;">
+                            <div class="spinner" style="border: 4px solid rgba(118, 75, 162, 0.3); border-top: 4px solid #64ffda; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                            <p style="margin: 0; color: #64ffda; font-size: 1.1rem; font-weight: bold;">🔄 Генерация улучшенного README...</p>
+                        </div>
+                        <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: rgba(118, 75, 162, 0.15); border-radius: 6px;">
+                            <p style="margin: 0; color: #b8c5d6; font-size: 0.9rem;">
+                                ⏱️ <strong>Время работы:</strong> <span id="improvementTimer">00:00</span>
+                            </p>
+                        </div>
+                        <div style="margin-bottom: 0.75rem; padding: 0.75rem; background: rgba(118, 75, 162, 0.15); border-radius: 6px;">
+                            <p style="margin: 0; color: #b8c5d6; font-size: 0.9rem;">
+                                🤖 <strong>Текущий агент:</strong> <span id="improvementCurrentAgent">Инициализация...</span>
+                            </p>
+                        </div>
+                        <div style="padding: 0.75rem; background: rgba(255, 193, 7, 0.15); border-radius: 6px; border-left: 3px solid #ffc107;">
+                            <p style="margin: 0; color: #ffc107; font-size: 0.85rem;">
+                                ⚠️ <strong>Внимание:</strong> Генерация может занимать до 15 минут. Пожалуйста, не закрывайте страницу.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="divider"></div>
+
+                    <div class="tabs">
+                        <button class="tab active" onclick="showTab('metrics', this)">📈 Критерии</button>
+                        <button class="tab" onclick="showTab('report', this)">📝 Статистика текста</button>
+                        <button class="tab" onclick="showTab('readme', this)">📄 README</button>
+                    </div>
+
+                    <div id="metrics" class="tab-content active">
+                        <div id="checkerMetricsVersionSwitcher" style="margin-bottom: 1rem; display: none;">
+                            <div class="tabs" style="margin-bottom: 0;">
+                                <button class="tab active" id="checkerMetricsTabOriginal" onclick="switchCheckerMetricsVersion('original', this)">📊 Исходный README</button>
+                                <button class="tab" id="checkerMetricsTabImproved" onclick="switchCheckerMetricsVersion('improved', this)">✨ Улучшенный README</button>
+                            </div>
+                        </div>
+                        <div id="checkerMetricsOriginal" class="report-version-content" style="display: block;"></div>
+                        <div id="checkerMetricsImproved" class="report-version-content" style="display: none;"></div>
+                    </div>
+
+                    <div id="report" class="tab-content">
+                        <div id="checkerReport" class="report-version-content"></div>
+                    </div>
+
+                    <div id="readme" class="tab-content">
+                        <div id="readmePreview" class="markdown-preview"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        // Проверяем токен при загрузке
+        (function () {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                window.location.replace('/');
+                return;
+            }
+            
+            
+            // Восстанавливаем результаты при загрузке страницы
+            if (typeof restoreCheckerResults === 'function') {
+                restoreCheckerResults();
+            }
+        })();
+
+        function goBackToMode() {
+            window.location.href = '/app';
+        }
+        
+        // ========== Функции улучшения README ==========
+        
+        let improvementRequestId = null;
+        let improvementGenerationRequestId = null;
+        window.improvedRubric = null;
+        let checkerCurriculum = null;
+        let checkerSelectedBlock = null;
+        let checkerSelectedProject = null;
+        let checkerCurriculumContext = null;
+        
+        async function handleCheckerCurriculumUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+            document.getElementById('checkerCurriculumFileName').textContent = 'Загрузка...';
+            const formData = new FormData();
+            formData.append('file', file);
+            try {
+                const token = localStorage.getItem('auth_token');
+                const response = await fetch(`${apiUrl}/curriculum/upload`, {
+                    method: 'POST',
+                    headers: token ? { 'Authorization': 'Bearer ' + token } : {},
+                    body: formData
+                });
+                if (!response.ok) throw new Error('Ошибка загрузки УП');
+                checkerCurriculum = await response.json();
+                document.getElementById('checkerCurriculumFileName').textContent = file.name + ' (' + (checkerCurriculum.blocks || []).length + ' блоков)';
+                populateCheckerCurriculumBlocks();
+                document.getElementById('checkerCurriculumBlockGroup').style.display = 'block';
+                checkerSelectedBlock = null;
+                checkerSelectedProject = null;
+                checkerCurriculumContext = null;
+            } catch (e) {
+                document.getElementById('checkerCurriculumFileName').textContent = '';
+                alert('Не удалось загрузить УП: ' + e.message);
+            }
+        }
+        function populateCheckerCurriculumBlocks() {
+            const sel = document.getElementById('checkerCurriculumBlock');
+            if (!sel) return;
+            sel.innerHTML = '<option value="">— Выберите блок —</option>';
+            (checkerCurriculum && checkerCurriculum.blocks || []).forEach(function(b) {
+                const opt = document.createElement('option');
+                opt.value = b.name;
+                opt.textContent = b.name;
+                sel.appendChild(opt);
+            });
+            document.getElementById('checkerCurriculumProjectGroup').style.display = 'none';
+            document.getElementById('checkerCurriculumProject').innerHTML = '<option value="">— Выберите проект —</option>';
+        }
+        function onCheckerCurriculumBlockChange() {
+            const blockName = document.getElementById('checkerCurriculumBlock').value;
+            const projSel = document.getElementById('checkerCurriculumProject');
+            projSel.innerHTML = '<option value="">— Выберите проект —</option>';
+            document.getElementById('checkerCurriculumProjectGroup').style.display = blockName ? 'block' : 'none';
+            if (!blockName || !checkerCurriculum || !checkerCurriculum.blocks) return;
+            const block = checkerCurriculum.blocks.find(function(b) { return b.name === blockName; });
+            if (!block || !block.projects) return;
+            block.projects.forEach(function(p) {
+                const opt = document.createElement('option');
+                opt.value = p.order;
+                opt.textContent = p.order + '. ' + (p.title || '');
+                opt.dataset.project = JSON.stringify(p);
+                opt.dataset.block = JSON.stringify(block);
+                projSel.appendChild(opt);
+            });
+            checkerSelectedBlock = null;
+            checkerSelectedProject = null;
+            checkerCurriculumContext = null;
+        }
+        function onCheckerCurriculumProjectChange() {
+            const projSel = document.getElementById('checkerCurriculumProject');
+            const opt = projSel.options[projSel.selectedIndex];
+            if (!opt || !opt.value) {
+                checkerSelectedBlock = null;
+                checkerSelectedProject = null;
+                checkerCurriculumContext = null;
+                return;
+            }
+            try {
+                checkerSelectedBlock = JSON.parse(opt.dataset.block || '{}');
+                checkerSelectedProject = JSON.parse(opt.dataset.project || '{}');
+                checkerCurriculumContext = buildCheckerCurriculumContext(checkerSelectedBlock, checkerSelectedProject);
+            } catch (e) {
+                checkerSelectedBlock = null;
+                checkerSelectedProject = null;
+                checkerCurriculumContext = null;
+            }
+        }
+        function buildCheckerCurriculumContext(block, currentProject) {
+            if (!checkerCurriculum || !block || !currentProject) return null;
+            const blockIndex = (checkerCurriculum.blocks || []).findIndex(function(b) { return b.name === block.name; });
+            const projectIndex = (block.projects || []).findIndex(function(p) { return p.order === currentProject.order; });
+            const previousProjects = (block.projects || []).slice(0, projectIndex).map(function(p) {
+                return { order: p.order, title: p.title, description: p.description, learning_outcomes: p.learning_outcomes || [], block_name: block.name };
+            });
+            const nextProjects = (block.projects || []).slice(projectIndex + 1).map(function(p) {
+                return { order: p.order, title: p.title, description: p.description, learning_outcomes: p.learning_outcomes || [], block_name: block.name };
+            });
+            let allBlockLO = [];
+            (block.projects || []).forEach(function(p) {
+                if (p.learning_outcomes) allBlockLO = allBlockLO.concat(p.learning_outcomes);
+            });
+            let previousBlockProjects = [];
+            let nextBlockProjects = [];
+            if (blockIndex > 0 && checkerCurriculum.blocks[blockIndex - 1]) {
+                previousBlockProjects = (checkerCurriculum.blocks[blockIndex - 1].projects || []).slice(-2).map(function(p) {
+                    return { order: p.order, title: p.title, description: p.description, learning_outcomes: p.learning_outcomes || [], block_name: checkerCurriculum.blocks[blockIndex - 1].name };
+                });
+            }
+            if (blockIndex >= 0 && blockIndex < (checkerCurriculum.blocks || []).length - 1 && checkerCurriculum.blocks[blockIndex + 1]) {
+                nextBlockProjects = (checkerCurriculum.blocks[blockIndex + 1].projects || []).slice(0, 2).map(function(p) {
+                    return { order: p.order, title: p.title, description: p.description, learning_outcomes: p.learning_outcomes || [], block_name: checkerCurriculum.blocks[blockIndex + 1].name };
+                });
+            }
+            return {
+                block_name: block.name,
+                block_goals: block.goals || [],
+                current_project_order: currentProject.order,
+                previous_projects: previousProjects,
+                next_projects: nextProjects,
+                all_block_learning_outcomes: allBlockLO,
+                previous_block_projects: previousBlockProjects,
+                next_block_projects: nextBlockProjects,
+                sjm_context: currentProject.sjm || null,
+                expert_development_notes: currentProject.expert_notes || null,
+                additional_materials: currentProject.additional_materials || null
+            };
+        }
+        
+        // Вспомогательная функция для получения заголовков аутентификации
+        function getAuthHeadersForImprovement() {
+            // Пытаемся использовать window.getAuthHeaders
+            if (typeof window.getAuthHeaders === 'function') {
+                return window.getAuthHeaders();
+            }
+            // Пытаемся использовать getAuthHeaders напрямую
+            if (typeof getAuthHeaders === 'function') {
+                return getAuthHeaders();
+            }
+            // Прямое получение токена из localStorage
+            const token = localStorage.getItem('auth_token');
+            if (token) {
+                return {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/json'
+                };
+            }
+            // Если токена нет, возвращаем пустой объект (но это вызовет ошибку на сервере)
+            return {};
+        }
+        
+        async function startImprovement() {
+            const originalReadme = window.originalReadmeForImprovement;
+            if (!originalReadme) {
+                alert('Ошибка: исходный README не найден. Пожалуйста, проверьте README сначала.');
+                return;
+            }
+            
+            // Показываем модальное окно с загрузкой
+            const modal = document.getElementById('improvementModal');
+            const loading = document.getElementById('improvementLoading');
+            const editor = document.getElementById('improvementEditor');
+            
+            if (modal) {
+                modal.style.display = 'block';
+                loading.style.display = 'block';
+                editor.style.display = 'none';
+            }
+            
+            try {
+                await extractDataForImprovement(originalReadme);
+            } catch (error) {
+                console.error('Ошибка при извлечении данных:', error);
+                alert(`Ошибка при извлечении данных: ${error.message}`);
+                if (loading) loading.style.display = 'none';
+            }
+        }
+        
+        async function extractDataForImprovement(readmeText) {
+            const loading = document.getElementById('improvementLoading');
+            const editor = document.getElementById('improvementEditor');
+            
+            // Получаем API_URL из window или используем дефолтный
+            const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+            
+            // Получаем заголовки аутентификации
+            const authHeaders = getAuthHeadersForImprovement();
+            if (!authHeaders['Authorization']) {
+                alert('Ошибка: требуется авторизация. Пожалуйста, войдите в систему.');
+                return;
+            }
+            
+            const body = { readme_text: readmeText };
+            if (checkerCurriculum && checkerSelectedBlock && checkerSelectedProject && checkerCurriculumContext) {
+                body.curriculum_project = { block: checkerSelectedBlock, project: checkerSelectedProject };
+                body.curriculum_context = checkerCurriculumContext;
+            }
+            try {
+                const response = await fetch(`${apiUrl}/readme/improve/extract`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...authHeaders
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: 'Ошибка извлечения данных' }));
+                    throw new Error(error.detail || `Ошибка ${response.status}`);
+                }
+                
+                const data = await response.json();
+                improvementRequestId = data.request_id;
+                
+                // Заполняем форму извлеченными данными
+                showImprovementEditor(data);
+                
+            } catch (error) {
+                console.error('Ошибка извлечения данных:', error);
+                
+                // Если нет связи с LLM или другая ошибка, показываем пустую форму
+                if (loading) loading.style.display = 'none';
+                if (editor) editor.style.display = 'block';
+                
+                // Очищаем все поля формы
+                clearImprovementForm();
+                
+                // Показываем предупреждение
+                const warningsDiv = document.getElementById('improvementWarnings');
+                if (warningsDiv) {
+                    const errorMessage = error.message || 'Ошибка извлечения данных';
+                    warningsDiv.innerHTML = '<div class="info-box" style="background: rgba(255, 107, 107, 0.1); border-color: #ff6b6b;">' +
+                        '<strong>⚠️ Ошибка извлечения данных:</strong><br>' +
+                        errorMessage + '<br><br>' +
+                        '<small>Поля формы оставлены пустыми. Пожалуйста, заполните их вручную.</small>' +
+                        '</div>';
+                }
+                
+                // Не выбрасываем ошибку дальше, чтобы пользователь мог заполнить форму вручную
+                console.warn('Показываем пустую форму из-за ошибки извлечения данных');
+            }
+        }
+        
+        // Инициализация тематических блоков для улучшения README
+        let improvementThematicBlocks = {
+            "Бизнес аналитика": "BSA",
+            "Кибербезопасность": "Cb",
+            "DevOps": "DO",
+            "Проектный менеджмент": "PjM",
+            "Тестирование и обеспечение качества": "QA",
+            "Машинное обучение": "DS"
+        };
+        
+        async function loadImprovementThematicBlocks() {
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                const response = await fetch(`${apiUrl}/thematic-blocks`, {
+                    headers: authHeaders
+                });
+                if (response.ok) {
+                    const blocks = await response.json();
+                    if (blocks && typeof blocks === 'object') {
+                        improvementThematicBlocks = blocks;
+                        updateImproveThematicBlockSelect();
+                    }
+                }
+            } catch (e) {
+                console.log('Используем тематические блоки по умолчанию для улучшения');
+            }
+        }
+        
+        function updateImproveThematicBlockSelect() {
+            const select = document.getElementById('improveThematicBlock');
+            if (!select) return;
+            
+            const currentValue = select.value;
+            select.innerHTML = '<option value="">Выберите тематический блок</option>';
+            
+            for (const [name, code] of Object.entries(improvementThematicBlocks)) {
+                const option = document.createElement('option');
+                option.value = code;
+                option.textContent = name;
+                select.appendChild(option);
+            }
+            
+            const addOption = document.createElement('option');
+            addOption.value = 'ADD';
+            addOption.textContent = '➕ Добавить новый';
+            select.appendChild(addOption);
+            
+            if (currentValue && currentValue !== 'ADD') {
+                select.value = currentValue;
+            }
+            
+            select.onchange = function() {
+                const expander = document.getElementById('improveAddBlockExpander');
+                if (this.value === 'ADD') {
+                    if (expander) expander.style.display = 'block';
+                } else {
+                    if (expander) expander.style.display = 'none';
+                }
+            };
+        }
+        
+        async function addImprovementThematicBlock() {
+            const name = document.getElementById('improveNewBlockName').value.trim();
+            const code = document.getElementById('improveNewBlockCode').value.trim();
+            
+            if (!name) {
+                alert('Введите название тематического блока');
+                return;
+            }
+            
+            if (!code) {
+                alert('Введите кодовое обозначение');
+                return;
+            }
+            
+            if (Object.values(improvementThematicBlocks).includes(code)) {
+                alert(`Кодовое обозначение '${code}' уже используется!`);
+                return;
+            }
+            
+            improvementThematicBlocks[name] = code;
+            updateImproveThematicBlockSelect();
+            document.getElementById('improveThematicBlock').value = code;
+            document.getElementById('improveAddBlockExpander').style.display = 'none';
+            document.getElementById('improveNewBlockName').value = '';
+            document.getElementById('improveNewBlockCode').value = '';
+            
+            // Сохраняем на сервере
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                await fetch(`${apiUrl}/thematic-blocks`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...authHeaders
+                    },
+                    body: JSON.stringify(improvementThematicBlocks)
+                });
+            } catch (e) {
+                console.log('Не удалось сохранить тематические блоки на сервере');
+            }
+        }
+        
+        function toggleImproveBonusWish() {
+            const generateBonus = document.getElementById('improveGenerateBonus').checked;
+            const group = document.getElementById('improveBonusWishGroup');
+            if (group) {
+                group.style.display = generateBonus ? 'block' : 'none';
+            }
+        }
+        
+        // Используем toggleExpander из main.js, если доступна, иначе создаем локальную версию
+        if (typeof window.toggleExpander !== 'function') {
+            window.toggleExpander = function(id) {
+                // Пытаемся найти элемент по ID
+                const contentElement = document.getElementById(id);
+                if (!contentElement) {
+                    console.error(`Элемент с ID "${id}" не найден`);
+                    return;
+                }
+                
+                // Находим родительский элемент .expander
+                let expander = contentElement.closest('.expander');
+                if (!expander) {
+                    // Если не найден, ищем по ID напрямую
+                    expander = document.getElementById(id);
+                }
+                
+                if (!expander) {
+                    console.error(`Expander с ID "${id}" не найден`);
+                    return;
+                }
+                
+                // Находим header и content
+                const header = expander.querySelector('.expander-header');
+                const content = expander.querySelector('.expander-content');
+                
+                if (!content) {
+                    console.error(`Expander content не найден для "${id}"`);
+                    return;
+                }
+                
+                // Переключаем видимость
+                const isVisible = content.style.display !== 'none';
+                content.style.display = isVisible ? 'none' : 'block';
+                
+                // Обновляем стрелку в header
+                if (header) {
+                    const arrow = header.querySelector('span:last-child');
+                    if (arrow) {
+                        arrow.textContent = isVisible ? '▼' : '▲';
+                    }
+                }
+            };
+        }
+        
+        function showImprovementEditor(data) {
+            const loading = document.getElementById('improvementLoading');
+            const editor = document.getElementById('improvementEditor');
+            
+            if (loading) loading.style.display = 'none';
+            if (editor) editor.style.display = 'block';
+            
+            const partialSeed = data.partial_seed;
+            const classification = data.classification;
+            
+            // Загружаем тематические блоки перед заполнением
+            loadImprovementThematicBlocks().then(() => {
+                // Заполняем поля формы
+                document.getElementById('improveTitleSeed').value = partialSeed.title_seed || '';
+                document.getElementById('improveDescription').value = partialSeed.project_description || '';
+                document.getElementById('improveLanguage').value = classification.language || 'ru';
+                
+                // Устанавливаем тематический блок
+                const thematicBlockCode = classification.thematic_block_suggested || classification.thematic_block || '';
+                const thematicBlockSelect = document.getElementById('improveThematicBlock');
+                if (thematicBlockSelect) {
+                    if (thematicBlockCode && Object.values(improvementThematicBlocks).includes(thematicBlockCode)) {
+                        // Если код есть в списке, выбираем его (используем код как value)
+                        thematicBlockSelect.value = thematicBlockCode;
+                    } else if (thematicBlockCode) {
+                        // Если кода нет в списке, выбираем "Добавить новый" и заполняем поля
+                        thematicBlockSelect.value = 'ADD';
+                        const expander = document.getElementById('improveAddBlockExpander');
+                        if (expander) {
+                            expander.style.display = 'block';
+                        }
+                        // Заполняем поля для нового блока, если есть предложение
+                        if (classification.thematic_block_suggested && classification.thematic_block_name) {
+                            document.getElementById('improveNewBlockCode').value = classification.thematic_block_suggested;
+                            document.getElementById('improveNewBlockName').value = classification.thematic_block_name;
+                        } else if (thematicBlockCode) {
+                            // Если есть только код, используем его
+                            document.getElementById('improveNewBlockCode').value = thematicBlockCode;
+                        }
+                    } else {
+                        // Если блока нет, выбираем "Добавить новый"
+                        thematicBlockSelect.value = 'ADD';
+                    }
+                }
+                
+                document.getElementById('improveAudienceLevel').value = classification.audience_level || 'base';
+                const projectType = classification.project_type || 'individual';
+                document.getElementById('improveProjectType').value = projectType;
+                document.getElementById('improveLearningOutcomes').value = 
+                    (partialSeed.learning_outcomes || []).join('\n');
+                document.getElementById('improveSkills').value = (partialSeed.skills || []).join(', ');
+                document.getElementById('improveRequiredTools').value = (partialSeed.required_tools || []).join(', ');
+                document.getElementById('improveTasksCount').value = partialSeed.tasks_count || '';
+                // Устанавливаем количество человек в группе, если проект групповой
+                if (projectType === 'group' && partialSeed.group_size) {
+                    document.getElementById('improveGroupSize').value = partialSeed.group_size;
+                }
+                
+                // Показываем/скрываем поле количества человек в зависимости от типа проекта
+                toggleImproveGroupSize();
+                
+                // Новые поля - по умолчанию пустые
+                document.getElementById('improveZUN').value = '';
+                document.getElementById('improveGenerateBonus').checked = false;
+                document.getElementById('improveBonusWish').value = '';
+                document.getElementById('improveRepoBaseUrl').value = '';
+                document.getElementById('improveRepoPathTemplate').value = 'repo/part-03/task-{num:02d}/README.md';
+                
+                toggleImproveBonusWish();
+            });
+            
+            // Показываем подсказку для thematic block
+            const hint = document.getElementById('thematicBlockHint');
+            if (hint && classification.thematic_block_suggested) {
+                hint.textContent = `Предложен новый блок: ${classification.thematic_block_name || classification.thematic_block_suggested}`;
+            }
+            
+            // Показываем предупреждения
+            const warningsDiv = document.getElementById('improvementWarnings');
+            if (warningsDiv && data.metadata && data.metadata.warnings && data.metadata.warnings.length > 0) {
+                warningsDiv.innerHTML = '<div class="info-box" style="background: rgba(255, 193, 7, 0.1); border-color: #ffc107;">' +
+                    '<strong>⚠️ Предупреждения:</strong><ul>' +
+                    data.metadata.warnings.map(w => `<li>${w}</li>`).join('') +
+                    '</ul></div>';
+            }
+        }
+        
+        function closeImprovementModal() {
+            const modal = document.getElementById('improvementModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+        
+        // Инициализация tab-content элементов
+        function initializeTabs() {
+            // Скрываем все tab-content, кроме активной
+            document.querySelectorAll('.tab-content').forEach(content => {
+                if (!content.classList.contains('active')) {
+                    content.style.display = 'none';
+                } else {
+                    content.style.display = 'block';
+                }
+            });
+            console.log('Вкладки инициализированы');
+        }
+        
+        // Обработчик отправки формы
+        document.addEventListener('DOMContentLoaded', function() {
+            // Инициализируем вкладки
+            initializeTabs();
+            
+            const form = document.getElementById('improvementForm');
+            if (form) {
+                form.addEventListener('submit', async function(e) {
+                    e.preventDefault();
+                    await generateImprovedReadme();
+                });
+            }
+            
+            // Закрытие модального окна при клике вне его
+            const modal = document.getElementById('improvementModal');
+            if (modal) {
+                modal.addEventListener('click', function(e) {
+                    if (e.target === modal) {
+                        closeImprovementModal();
+                    }
+                });
+            }
+        });
+        
+        async function generateImprovedReadme() {
+            if (!improvementRequestId) {
+                alert('Ошибка: request_id не найден. Пожалуйста, начните процесс заново.');
+                return;
+            }
+            
+            // Собираем данные из формы
+            const seedData = {
+                language: document.getElementById('improveLanguage').value,
+                project_type: document.getElementById('improveProjectType').value,
+                thematic_block: document.getElementById('improveThematicBlock').value,
+                audience_level: document.getElementById('improveAudienceLevel').value,
+                title_seed: document.getElementById('improveTitleSeed').value,
+                project_description: document.getElementById('improveDescription').value,
+                learning_outcomes: document.getElementById('improveLearningOutcomes').value
+                    .split('\n')
+                    .map(s => s.trim())
+                    .filter(Boolean),
+                skills: document.getElementById('improveSkills').value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean),
+                required_tools: document.getElementById('improveRequiredTools').value
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean),
+                tasks_count: document.getElementById('improveTasksCount').value 
+                    ? parseInt(document.getElementById('improveTasksCount').value) 
+                    : null
+            };
+            if (checkerCurriculumContext) {
+                seedData.curriculum_context = checkerCurriculumContext;
+            }
+            
+            // Количество человек в группе (только для групповых проектов)
+            const projectType = document.getElementById('improveProjectType').value;
+            if (projectType === 'group') {
+                const groupSizeValue = document.getElementById('improveGroupSize').value;
+                if (groupSizeValue) {
+                    seedData.group_size = parseInt(groupSizeValue);
+                }
+            }
+            
+            // ЗУНы
+            const zunValue = document.getElementById('improveZUN').value.trim();
+            if (zunValue) {
+                seedData.zun = zunValue; // Добавляем как дополнительное поле
+            }
+            
+            // Бонусное задание
+            if (document.getElementById('improveGenerateBonus').checked) {
+                const bonusWishValue = document.getElementById('improveBonusWish').value.trim();
+                seedData.bonus_wish = bonusWishValue || "";
+            } else {
+                seedData.bonus_wish = null;
+            }
+            
+            // Настройка репозитория
+            const repoBaseUrl = document.getElementById('improveRepoBaseUrl').value.trim();
+            if (repoBaseUrl) {
+                seedData.repo_base_url = repoBaseUrl;
+            }
+            const repoPathTemplate = document.getElementById('improveRepoPathTemplate').value.trim();
+            if (repoPathTemplate) {
+                seedData.repo_path_template = repoPathTemplate;
+            }
+            
+            // Валидация
+            if (!seedData.title_seed || !seedData.project_description || !seedData.thematic_block) {
+                alert('Пожалуйста, заполните все обязательные поля (отмечены *)');
+                return;
+            }
+            
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                
+                if (!authHeaders['Authorization']) {
+                    alert('Ошибка: требуется авторизация. Пожалуйста, войдите в систему.');
+                    return;
+                }
+                
+                const response = await fetch(`${apiUrl}/readme/improve/generate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...authHeaders
+                    },
+                    body: JSON.stringify({
+                        request_id: improvementRequestId,
+                        seed: seedData
+                    })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: 'Ошибка генерации' }));
+                    throw new Error(error.detail || `Ошибка ${response.status}`);
+                }
+                
+                const data = await response.json();
+                improvementGenerationRequestId = data.generation_request_id;
+                
+                // Закрываем модальное окно
+                closeImprovementModal();
+                
+                // Показываем секцию прогресса генерации
+                const progressElement = document.getElementById('improvementGenerationProgress');
+                if (progressElement) {
+                    progressElement.style.display = 'block';
+                }
+                
+                // Сбрасываем отображение агента
+                const agentElement = document.getElementById('improvementCurrentAgent');
+                if (agentElement) {
+                    agentElement.textContent = 'Инициализация...';
+                }
+                
+                // Запускаем таймер
+                startImprovementTimer();
+                
+                // Начинаем проверку статуса
+                checkGenerationStatus();
+                
+            } catch (error) {
+                console.error('Ошибка генерации:', error);
+                alert(`Ошибка при запуске генерации: ${error.message}`);
+            }
+        }
+        
+        // Таймер для отслеживания времени генерации
+        let improvementTimerInterval = null;
+        let improvementStartTime = null;
+        
+        function startImprovementTimer() {
+            improvementStartTime = Date.now();
+            if (improvementTimerInterval) {
+                clearInterval(improvementTimerInterval);
+            }
+            improvementTimerInterval = setInterval(() => {
+                if (improvementStartTime) {
+                    const elapsed = Math.floor((Date.now() - improvementStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60);
+                    const seconds = elapsed % 60;
+                    const timerElement = document.getElementById('improvementTimer');
+                    if (timerElement) {
+                        timerElement.textContent = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    }
+                }
+            }, 1000);
+        }
+        
+        function stopImprovementTimer() {
+            if (improvementTimerInterval) {
+                clearInterval(improvementTimerInterval);
+                improvementTimerInterval = null;
+            }
+            improvementStartTime = null;
+        }
+        
+        // Функция для обновления текущего агента
+        async function updateImprovementCurrentAgent(requestId) {
+            if (!requestId) return;
+            
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                
+                const response = await fetch(`${apiUrl}/metrics/${requestId}`, {
+                    headers: authHeaders
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const logs = data.logs || [];
+                    
+                    let currentAgent = 'Инициализация...';
+                    for (let i = logs.length - 1; i >= 0; i--) {
+                        const log = logs[i];
+                        if (log.phase) {
+                            const phase = log.phase;
+                            const message = log.message || '';
+                            
+                            // Маппинг фаз на понятные названия
+                            const phaseMap = {
+                                'structure_extraction': 'Извлечение структуры',
+                                'classification': 'Классификация метаданных',
+                                'task_planning': 'Планирование задач',
+                                'task_generation': 'Генерация задач',
+                                'readme_generation': 'Генерация README',
+                                'validation': 'Валидация',
+                                'finalization': 'Финальная обработка'
+                            };
+                            
+                            if (phaseMap[phase]) {
+                                currentAgent = phaseMap[phase];
+                            } else if (message.includes('агент') || message.includes('Agent')) {
+                                const agentMatch = message.match(/(\w+Agent|\w+ агент)/i);
+                                if (agentMatch) {
+                                    currentAgent = agentMatch[1];
+                                } else {
+                                    currentAgent = phase;
+                                }
+                            } else {
+                                currentAgent = phase;
+                            }
+                            break;
+                        }
+                    }
+                    
+                    const agentElement = document.getElementById('improvementCurrentAgent');
+                    if (agentElement) {
+                        agentElement.textContent = currentAgent;
+                    }
+                }
+            } catch (error) {
+                console.debug('Не удалось получить логи для улучшения:', error);
+            }
+        }
+        
+        async function checkGenerationStatus() {
+            if (!improvementGenerationRequestId) return;
+            
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                
+                // Обновляем текущего агента
+                await updateImprovementCurrentAgent(improvementGenerationRequestId);
+                
+                const response = await fetch(`${apiUrl}/readme/improve/status/${improvementGenerationRequestId}`, {
+                    headers: authHeaders
+                });
+                
+                if (!response.ok) {
+                    console.error('Ошибка проверки статуса:', response.status);
+                    setTimeout(checkGenerationStatus, 5000);
+                    return;
+                }
+                
+                const data = await response.json();
+                console.log('Статус генерации:', data);
+                
+                if (data.status === 'completed' && data.result) {
+                    // Генерация завершена
+                    stopImprovementTimer();
+                    const progressElement = document.getElementById('improvementGenerationProgress');
+                    if (progressElement) {
+                        progressElement.style.display = 'none';
+                    }
+                    
+                    const improvedReadme = data.result.markdown || '';
+                    console.log('✅ Улучшенный README получен, длина:', improvedReadme.length);
+                    console.log('✅ Генерация завершена, данные результата:', {
+                        hasMarkdown: !!data.result.markdown,
+                        hasRubric: !!data.result.rubric,
+                        hasTextStats: !!data.result.text_stats,
+                        rubricType: typeof data.result.rubric,
+                        rubricKeys: data.result.rubric ? Object.keys(data.result.rubric) : null,
+                        rubricItems: data.result.rubric?.items?.length || 0,
+                        rubricTotal: data.result.rubric?.total,
+                        rubricMaxScore: data.result.rubric?.max_score
+                    });
+                    
+                    if (!improvedReadme) {
+                        console.error('❌ Улучшенный README пуст в ответе:', data);
+                        alert('⚠️ Генерация завершена, но улучшенный README не найден в результате.');
+                        return;
+                    }
+                    
+                    // Сохраняем улучшенный README и assets
+                    window.improvedReadme = improvedReadme;
+                    // Сохраняем assets из результата (если есть)
+                    if (data.result && data.result.assets) {
+                        window.improvedReadmeAssets = data.result.assets;
+                        console.log('💾 Assets для улучшенного README сохранены');
+                    }
+                    // Сохраняем критерии улучшенного README
+                    console.log('🔍 Проверка rubric в ответе:', {
+                        hasResult: !!data.result,
+                        hasRubric: !!(data.result && data.result.rubric),
+                        rubricType: data.result?.rubric ? typeof data.result.rubric : null,
+                        rubricIsObject: data.result?.rubric ? (typeof data.result.rubric === 'object' && !Array.isArray(data.result.rubric)) : null,
+                        rubricKeys: data.result?.rubric ? Object.keys(data.result.rubric) : null,
+                        rubricItems: data.result?.rubric?.items ? (Array.isArray(data.result.rubric.items) ? data.result.rubric.items.length : 'not array') : null,
+                        fullRubric: data.result?.rubric ? JSON.stringify(data.result.rubric).substring(0, 500) : null
+                    });
+                    
+                    if (data.result && data.result.rubric) {
+                        // КРИТИЧЕСКИ ВАЖНО: Проверяем структуру rubric перед сохранением
+                        const rubric = data.result.rubric;
+                        
+                        // Проверяем, что rubric - это объект с items
+                        if (rubric && typeof rubric === 'object' && !Array.isArray(rubric)) {
+                            // Проверяем наличие items
+                            if (rubric.items && Array.isArray(rubric.items) && rubric.items.length > 0) {
+                                window.improvedRubric = rubric;
+                                console.log('✅ Критерии улучшенного README сохранены', {
+                                    hasItems: !!window.improvedRubric.items,
+                                    itemsCount: window.improvedRubric.items?.length || 0,
+                                    total: window.improvedRubric.total,
+                                    max_score: window.improvedRubric.max_score,
+                                    rubricKeys: Object.keys(window.improvedRubric),
+                                    firstItem: window.improvedRubric.items?.[0]
+                                });
+                                // Обновляем отображение критериев с переключателем (с задержкой для гарантии создания DOM)
+                                setTimeout(() => {
+                                    if (typeof updateCheckerMetricsDisplay === 'function') {
+                                        console.log('🔄 Вызываем updateCheckerMetricsDisplay после сохранения критериев');
+                                        // Убеждаемся, что переключатель виден и активна вкладка улучшенного README
+                                        const tabImproved = document.getElementById('checkerMetricsTabImproved');
+                                        if (tabImproved) {
+                                            tabImproved.classList.add('active');
+                                            const tabOriginal = document.getElementById('checkerMetricsTabOriginal');
+                                            if (tabOriginal) {
+                                                tabOriginal.classList.remove('active');
+                                            }
+                                        }
+                                        updateCheckerMetricsDisplay();
+                                    } else {
+                                        console.error('❌ updateCheckerMetricsDisplay не доступна');
+                                    }
+                                }, 500);
+                            } else {
+                                console.error('❌ Критерии улучшенного README невалидны: items отсутствует или пуст', {
+                                    hasRubric: !!rubric,
+                                    hasItems: !!rubric?.items,
+                                    itemsType: typeof rubric?.items,
+                                    itemsIsArray: Array.isArray(rubric?.items),
+                                    itemsLength: rubric?.items?.length || 0,
+                                    rubricKeys: rubric ? Object.keys(rubric) : null,
+                                    rubricValue: JSON.stringify(rubric).substring(0, 500)
+                                });
+                            }
+                        } else {
+                            console.error('❌ Критерии улучшенного README невалидны: не является объектом', {
+                                rubricType: typeof rubric,
+                                rubricIsArray: Array.isArray(rubric),
+                                rubricValue: JSON.stringify(rubric).substring(0, 500)
+                            });
+                        }
+                    } else {
+                        console.warn('⚠️ Критерии улучшенного README не найдены в ответе', {
+                            hasResult: !!data.result,
+                            hasRubric: !!(data.result && data.result.rubric),
+                            resultKeys: data.result ? Object.keys(data.result) : null,
+                            fullResult: JSON.stringify(data.result).substring(0, 1000)
+                        });
+                    }
+                    console.log('💾 Улучшенный README сохранен в window.improvedReadme');
+                    
+                    // Проверяем, что resultsArea видим
+                    const resultsArea = document.getElementById('resultsArea');
+                    if (!resultsArea) {
+                        console.error('❌ resultsArea не найден!');
+                        alert('Ошибка: область результатов не найдена. Попробуйте обновить страницу.');
+                        return;
+                    }
+                    
+                    if (resultsArea.style.display === 'none') {
+                        console.log('📂 Показываем resultsArea');
+                        resultsArea.style.display = 'block';
+                    }
+                    
+                    // Отображаем улучшенный README
+                    console.log('🎨 Вызываем displayImprovedReadme...');
+                    displayImprovedReadme(improvedReadme);
+                    
+                    // Небольшая задержка перед показом diff, чтобы убедиться, что данные сохранены
+                    setTimeout(async () => {
+                        console.log('🔄 Вызываем displayReadmeDiff...');
+                        await displayReadmeDiff();
+                    }, 500);
+                    
+                    alert('✅ Генерация улучшенного README завершена! Проверьте вкладки "✨ Улучшенный README" и "🔄 Сравнение".');
+                    
+                } else if (data.status === 'failed') {
+                    stopImprovementTimer();
+                    const progressElement = document.getElementById('improvementGenerationProgress');
+                    if (progressElement) {
+                        progressElement.style.display = 'none';
+                    }
+                    alert('❌ Генерация завершилась с ошибкой. Проверьте логи.');
+                } else {
+                    // Продолжаем проверку через 5 секунд
+                    setTimeout(checkGenerationStatus, 5000);
+                }
+                
+            } catch (error) {
+                console.error('Ошибка проверки статуса:', error);
+                // Продолжаем проверку через 5 секунд
+                setTimeout(checkGenerationStatus, 5000);
+            }
+        }
+        
+        function displayImprovedReadme(markdown) {
+            if (!markdown) {
+                console.error('Улучшенный README пуст');
+                return;
+            }
+            
+            console.log('displayImprovedReadme вызвана, длина markdown:', markdown.length);
+            
+            const resultsArea = document.getElementById('resultsArea');
+            if (!resultsArea) {
+                console.error('resultsArea не найден');
+                return;
+            }
+            
+            // Добавляем вкладку "Улучшенный README"
+            const tabs = document.querySelector('.tabs');
+            if (!tabs) {
+                console.error('tabs не найден');
+                return;
+            }
+            
+            if (!document.getElementById('improvedReadmeTab')) {
+                const improvedTab = document.createElement('button');
+                improvedTab.className = 'tab';
+                improvedTab.id = 'improvedReadmeTab';
+                improvedTab.textContent = '✨ Улучшенный README';
+                improvedTab.onclick = function() { 
+                    console.log('Клик по вкладке улучшенного README');
+                    showTab('improvedReadme', this); 
+                };
+                tabs.appendChild(improvedTab);
+                console.log('Вкладка "Улучшенный README" добавлена');
+            }
+            
+            // Создаем контент для улучшенного README
+            let improvedContent = document.getElementById('improvedReadme');
+            if (!improvedContent) {
+                improvedContent = document.createElement('div');
+                improvedContent.id = 'improvedReadme';
+                improvedContent.className = 'tab-content';
+                improvedContent.style.display = 'none'; // Явно скрываем
+                // Добавляем после существующих tab-content элементов
+                const readmeContent = document.getElementById('readme');
+                if (readmeContent && readmeContent.parentNode) {
+                    readmeContent.parentNode.insertBefore(improvedContent, readmeContent.nextSibling);
+                } else {
+                    // Ищем последний tab-content элемент
+                    const lastTabContent = resultsArea.querySelector('.tab-content:last-of-type');
+                    if (lastTabContent && lastTabContent.parentNode) {
+                        lastTabContent.parentNode.insertBefore(improvedContent, lastTabContent.nextSibling);
+                    } else {
+                        resultsArea.appendChild(improvedContent);
+                    }
+                }
+                console.log('Контент для улучшенного README создан и добавлен в DOM');
+            } else {
+                // Убеждаемся, что контент скрыт, если он не активен
+                if (!improvedContent.classList.contains('active')) {
+                    improvedContent.style.display = 'none';
+                }
+                // Проверяем, что контент находится в DOM
+                if (!improvedContent.parentNode) {
+                    const readmeContent = document.getElementById('readme');
+                    if (readmeContent && readmeContent.parentNode) {
+                        readmeContent.parentNode.insertBefore(improvedContent, readmeContent.nextSibling);
+                        console.log('Контент для улучшенного README передобавлен в DOM');
+                    }
+                }
+            }
+            
+            // Сохраняем текущую позицию скролла
+            const scrollPosition = window.scrollY || document.documentElement.scrollTop;
+            
+            // Создаем контейнер для markdown preview (без критериев - они отображаются во вкладке "Критерии")
+            improvedContent.innerHTML = '<div id="improvedReadmePreview" class="markdown-preview"></div><div style="margin-top: 1rem;"><button class="btn" onclick="downloadImprovedReadme()">📥 Скачать улучшенный README</button></div>';
+            
+            // Используем displayMarkdown из main.js для правильной обработки формул MathJax
+            if (typeof window.displayMarkdown === 'function') {
+                console.log('Используем displayMarkdown для отображения улучшенного README');
+                window.displayMarkdown(markdown, 'improvedReadmePreview');
+                
+                // После отображения markdown заменяем изображения на base64
+                setTimeout(() => {
+                    hydrateImprovedReadmeImages('improvedReadmePreview');
+                    
+                    // Восстанавливаем позицию скролла после рендеринга (с задержкой для MathJax)
+                    setTimeout(() => {
+                        if (scrollPosition > 0) {
+                            window.scrollTo({ top: scrollPosition, behavior: 'instant' });
+                        }
+                    }, 300);
+                }, 100);
+            } else {
+                console.warn('displayMarkdown не доступна, используем простой рендеринг');
+                // Fallback: используем marked напрямую
+                const previewDiv = document.getElementById('improvedReadmePreview');
+                if (previewDiv && typeof marked !== 'undefined') {
+                    try {
+                        previewDiv.innerHTML = marked.parse(markdown);
+                        // Пытаемся вызвать MathJax, если доступен
+                        if (window.MathJax && typeof window.MathJax.typesetPromise === 'function') {
+                            window.MathJax.typesetPromise([previewDiv]).catch(err => console.error('MathJax error:', err));
+                        }
+                        // Заменяем изображения на base64
+                        setTimeout(() => {
+                            hydrateImprovedReadmeImages('improvedReadmePreview');
+                        }, 100);
+                    } catch (e) {
+                        console.error('Ошибка парсинга markdown:', e);
+                        previewDiv.innerHTML = '<pre style="white-space: pre-wrap; font-family: monospace;">' + escapeHtml(markdown) + '</pre>';
+                    }
+                }
+            }
+            
+            // Убеждаемся, что контент скрыт перед обновлением (если он не активен)
+            const wasActive = improvedContent.classList.contains('active');
+            if (!wasActive) {
+                improvedContent.style.display = 'none';
+            }
+            console.log('Контент улучшенного README установлен');
+            
+            // Активируем вкладку "Улучшенный README"
+            const improvedTab = document.getElementById('improvedReadmeTab');
+            if (improvedTab) {
+                console.log('Активируем вкладку улучшенного README');
+                if (typeof showTab === 'function') {
+                    // Используем showTab, которая правильно скроет все остальные вкладки
+                    showTab('improvedReadme', improvedTab);
+                } else {
+                    console.warn('showTab не доступна, активируем вручную');
+                    // Fallback: активируем вручную
+                    document.querySelectorAll('.tab').forEach(tab => {
+                        tab.classList.remove('active');
+                    });
+                    document.querySelectorAll('.tab-content').forEach(content => {
+                        content.classList.remove('active');
+                        content.style.display = 'none'; // Явно скрываем все
+                    });
+                    improvedTab.classList.add('active');
+                    improvedContent.classList.add('active');
+                    improvedContent.style.display = 'block'; // Явно показываем выбранную
+                }
+            } else {
+                console.error('Вкладка improvedReadmeTab не найдена');
+            }
+        }
+        
+        function hydrateImprovedReadmeImages(containerId) {
+            const container = document.getElementById(containerId);
+            if (!container) {
+                return;
+            }
+            
+            // Получаем assets из window или из результата генерации
+            let assets = window.improvedReadmeAssets;
+            if (!assets) {
+                // Пытаемся получить из текущего результата, если доступен
+                if (typeof window.currentResult !== 'undefined' && window.currentResult && window.currentResult.assets) {
+                    assets = window.currentResult.assets;
+                } else {
+                    console.warn('Assets для улучшенного README не найдены');
+                    return;
+                }
+            }
+            
+            const map = new Map();
+            
+            // Обрабатываем изображения из assets.images
+            const images = Array.isArray(assets.images) ? assets.images : [];
+            images.forEach(img => {
+                if (img && img.name && img.data) {
+                    map.set(img.name, img.data);
+                }
+            });
+            
+            // Обрабатываем изображения из assets.files
+            const files = Array.isArray(assets.files) ? assets.files : [];
+            files.forEach(file => {
+                const path = file && (file.path || file.name);
+                if (!path || !file.data) {
+                    return;
+                }
+                const name = path.split('/').pop();
+                // Проверяем, что это изображение
+                if (name && (name.endsWith('.png') || name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.gif'))) {
+                    if (!map.has(name)) {
+                        map.set(name, file.data);
+                    }
+                }
+            });
+            
+            if (!map.size) {
+                console.warn('Не найдено изображений в assets');
+                return;
+            }
+            
+            // Заменяем пути к изображениям на base64 data URLs
+            const imgNodes = container.querySelectorAll('img');
+            imgNodes.forEach(img => {
+                const src = img.getAttribute('src');
+                if (!src) {
+                    return;
+                }
+                
+                // Обрабатываем пути вида /app/images/diagram_1.png или images/diagram_1.png
+                let name = null;
+                if (src.startsWith('/app/images/')) {
+                    name = src.replace('/app/images/', '');
+                } else if (src.startsWith('images/')) {
+                    name = src.replace('images/', '');
+                } else if (src.startsWith('/images/')) {
+                    name = src.replace('/images/', '');
+                }
+                
+                if (name) {
+                    const base64 = map.get(name);
+                    if (base64) {
+                        // Определяем тип изображения по расширению
+                        let mimeType = 'image/png';
+                        if (name.endsWith('.jpg') || name.endsWith('.jpeg')) {
+                            mimeType = 'image/jpeg';
+                        } else if (name.endsWith('.gif')) {
+                            mimeType = 'image/gif';
+                        }
+                        img.src = `data:${mimeType};base64,${base64}`;
+                        console.log(`✅ Изображение заменено: ${name}`);
+                    } else {
+                        console.warn(`⚠️ Изображение не найдено в assets: ${name}`);
+                    }
+                }
+            });
+        }
+        
+        async function downloadImprovedReadme() {
+            if (!improvementGenerationRequestId) {
+                alert('Ошибка: ID запроса генерации не найден. Пожалуйста, дождитесь завершения генерации.');
+                return;
+            }
+            
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                
+                if (!authHeaders['Authorization']) {
+                    alert('Ошибка: требуется авторизация. Пожалуйста, войдите в систему.');
+                    return;
+                }
+                
+                const response = await fetch(`${apiUrl}/readme/improve/download/${improvementGenerationRequestId}`, {
+                    headers: authHeaders
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: 'Ошибка скачивания' }));
+                    throw new Error(error.detail || `Ошибка ${response.status}`);
+                }
+                
+                // Получаем имя файла из заголовка Content-Disposition
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const fileNameMatch = disposition.match(/filename="?([^"]+)"?/i);
+                const fileName = fileNameMatch ? fileNameMatch[1] : `regen_README_${improvementGenerationRequestId}.zip`;
+                
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = fileName;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                console.log('✅ Улучшенный README с архивом скачан:', fileName);
+            } catch (error) {
+                console.error('Ошибка при скачивании улучшенного README:', error);
+                alert(`Ошибка при скачивании: ${error.message}`);
+            }
+        }
+        
+        async function displayReadmeDiff() {
+            if (!improvementRequestId) {
+                alert('Ошибка: request_id не найден');
+                return;
+            }
+            
+            try {
+                const apiUrl = window.API_URL || (window.API_BASE ? `${window.API_BASE}/api/v1` : '/api/v1');
+                const authHeaders = getAuthHeadersForImprovement();
+                
+                const response = await fetch(`${apiUrl}/readme/improve/diff/${improvementRequestId}`, {
+                    headers: authHeaders
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Ошибка ${response.status}: ${response.statusText}`);
+                }
+                
+                const diffData = await response.json();
+                
+                // Создаем новую вкладку для отображения diff
+                const resultsArea = document.getElementById('resultsArea');
+                if (!resultsArea) return;
+                
+                // Добавляем вкладку "Сравнение"
+                const tabs = document.querySelector('.tabs');
+                if (!tabs) {
+                    console.error('❌ Контейнер .tabs не найден для добавления вкладки "Сравнение"');
+                } else if (!document.getElementById('diffTab')) {
+                    const diffTab = document.createElement('button');
+                    diffTab.className = 'tab';
+                    diffTab.id = 'diffTab';
+                    diffTab.textContent = '🔄 Сравнение';
+                    diffTab.onclick = function() { 
+                        if (typeof showTab === 'function') {
+                            showTab('diff', this); 
+                        } else {
+                            // Fallback
+                            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                            document.querySelectorAll('.tab-content').forEach(c => {
+                                c.classList.remove('active');
+                                c.style.display = 'none';
+                            });
+                            diffTab.classList.add('active');
+                            const diffContent = document.getElementById('diff');
+                            if (diffContent) {
+                                diffContent.classList.add('active');
+                                diffContent.style.display = 'block';
+                            }
+                        }
+                    };
+                    tabs.appendChild(diffTab);
+                    console.log('✅ Вкладка "🔄 Сравнение" добавлена');
+                } else {
+                    console.log('ℹ️ Вкладка "🔄 Сравнение" уже существует');
+                }
+                
+                // Создаем контент для diff
+                let diffContent = document.getElementById('diff');
+                if (!diffContent) {
+                    diffContent = document.createElement('div');
+                    diffContent.id = 'diff';
+                    diffContent.className = 'tab-content';
+                    diffContent.style.display = 'none'; // Явно скрываем
+                } else {
+                    // Убеждаемся, что контент скрыт, если он не активен
+                    if (!diffContent.classList.contains('active')) {
+                        diffContent.style.display = 'none';
+                    }
+                }
+                
+                // Получаем улучшенный README из window
+                const improvedReadme = window.improvedReadme || '';
+                const originalReadme = window.originalReadmeForImprovement || '';
+                
+                if (!improvedReadme) {
+                    console.error('Улучшенный README не найден в window.improvedReadme');
+                    // Пытаемся получить из diffData, если есть
+                    if (diffData.improved_readme) {
+                        window.improvedReadme = diffData.improved_readme;
+                    } else {
+                        alert('⚠️ Улучшенный README не найден. Попробуйте обновить страницу.');
+                        return;
+                    }
+                }
+                
+                // Отображаем статистику и контролы
+                let html = '';
+                html += '<div class="diff-container">';
+                
+                // Заголовок с статистикой
+                if (diffData.stats) {
+                    html += '<div class="diff-header">';
+                    html += '<div class="diff-stats">';
+                    html += '<h3 style="color: #64ffda; margin: 0 0 0.5rem 0;">📊 Статистика изменений</h3>';
+                    html += `<div class="stats-grid">`;
+                    html += `<div class="stat-item"><span class="stat-label">Исходный:</span> <span class="stat-value">${diffData.stats.original_lines} строк</span></div>`;
+                    html += `<div class="stat-item"><span class="stat-label">Улучшенный:</span> <span class="stat-value">${diffData.stats.improved_lines} строк</span></div>`;
+                    html += `<div class="stat-item stat-added"><span class="stat-label">➕ Добавлено:</span> <span class="stat-value">${diffData.stats.added}</span></div>`;
+                    html += `<div class="stat-item stat-deleted"><span class="stat-label">➖ Удалено:</span> <span class="stat-value">${diffData.stats.deleted}</span></div>`;
+                    html += `<div class="stat-item stat-modified"><span class="stat-label">🔄 Изменено:</span> <span class="stat-value">${diffData.stats.modified}</span></div>`;
+                    html += `</div>`;
+                    html += '</div>';
+                }
+                
+                // Контролы фильтрации
+                html += '<div class="diff-controls">';
+                html += '<button class="diff-btn" id="showAllBtn" onclick="toggleDiffFilter(\'all\')">📄 Весь документ</button>';
+                html += '<button class="diff-btn active" id="showChangesBtn" onclick="toggleDiffFilter(\'changes\')">✨ Только изменения</button>';
+                html += '<button class="diff-btn" id="prevChangeBtn" onclick="navigateDiffChange(-1)" disabled>⬆️ Предыдущее</button>';
+                html += '<button class="diff-btn" id="nextChangeBtn" onclick="navigateDiffChange(1)" disabled>⬇️ Следующее</button>';
+                html += '</div>';
+                html += '</div>';
+                
+                // Таблица diff
+                html += '<div class="diff-table-wrapper">';
+                html += '<table class="diff-table">';
+                html += '<thead><tr>';
+                html += '<th class="diff-header-cell">Строка</th>';
+                html += '<th class="diff-header-cell">Исходный README</th>';
+                html += '<th class="diff-header-cell">Строка</th>';
+                html += '<th class="diff-header-cell">Улучшенный README</th>';
+                html += '</tr></thead>';
+                html += '<tbody>';
+                
+                // Используем side_by_side данные для построчного отображения
+                const sideBySide = diffData.side_by_side || [];
+                let originalLineNum = 0;
+                let improvedLineNum = 0;
+                let changeIndices = []; // Индексы строк с изменениями
+                
+                sideBySide.forEach((line, index) => {
+                    const type = line.type || 'equal';
+                    let rowClass = `diff-line diff-${type}`;
+                    let originalLine = '';
+                    let improvedLine = '';
+                    let originalLineNumStr = '';
+                    let improvedLineNumStr = '';
+                    
+                    if (type === 'equal') {
+                        originalLineNum++;
+                        improvedLineNum++;
+                        originalLineNumStr = originalLineNum.toString();
+                        improvedLineNumStr = improvedLineNum.toString();
+                        originalLine = escapeHtml(line.original || '');
+                        improvedLine = escapeHtml(line.improved || '');
+                    } else if (type === 'delete') {
+                        originalLineNum++;
+                        originalLineNumStr = originalLineNum.toString();
+                        improvedLineNumStr = '';
+                        originalLine = escapeHtml(line.original || '');
+                        improvedLine = '';
+                        changeIndices.push(index);
+                    } else if (type === 'insert') {
+                        improvedLineNum++;
+                        originalLineNumStr = '';
+                        improvedLineNumStr = improvedLineNum.toString();
+                        originalLine = '';
+                        improvedLine = escapeHtml(line.improved || '');
+                        changeIndices.push(index);
+                    } else if (type === 'replace') {
+                        if (line.original !== null && line.original !== undefined) {
+                            originalLineNum++;
+                            originalLineNumStr = originalLineNum.toString();
+                        } else {
+                            originalLineNumStr = '';
+                        }
+                        if (line.improved !== null && line.improved !== undefined) {
+                            improvedLineNum++;
+                            improvedLineNumStr = improvedLineNum.toString();
+                        } else {
+                            improvedLineNumStr = '';
+                        }
+                        originalLine = escapeHtml(line.original || '');
+                        improvedLine = escapeHtml(line.improved || '');
+                        changeIndices.push(index);
+                    }
+                    
+                    html += `<tr class="${rowClass}" data-line-index="${index}">`;
+                    html += `<td class="line-number original">${originalLineNumStr}</td>`;
+                    html += `<td class="line-content original">${originalLine || '&nbsp;'}</td>`;
+                    html += `<td class="line-number improved">${improvedLineNumStr}</td>`;
+                    html += `<td class="line-content improved">${improvedLine || '&nbsp;'}</td>`;
+                    html += '</tr>';
+                });
+                
+                html += '</tbody></table>';
+                html += '</div>';
+                
+                // Сохраняем индексы изменений для навигации
+                window.diffChangeIndices = changeIndices;
+                window.currentDiffChangeIndex = -1;
+                
+                // Обновляем состояние кнопок навигации
+                if (changeIndices.length > 0) {
+                    const nextBtn = document.getElementById('nextChangeBtn');
+                    const prevBtn = document.getElementById('prevChangeBtn');
+                    if (nextBtn) nextBtn.removeAttribute('disabled');
+                    if (prevBtn) prevBtn.removeAttribute('disabled');
+                }
+                
+                // Инициализируем фильтр "только изменения" по умолчанию
+                setTimeout(() => {
+                    toggleDiffFilter('changes');
+                }, 100);
+                
+                // Убеждаемся, что контент скрыт перед обновлением (если он не активен)
+                const wasActive = diffContent.classList.contains('active');
+                if (!wasActive) {
+                    diffContent.style.display = 'none';
+                }
+                
+                diffContent.innerHTML = html;
+                console.log('Diff контент установлен, длина HTML:', html.length);
+                
+                // Инициализируем фильтр "только изменения" по умолчанию после установки HTML
+                setTimeout(() => {
+                    if (typeof toggleDiffFilter === 'function') {
+                        toggleDiffFilter('changes');
+                    }
+                }, 100);
+                
+                // Проверяем, добавлен ли контент в DOM
+                const existingDiff = document.getElementById('diff');
+                if (!existingDiff || !existingDiff.parentNode) {
+                    // Добавляем после существующих tab-content элементов
+                    const readmeContent = document.getElementById('readme');
+                    if (readmeContent && readmeContent.parentNode) {
+                        readmeContent.parentNode.insertBefore(diffContent, readmeContent.nextSibling);
+                        console.log('Diff контент добавлен после readme');
+                    } else {
+                        // Ищем последний tab-content элемент
+                        const lastTabContent = resultsArea.querySelector('.tab-content:last-of-type');
+                        if (lastTabContent && lastTabContent.parentNode) {
+                            lastTabContent.parentNode.insertBefore(diffContent, lastTabContent.nextSibling);
+                            console.log('Diff контент добавлен после последнего tab-content');
+                        } else {
+                            resultsArea.appendChild(diffContent);
+                            console.log('Diff контент добавлен в resultsArea');
+                        }
+                    }
+                } else {
+                    console.log('Diff контент уже существует в DOM, обновлен');
+                }
+                
+                // Активируем вкладку "Сравнение"
+                const diffTab = document.getElementById('diffTab');
+                if (diffTab) {
+                    console.log('Активируем вкладку Сравнение');
+                    if (typeof showTab === 'function') {
+                        showTab('diff', diffTab);
+                    } else {
+                        console.warn('showTab не доступна, активируем вручную');
+                        // Fallback: активируем вручную
+                        document.querySelectorAll('.tab').forEach(tab => {
+                            tab.classList.remove('active');
+                        });
+                        document.querySelectorAll('.tab-content').forEach(content => {
+                            content.classList.remove('active');
+                            content.style.display = 'none'; // Явно скрываем все
+                        });
+                        diffTab.classList.add('active');
+                        diffContent.classList.add('active');
+                        diffContent.style.display = 'block'; // Явно показываем выбранную
+                    }
+                } else {
+                    console.error('Вкладка diffTab не найдена');
+                }
+                
+            } catch (error) {
+                console.error('Ошибка получения diff:', error);
+                // Если diff не получен, все равно показываем улучшенный README
+                if (window.improvedReadme) {
+                    console.log('Показываем улучшенный README без diff');
+                    // Просто показываем улучшенный README без сравнения
+                    const resultsArea = document.getElementById('resultsArea');
+                    if (resultsArea) {
+                        const diffContent = document.getElementById('diff');
+                        if (diffContent) {
+                            diffContent.innerHTML = '<div style="padding: 1rem; background: rgba(255, 193, 7, 0.1); border-radius: 5px; margin-bottom: 1rem;"><p style="color: #ffc107;">⚠️ Не удалось загрузить сравнение, но улучшенный README доступен во вкладке "✨ Улучшенный README"</p></div>';
+                        }
+                    }
+                } else {
+                    alert(`Ошибка при получении сравнения: ${error.message}`);
+                }
+            }
+        }
+        
+        function escapeHtml(text) {
+            if (text === null || text === undefined) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        // Функция переключения фильтра diff
+        function toggleDiffFilter(filter) {
+            const showAllBtn = document.getElementById('showAllBtn');
+            const showChangesBtn = document.getElementById('showChangesBtn');
+            const diffTable = document.querySelector('.diff-table tbody');
+            
+            if (!diffTable) return;
+            
+            // Обновляем активную кнопку
+            if (showAllBtn && showChangesBtn) {
+                showAllBtn.classList.remove('active');
+                showChangesBtn.classList.remove('active');
+                if (filter === 'all') {
+                    showAllBtn.classList.add('active');
+                } else {
+                    showChangesBtn.classList.add('active');
+                }
+            }
+            
+            // Показываем/скрываем строки
+            const rows = diffTable.querySelectorAll('tr.diff-line');
+            rows.forEach((row, index) => {
+                const type = row.className.match(/diff-(equal|delete|insert|replace)/)?.[1];
+                if (filter === 'all') {
+                    row.style.display = '';
+                } else {
+                    // Показываем только изменения и контекст вокруг них
+                    if (type === 'equal') {
+                        // Скрываем одинаковые строки, но показываем контекст (3 строки до и после изменений)
+                        const lineIndex = parseInt(row.getAttribute('data-line-index') || '0');
+                        const changeIndices = window.diffChangeIndices || [];
+                        const hasNearbyChange = changeIndices.some(changeIdx => {
+                            return Math.abs(changeIdx - lineIndex) <= 3;
+                        });
+                        row.style.display = hasNearbyChange ? '' : 'none';
+                    } else {
+                        row.style.display = '';
+                    }
+                }
+            });
+        }
+        
+        // Функция навигации по изменениям
+        function navigateDiffChange(direction) {
+            const changeIndices = window.diffChangeIndices || [];
+            if (changeIndices.length === 0) return;
+            
+            let currentIndex = window.currentDiffChangeIndex || -1;
+            currentIndex += direction;
+            
+            if (currentIndex < 0) {
+                currentIndex = changeIndices.length - 1;
+            } else if (currentIndex >= changeIndices.length) {
+                currentIndex = 0;
+            }
+            
+            window.currentDiffChangeIndex = currentIndex;
+            const targetLineIndex = changeIndices[currentIndex];
+            
+            // Находим строку и прокручиваем к ней
+            const targetRow = document.querySelector(`tr.diff-line[data-line-index="${targetLineIndex}"]`);
+            if (targetRow) {
+                targetRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Подсвечиваем строку временно
+                targetRow.style.backgroundColor = 'rgba(100, 255, 218, 0.3)';
+                setTimeout(() => {
+                    targetRow.style.backgroundColor = '';
+                }, 2000);
+            }
+            
+            // Обновляем состояние кнопок
+            const prevBtn = document.getElementById('prevChangeBtn');
+            const nextBtn = document.getElementById('nextChangeBtn');
+            if (prevBtn && nextBtn) {
+                prevBtn.removeAttribute('disabled');
+                nextBtn.removeAttribute('disabled');
+            }
+        }
+        
+        // Функция переключения версий критериев (исходный/улучшенный)
+        function switchCheckerMetricsVersion(version, clickedElement = null) {
+            console.log('🔄 Переключение на версию:', version, {
+                clickedElement: clickedElement,
+                hasOriginal: !!window.checkerRubric,
+                hasImproved: !!window.improvedRubric,
+                originalItems: window.checkerRubric?.items?.length || 0,
+                improvedItems: window.improvedRubric?.items?.length || 0
+            });
+            
+            // Обновляем активные вкладки
+            const tabOriginal = document.getElementById('checkerMetricsTabOriginal');
+            const tabImproved = document.getElementById('checkerMetricsTabImproved');
+            if (tabOriginal && tabImproved) {
+                tabOriginal.classList.remove('active');
+                tabImproved.classList.remove('active');
+                if (version === 'original') {
+                    tabOriginal.classList.add('active');
+                    console.log('✅ Активирована вкладка: Исходный README');
+                } else if (version === 'improved') {
+                    tabImproved.classList.add('active');
+                    console.log('✅ Активирована вкладка: Улучшенный README');
+                }
+            }
+            
+            // Получаем контейнеры для критериев
+            const contentOriginal = document.getElementById('checkerMetricsOriginal');
+            const contentImproved = document.getElementById('checkerMetricsImproved');
+            
+            // Проверяем доступность функции displayMetrics
+            if (typeof window.displayMetrics !== 'function') {
+                console.error('❌ window.displayMetrics не доступна');
+                return;
+            }
+            
+            // Вспомогательная функция для проверки валидности rubric
+            function isValidRubric(rubric) {
+                return rubric && 
+                       rubric.items && 
+                       Array.isArray(rubric.items) && 
+                       rubric.items.length > 0;
+            }
+            
+            // Небольшая задержка для гарантии обновления DOM перед отображением критериев
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    // Прямое переключение контента и отображение критериев
+                    if (version === 'original' && window.checkerRubric) {
+                        if (contentOriginal) contentOriginal.style.display = 'block';
+                        if (contentImproved) contentImproved.style.display = 'none';
+                        console.log('📊 Отображаем исходные критерии (прямое переключение)', {
+                            itemsCount: window.checkerRubric?.items?.length || 0,
+                            isValid: isValidRubric(window.checkerRubric)
+                        });
+                        if (isValidRubric(window.checkerRubric)) {
+                            window.displayMetrics(window.checkerRubric, 'checkerMetricsOriginal');
+                        } else {
+                            console.error('❌ Исходные критерии невалидны');
+                            if (contentOriginal) {
+                                contentOriginal.innerHTML = '<div class="info-box">Исходные критерии недоступны</div>';
+                            }
+                        }
+                    } else if (version === 'improved' && window.improvedRubric) {
+                        if (contentOriginal) {
+                            contentOriginal.style.display = 'none';
+                            contentOriginal.classList.remove('active');
+                        }
+                        if (contentImproved) {
+                            contentImproved.style.display = 'block';
+                            contentImproved.classList.add('active');
+                        }
+                        console.log('✨ Отображаем улучшенные критерии (прямое переключение)', {
+                            itemsCount: window.improvedRubric?.items?.length || 0,
+                            hasItems: !!window.improvedRubric?.items,
+                            itemsIsArray: Array.isArray(window.improvedRubric?.items),
+                            isValid: isValidRubric(window.improvedRubric),
+                            rubricKeys: window.improvedRubric ? Object.keys(window.improvedRubric) : null,
+                            contentImprovedDisplay: contentImproved?.style.display,
+                            contentImprovedActive: contentImproved?.classList.contains('active')
+                        });
+                        // КРИТИЧЕСКИ ВАЖНО: Проверяем структуру rubric перед отображением
+                        if (isValidRubric(window.improvedRubric)) {
+                            // Небольшая задержка для гарантии обновления DOM
+                            setTimeout(() => {
+                                window.displayMetrics(window.improvedRubric, 'checkerMetricsImproved');
+                                console.log('✅ displayMetrics вызвана для улучшенных критериев');
+                            }, 50);
+                        } else {
+                            console.error('❌ Улучшенные критерии невалидны:', {
+                                hasRubric: !!window.improvedRubric,
+                                hasItems: !!window.improvedRubric?.items,
+                                itemsType: typeof window.improvedRubric?.items,
+                                itemsIsArray: Array.isArray(window.improvedRubric?.items),
+                                itemsLength: window.improvedRubric?.items?.length || 0,
+                                rubricKeys: window.improvedRubric ? Object.keys(window.improvedRubric) : null
+                            });
+                            if (contentImproved) {
+                                contentImproved.innerHTML = '<div class="info-box">Улучшенные критерии недоступны (данные отсутствуют или невалидны)</div>';
+                            }
+                        }
+                    } else {
+                        // Fallback: вызываем updateCheckerMetricsDisplay
+                        console.log('⚠️ Прямое переключение не удалось, используем updateCheckerMetricsDisplay');
+                        updateCheckerMetricsDisplay();
+                    }
+                }, 100);
+            });
+        }
+        
+        // Функция обновления отображения критериев
+        function updateCheckerMetricsDisplay() {
+            const originalRubric = window.checkerRubric || null;
+            const improvedRubric = window.improvedRubric || null;
+            
+            console.log('🔄 updateCheckerMetricsDisplay вызвана', {
+                hasOriginal: !!originalRubric,
+                hasImproved: !!improvedRubric,
+                originalItems: originalRubric?.items?.length || 0,
+                improvedItems: improvedRubric?.items?.length || 0,
+                originalRubricType: typeof originalRubric,
+                improvedRubricType: typeof improvedRubric,
+                originalIsValid: originalRubric && Array.isArray(originalRubric.items) && originalRubric.items.length > 0,
+                improvedIsValid: improvedRubric && Array.isArray(improvedRubric.items) && improvedRubric.items.length > 0
+            });
+            
+            // Показываем переключатель, если есть обе версии
+            const switcher = document.getElementById('checkerMetricsVersionSwitcher');
+            if (switcher) {
+                if (originalRubric && improvedRubric) {
+                    switcher.style.display = 'block';
+                    console.log('✅ Переключатель критериев показан');
+                } else {
+                    switcher.style.display = 'none';
+                }
+            }
+            
+            // Получаем элементы
+            const tabOriginal = document.getElementById('checkerMetricsTabOriginal');
+            const tabImproved = document.getElementById('checkerMetricsTabImproved');
+            const contentOriginal = document.getElementById('checkerMetricsOriginal');
+            const contentImproved = document.getElementById('checkerMetricsImproved');
+            
+            if (!contentOriginal || !contentImproved) {
+                console.warn('⚠️ Контейнеры критериев не найдены');
+                return;
+            }
+            
+            // Определяем активную версию (проверяем обе вкладки)
+            // Сначала проверяем явно установленное состояние вкладок
+            let activeVersion = null;
+            
+            // Проверяем tabImproved ПЕРВЫМ, так как он может быть активен при переключении
+            if (tabImproved && tabImproved.classList.contains('active')) {
+                activeVersion = 'improved';
+                console.log('📌 Активная версия определена из tabImproved: improved');
+            } else if (tabOriginal && tabOriginal.classList.contains('active')) {
+                activeVersion = 'original';
+                console.log('📌 Активная версия определена из tabOriginal: original');
+            }
+            
+            // Если ни одна вкладка не активна, определяем по наличию данных
+            if (!activeVersion) {
+                if (improvedRubric && !originalRubric) {
+                    activeVersion = 'improved';
+                    // Активируем соответствующую вкладку
+                    if (tabImproved) tabImproved.classList.add('active');
+                    if (tabOriginal) tabOriginal.classList.remove('active');
+                    console.log('📌 Активная версия определена по данным: improved (только улучшенные)');
+                } else if (originalRubric) {
+                    activeVersion = 'original';
+                    // Активируем соответствующую вкладку
+                    if (tabOriginal) tabOriginal.classList.add('active');
+                    if (tabImproved) tabImproved.classList.remove('active');
+                    console.log('📌 Активная версия определена по данным: original (по умолчанию)');
+                } else {
+                    // Если нет ни одной версии, используем original как fallback
+                    activeVersion = 'original';
+                    if (tabOriginal) tabOriginal.classList.add('active');
+                    if (tabImproved) tabImproved.classList.remove('active');
+                    console.log('📌 Активная версия определена как fallback: original');
+                }
+            }
+            
+            console.log('📌 Активная версия:', activeVersion, {
+                tabOriginalActive: tabOriginal?.classList.contains('active'),
+                tabImprovedActive: tabImproved?.classList.contains('active'),
+                hasOriginal: !!originalRubric,
+                hasImproved: !!improvedRubric,
+                tabOriginalExists: !!tabOriginal,
+                tabImprovedExists: !!tabImproved
+            });
+            
+            // Проверяем доступность функции displayMetrics
+            if (typeof window.displayMetrics !== 'function') {
+                console.error('❌ window.displayMetrics не доступна');
+                return;
+            }
+            
+            // Вспомогательная функция для проверки валидности rubric
+            function isValidRubric(rubric) {
+                return rubric && 
+                       rubric.items && 
+                       Array.isArray(rubric.items) && 
+                       rubric.items.length > 0;
+            }
+            
+            // Показываем/скрываем контейнеры и отображаем соответствующие критерии
+            if (originalRubric && improvedRubric) {
+                // Есть обе версии - показываем в зависимости от активной вкладки
+                if (activeVersion === 'original') {
+                    contentOriginal.style.display = 'block';
+                    contentImproved.style.display = 'none';
+                    console.log('📊 Отображаем исходные критерии', {
+                        itemsCount: originalRubric?.items?.length || 0,
+                        isValid: isValidRubric(originalRubric)
+                    });
+                    if (isValidRubric(originalRubric)) {
+                        window.displayMetrics(originalRubric, 'checkerMetricsOriginal');
+                    } else {
+                        console.warn('⚠️ Исходные критерии пусты или невалидны');
+                        contentOriginal.innerHTML = '<div class="info-box">Исходные критерии недоступны</div>';
+                    }
+                } else if (activeVersion === 'improved') {
+                    contentOriginal.style.display = 'none';
+                    contentImproved.style.display = 'block';
+                    console.log('✨ Отображаем улучшенные критерии', {
+                        rubric: improvedRubric,
+                        itemsCount: improvedRubric?.items?.length || 0,
+                        hasItems: !!improvedRubric?.items,
+                        itemsIsArray: Array.isArray(improvedRubric?.items),
+                        activeVersion: activeVersion,
+                        isValid: isValidRubric(improvedRubric)
+                    });
+                    // КРИТИЧЕСКИ ВАЖНО: Проверяем структуру rubric перед отображением
+                    if (isValidRubric(improvedRubric)) {
+                        window.displayMetrics(improvedRubric, 'checkerMetricsImproved');
+                    } else {
+                        console.error('❌ Улучшенные критерии невалидны:', {
+                            hasRubric: !!improvedRubric,
+                            hasItems: !!improvedRubric?.items,
+                            itemsType: typeof improvedRubric?.items,
+                            itemsIsArray: Array.isArray(improvedRubric?.items),
+                            itemsLength: improvedRubric?.items?.length || 0,
+                            rubricKeys: improvedRubric ? Object.keys(improvedRubric) : null,
+                            rubricValue: improvedRubric
+                        });
+                        contentImproved.innerHTML = '<div class="info-box">Улучшенные критерии недоступны (данные отсутствуют или невалидны)</div>';
+                    }
+                } else {
+                    // Fallback: если activeVersion не определен, показываем исходные
+                    console.warn('⚠️ activeVersion не определен, показываем исходные критерии');
+                    contentOriginal.style.display = 'block';
+                    contentImproved.style.display = 'none';
+                    if (isValidRubric(originalRubric)) {
+                        window.displayMetrics(originalRubric, 'checkerMetricsOriginal');
+                    } else {
+                        contentOriginal.innerHTML = '<div class="info-box">Исходные критерии недоступны</div>';
+                    }
+                }
+            } else if (originalRubric) {
+                // Только исходные критерии - показываем их
+                contentOriginal.style.display = 'block';
+                contentImproved.style.display = 'none';
+                console.log('📊 Отображаем только исходные критерии');
+                if (isValidRubric(originalRubric)) {
+                    window.displayMetrics(originalRubric, 'checkerMetricsOriginal');
+                } else {
+                    contentOriginal.innerHTML = '<div class="info-box">Исходные критерии недоступны</div>';
+                }
+            } else if (improvedRubric) {
+                // Только улучшенные критерии - показываем их
+                contentOriginal.style.display = 'none';
+                contentImproved.style.display = 'block';
+                console.log('✨ Отображаем только улучшенные критерии', {
+                    rubric: improvedRubric,
+                    itemsCount: improvedRubric?.items?.length || 0,
+                    hasItems: !!improvedRubric?.items,
+                    itemsIsArray: Array.isArray(improvedRubric?.items),
+                    isValid: isValidRubric(improvedRubric)
+                });
+                // КРИТИЧЕСКИ ВАЖНО: Проверяем структуру rubric перед отображением
+                if (isValidRubric(improvedRubric)) {
+                    window.displayMetrics(improvedRubric, 'checkerMetricsImproved');
+                } else {
+                    console.error('❌ Улучшенные критерии невалидны:', {
+                        hasRubric: !!improvedRubric,
+                        hasItems: !!improvedRubric?.items,
+                        itemsType: typeof improvedRubric?.items,
+                        itemsIsArray: Array.isArray(improvedRubric?.items),
+                        itemsLength: improvedRubric?.items?.length || 0,
+                        rubricKeys: improvedRubric ? Object.keys(improvedRubric) : null,
+                        rubricValue: improvedRubric
+                    });
+                    contentImproved.innerHTML = '<div class="info-box">Улучшенные критерии недоступны (данные отсутствуют или невалидны)</div>';
+                }
+            } else {
+                console.warn('⚠️ Нет критериев для отображения');
+            }
+        }
+        
+        // Экспортируем функции в window для доступа из HTML
+        window.addImprovementThematicBlock = addImprovementThematicBlock;
+        window.toggleImproveBonusWish = toggleImproveBonusWish;
+        window.loadImprovementThematicBlocks = loadImprovementThematicBlocks;
+        window.updateImproveThematicBlockSelect = updateImproveThematicBlockSelect;
+        window.switchCheckerMetricsVersion = switchCheckerMetricsVersion;
+        window.updateCheckerMetricsDisplay = updateCheckerMetricsDisplay;
+        window.toggleDiffFilter = toggleDiffFilter;
+        window.navigateDiffChange = navigateDiffChange;
+        
+        // Функция для показа/скрытия поля количества человек в группе
+        function toggleImproveGroupSize() {
+            const projectType = document.getElementById('improveProjectType');
+            const groupSizeGroup = document.getElementById('improveGroupSizeGroup');
+            const groupSizeInput = document.getElementById('improveGroupSize');
+            
+            if (projectType && groupSizeGroup && groupSizeInput) {
+                if (projectType.value === 'group') {
+                    groupSizeGroup.style.display = 'block';
+                    groupSizeInput.required = true;
+                } else {
+                    groupSizeGroup.style.display = 'none';
+                    groupSizeInput.required = false;
+                    groupSizeInput.value = '';
+                }
+            }
+        }
+        
+        // Функция для очистки формы улучшения README
+        function clearImprovementForm() {
+            // Очищаем все поля формы
+            const form = document.getElementById('improvementForm');
+            if (form) {
+                form.reset();
+            }
+            
+            // Сбрасываем дополнительные поля
+            document.getElementById('improveZUN').value = '';
+            document.getElementById('improveGenerateBonus').checked = false;
+            document.getElementById('improveBonusWish').value = '';
+            document.getElementById('improveRepoBaseUrl').value = '';
+            document.getElementById('improveRepoPathTemplate').value = 'repo/part-03/task-{num:02d}/README.md';
+            const groupSizeInput = document.getElementById('improveGroupSize');
+            if (groupSizeInput) {
+                groupSizeInput.value = '2';
+            }
+            
+            // Скрываем поля, которые зависят от чекбоксов
+            toggleImproveBonusWish();
+            toggleImproveGroupSize();
+            
+            // Очищаем предупреждения
+            const warningsDiv = document.getElementById('improvementWarnings');
+            if (warningsDiv) {
+                warningsDiv.innerHTML = '';
+            }
+        }
+        
+        window.toggleImproveGroupSize = toggleImproveGroupSize;
+        window.clearImprovementForm = clearImprovementForm;
+    </script>
+    
+    <!-- Модальное окно для редактирования извлеченных данных -->
+    <div id="improvementModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
+            <div class="modal-header">
+                <h2>✏️ Редактирование данных для улучшения README</h2>
+                <span class="close" onclick="closeImprovementModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="improvementLoading" style="display: none; text-align: center; padding: 2rem;">
+                    <div class="spinner" style="border: 4px solid rgba(118, 75, 162, 0.3); border-top: 4px solid #64ffda; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
+                    <p>⏳ Извлечение данных из README...</p>
+                </div>
+                
+                <div id="improvementEditor" style="display: none;">
+                    <form id="improvementForm">
+                        <div class="form-group">
+                            <label>Название проекта *</label>
+                            <input type="text" id="improveTitleSeed" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Описание проекта *</label>
+                            <textarea id="improveDescription" rows="3" required></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Язык *</label>
+                            <select id="improveLanguage" required>
+                                <option value="ru">Русский</option>
+                                <option value="en">English</option>
+                                <option value="kg">Кыргызча</option>
+                                <option value="uz">O'zbek</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Тематический блок *</label>
+                            <select id="improveThematicBlock" required>
+                                <option value="">Выберите тематический блок</option>
+                            </select>
+                            <small id="thematicBlockHint" style="color: #64ffda;"></small>
+                        </div>
+                        
+                        <div class="expander" id="improveAddBlockExpander" style="display: none;">
+                            <div class="expander-header" onclick="toggleExpander('improveAddBlockExpander')">
+                                <span>➕ Добавить новый тематический блок</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="expander-content">
+                                <div class="form-group">
+                                    <label>Название тематического блока</label>
+                                    <input type="text" id="improveNewBlockName" placeholder="Например: Машинное обучение">
+                                </div>
+                                <div class="form-group">
+                                    <label>Кодовое обозначение (сокращенное на латинице)</label>
+                                    <input type="text" id="improveNewBlockCode" placeholder="Например: ML">
+                                </div>
+                                <button type="button" class="btn" onclick="addImprovementThematicBlock()">Добавить тематический блок</button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Уровень аудитории *</label>
+                            <input type="text" id="improveAudienceLevel" placeholder="Например: базовый, продвинутый, начальный" required>
+                            <small style="color: #64ffda;">Укажите уровень аудитории в свободной форме. Будет оценен агентом.</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Тип проекта *</label>
+                            <select id="improveProjectType" required onchange="toggleImproveGroupSize()">
+                                <option value="individual">Индивидуальный</option>
+                                <option value="group">Групповой</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" id="improveGroupSizeGroup" style="display: none;">
+                            <label>Количество человек в группе *</label>
+                            <input type="number" id="improveGroupSize" min="2" max="10" value="2">
+                            <small style="color: #64ffda;">Количество человек в группе (от 2 до 10)</small>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Образовательные результаты (по одному в строке)</label>
+                            <textarea id="improveLearningOutcomes" rows="5" placeholder="Что студент должен научиться делать?"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Навыки (через запятую)</label>
+                            <input type="text" id="improveSkills" placeholder="Навык 1, Навык 2, ...">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Инструменты (через запятую)</label>
+                            <input type="text" id="improveRequiredTools" placeholder="Python, Docker, Git, ...">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Количество задач (2-8)</label>
+                            <input type="number" id="improveTasksCount" min="2" max="8">
+                            <small style="color: #64ffda;">Если не указано, будет определено автоматически</small>
+                        </div>
+                        
+                        <!-- ЗУНы (Знания, Умения, Навыки) -->
+                        <div class="form-group">
+                            <label>ЗУНы (Знания, Умения, Навыки)</label>
+                            <textarea id="improveZUN" rows="6" placeholder="Опишите подробно знания, умения и навыки, которые должны быть отражены в проекте. Это поле используется как дополнительная информация при генерации."></textarea>
+                            <small style="color: #64ffda;">Если заполнено, будет использовано как дополнительная информация при генерации</small>
+                        </div>
+                        
+                        <!-- Бонусное задание -->
+                        <div class="checkbox-group">
+                            <input type="checkbox" id="improveGenerateBonus" onchange="toggleImproveBonusWish()">
+                            <label for="improveGenerateBonus">Генерировать бонусное задание</label>
+                        </div>
+                        
+                        <div class="form-group" id="improveBonusWishGroup" style="display: none;">
+                            <label>Дополнение к бонусному заданию</label>
+                            <textarea id="improveBonusWish" rows="3" placeholder="Опишите дополнительные требования к бонусному заданию"></textarea>
+                        </div>
+                        
+                        <!-- Настройка репозитория -->
+                        <div class="expander">
+                            <div class="expander-header" onclick="toggleExpander('improveRepoExpander')">
+                                <span>⚙️ Настройка репозитория</span>
+                                <span>▼</span>
+                            </div>
+                            <div class="expander-content" id="improveRepoExpander">
+                                <div class="form-group">
+                                    <label>Базовый URL репозитория</label>
+                                    <input type="text" id="improveRepoBaseUrl" placeholder="https://github.com/school21/project-name">
+                                </div>
+                                <div class="form-group">
+                                    <label>Шаблон пути в репозитории</label>
+                                    <input type="text" id="improveRepoPathTemplate" placeholder="repo/part-03/task-{num:02d}/README.md" value="repo/part-03/task-{num:02d}/README.md">
+                                    <small style="color: #64ffda;">Шаблон пути для задач в репозитории. Используйте {num:02d} для номера задачи.</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="improvementWarnings" style="margin-top: 1rem;"></div>
+                        
+                        <div style="margin-top: 2rem; display: flex; gap: 1rem; justify-content: flex-end;">
+                            <button type="button" class="btn btn-secondary" onclick="closeImprovementModal()">Отмена</button>
+                            <button type="submit" class="btn" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">
+                                🚀 Сгенерировать улучшенный README
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <style>
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0, 0, 0, 0.7);
+        }
+        
+        .modal-content {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            margin: 5% auto;
+            padding: 0;
+            border: 1px solid rgba(118, 75, 162, 0.3);
+            border-radius: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid rgba(118, 75, 162, 0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h2 {
+            margin: 0;
+            color: #64ffda;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #64ffda;
+        }
+        
+        .modal-body {
+            padding: 1.5rem;
+        }
+    </style>
+</body>
+</html>

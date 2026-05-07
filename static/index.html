@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎓 Генератор учебных проектов - Школа 21</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        window.MathJax = window.MathJax || {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true,
+                autoload: {
+                    color: [],
+                    colorv2: ['color'],
+                    bbox: [],
+                    bboxv2: ['bbox'],
+                    cancel: [],
+                    enclose: [],
+                    extpfeil: [],
+                    mhchem: [],
+                    physics: [],
+                    unicode: [],
+                    verb: []
+                }
+            },
+            chtml: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            svg: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            },
+            startup: {
+                ready: () => {
+                    console.log('[MathJax] MathJax готов к работе');
+                    if (window.MathJax.startup) {
+                        window.MathJax.startup.defaultReady();
+                    }
+                }
+            }
+        };
+    </script>
+    <!-- Polyfill.io удален: современные браузеры поддерживают ES6+ нативно -->
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260507-path-wrap-fix">
+    <!-- Утилиты для UI -->
+    <script src="/static/js/utils/sanitize.js?v=20260429-review-split"></script>
+    <script src="/static/js/utils/toast.js"></script>
+    <script src="/static/js/utils/modal.js"></script>
+    <script src="/static/js/utils/loading.js?v=20260429-progress-right"></script>
+    <script src="/static/js/utils/validation.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>🎓 Генератор учебных проектов</h1>
+    </div>
+
+    <!-- Компактный статус генерации -->
+    <div id="generationLogs" class="generation-status-panel" style="display: none;">
+        <div class="generation-status-card">
+            <div class="generation-status-meta">
+                <span>⏱ <strong>Время:</strong> <span id="generationTimer">00:00</span></span>
+                <span>🤖 <strong>Этап:</strong> <span id="currentAgent">Инициализация...</span></span>
+            </div>
+            <div id="logContent" class="generation-progress-strip"></div>
+            <div id="methodologyLiveStatus" class="methodology-panel methodology-panel-compact" style="display: none;"></div>
+            <div id="methodologyReviewActions" class="methodology-review-actions" style="display: none;"></div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="two-columns">
+            <!-- Левая колонка: Параметры -->
+            <div class="column">
+                <h2>📝 Входные параметры</h2>
+
+                <!-- ========== УЧЕБНЫЙ ПЛАН (УП) ========== -->
+                <div class="form-group" style="margin-top: 1.5rem; padding: 1rem; background: rgba(100, 255, 218, 0.08); border-radius: 8px; border: 1px solid rgba(100, 255, 218, 0.25);">
+                    <label style="color: #64ffda; font-weight: bold; display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="font-size: 1.2rem;">📚</span> Учебный план (УП)
+                    </label>
+                    <p style="color: #8892b0; font-size: 0.85rem; margin: 0.5rem 0 1rem 0;">
+                        Загрузите CSV с паспортом программы для автозаполнения полей и контекста генерации
+                    </p>
+                    <div class="file-upload" onclick="document.getElementById('curriculumFile').click()" style="border-color: rgba(100, 255, 218, 0.3);">
+                        <input type="file" id="curriculumFile" accept=".csv" onchange="handleCurriculumUpload(event)">
+                        <p>📁 Нажмите для загрузки CSV</p>
+                        <small id="curriculumFileName" style="color: #64ffda;"></small>
+                    </div>
+                </div>
+
+                <div class="form-group generation-mode-toggle">
+                    <label class="toggle-field" for="methodologyHumanReview">
+                        <input type="checkbox" id="methodologyHumanReview">
+                        <span>
+                            <strong>Методологический режим</strong>
+                            <small>Останавливать генерацию на контрольных точках для подтверждения методологом</small>
+                        </span>
+                    </label>
+                </div>
+
+                <!-- Направление (было: Тематический блок) -->
+                <div class="form-group">
+                    <label>Направление</label>
+                    <select id="direction" onchange="onDirectionChange()">
+                        <option value="BSA">Бизнес аналитика</option>
+                        <option value="Cb">Кибербезопасность</option>
+                        <option value="DO">DevOps</option>
+                        <option value="PjM">Проектный менеджмент</option>
+                        <option value="QA">Тестирование и обеспечение качества</option>
+                        <option value="DS">Машинное обучение</option>
+                        <option value="ADD">Добавить новый</option>
+                    </select>
+                </div>
+                
+                <!-- Скрытое поле для обратной совместимости -->
+                <input type="hidden" id="thematicBlock" value="">
+                
+                <div class="expander" id="addBlockExpander" style="display: none;">
+                    <div class="expander-header" onclick="toggleExpander('addBlockExpander')">
+                        <span>➕ Добавить новое направление</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="expander-content">
+                        <div class="form-group">
+                            <label>Название направления</label>
+                            <input type="text" id="newBlockName" placeholder="Например: Машинное обучение">
+                        </div>
+                        <div class="form-group">
+                            <label>Кодовое обозначение (сокращенное на латинице)</label>
+                            <input type="text" id="newBlockCode" placeholder="Например: ML">
+                        </div>
+                        <button class="btn" onclick="addThematicBlock()">Добавить направление</button>
+                    </div>
+                </div>
+                
+                <!-- Тематический блок из УП (каскадный селектор) -->
+                <div class="form-group" id="curriculumBlockGroup" style="display: none;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="color: #64ffda;">📂</span> Тематический блок (из УП)
+                    </label>
+                    <select id="curriculumBlock" onchange="onCurriculumBlockChange()">
+                        <option value="">-- Выберите блок --</option>
+                    </select>
+                </div>
+                
+                <!-- Проект из УП (каскадный селектор) -->
+                <div class="form-group" id="curriculumProjectGroup" style="display: none;">
+                    <label style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span style="color: #64ffda;">📋</span> Проект (из УП)
+                    </label>
+                    <select id="curriculumProject" onchange="onCurriculumProjectChange()">
+                        <option value="">-- Выберите проект --</option>
+                    </select>
+                </div>
+                
+                <!-- Базовые параметры -->
+                <div class="expander">
+                    <div class="expander-header" onclick="toggleExpander('projectParamsExpander')">
+                        <span>🧩 Параметры проекта</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="expander-content" id="projectParamsExpander">
+                        <div class="form-group">
+                            <label>Язык</label>
+                            <select id="language">
+                                <option value="ru">ru - русский</option>
+                                <option value="en">en - английский</option>
+                                <option value="kg">kg - киргизский</option>
+                                <option value="uz">uz - узбекский</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Тип проекта</label>
+                            <select id="projectType" onchange="toggleGroupSize()">
+                                <option value="individual">индивидуальный</option>
+                                <option value="group">групповой</option>
+                            </select>
+                        </div>
+                        
+                        <div class="form-group" id="groupSizeGroup" style="display: none;">
+                            <label>Количество человек в группе</label>
+                            <input type="number" id="groupSize" min="2" max="10">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Уровень аудитории</label>
+                            <input type="text" id="audienceLevel">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Название проекта</label>
+                            <input type="text" id="titleSeed">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Обязательные инструменты (через запятую)</label>
+                            <input type="text" id="requiredTools">
+                        </div>
+
+                        <div class="form-group">
+                            <label>Сторителлинг</label>
+                            <textarea id="storytelling" rows="4" placeholder="Кейс, роль, рабочая ситуация и ограничения проекта"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Краткое описание проекта</label>
+                            <textarea id="projectDescription" rows="4"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Образовательные результаты (по одному в строке)</label>
+                            <textarea id="learningOutcomes" rows="5"></textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Получаемые навыки (по одному в строке)</label>
+                            <textarea id="skills" rows="5"></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Настройки репозитория -->
+                <div class="expander">
+                    <div class="expander-header" onclick="toggleExpander('repoExpander')">
+                        <span>⚙️ Настройки репозитория (для ожидаемого результата)</span>
+                        <span>▼</span>
+                    </div>
+                    <div class="expander-content" id="repoExpander">
+                        <div class="form-group">
+                            <label>Базовый URL репозитория (опционально)</label>
+                            <input type="text" id="repoBaseUrl" placeholder="https://github.com/school21/project-name">
+                        </div>
+                        <div class="form-group">
+                            <label>Шаблон пути в репозитории (опционально)</label>
+                            <input type="text" id="repoPathTemplate" value="repo/part-03/task-{num:02d}/README.md">
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Бонусное задание -->
+                <div class="checkbox-group">
+                    <input type="checkbox" id="generateBonus" onchange="toggleBonusWish()">
+                    <label for="generateBonus">Генерировать бонусное задание</label>
+                </div>
+                
+                <div class="form-group" id="bonusWishGroup" style="display: none;">
+                    <label>Дополнение к бонусному заданию (опционально)</label>
+                    <textarea id="bonusWish" rows="3"></textarea>
+                </div>
+                
+                <!-- Кнопки управления -->
+                <div class="form-actions">
+                    <div class="btn-group btn-group-compact">
+                        <button class="btn btn-danger btn-soft" onclick="clearForm()">
+                            <span class="btn-icon">🗑️</span>
+                            <span>Очистить форму</span>
+                        </button>
+                        <button class="btn btn-secondary btn-soft" onclick="clearGeneration()">
+                            <span class="btn-icon">🧹</span>
+                            <span>Очистить генерацию</span>
+                        </button>
+                    </div>
+
+                    <button class="btn btn-primary btn-lg" id="generateBtn" onclick="generateContent()">
+                        <span class="btn-icon">🚀</span>
+                        <span>Сгенерировать</span>
+                    </button>
+                    <button class="btn btn-danger btn-lg" id="cancelGenerationBtn" onclick="cancelGeneration()" style="display: none;">
+                        <span class="btn-icon">⏹</span>
+                        <span>Аварийная остановка генерации</span>
+                    </button>
+                </div>
+
+                <hr class="form-actions-divider">
+
+                <div class="btn-group btn-group-compact nav-actions">
+                    <button class="btn btn-secondary" onclick="goToMainMenu()">
+                        <span class="btn-icon">←</span>
+                        <span>Главное меню</span>
+                    </button>
+                    <button class="btn btn-secondary" onclick="handleLogout()">
+                        <span class="btn-icon">▣</span>
+                        <span>Выйти</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Правая колонка: Результаты -->
+            <div class="column">
+                <h2>📊 Результаты генерации</h2>
+
+                <div id="methodologyReviewWorkspace" class="methodology-review-workspace methodology-review-actions" style="display: none;"></div>
+                
+                <div id="noResults" class="info-box">
+                    <p>Результаты генерации появятся здесь после запуска генерации.</p>
+                </div>
+                
+                <div id="resultsArea" style="display: none;">
+                    <div id="warningsArea"></div>
+                    
+                    <!-- Перегенерация -->
+                    <h3 style="margin-bottom: 1rem;">🔄 Перегенерация контента</h3>
+                    <div class="form-group">
+                        <label>Комментарии по изменению README</label>
+                        <textarea id="regenerationComments" rows="4" placeholder="Опишите, что нужно изменить в README..."></textarea>
+                        <div style="margin-top: 0.5rem; display: flex; justify-content: flex-end;">
+                            <button class="btn btn-secondary" type="button" onclick="insertRegenerationTemplate()" style="width: auto; padding: 0.4rem 0.9rem; font-size: 0.85rem;">
+                                ✍️ Вставить шаблон комментариев
+                            </button>
+                        </div>
+                    </div>
+                    <div id="regenerationChanges" style="display: none; margin-top: 1rem;">
+                        <div class="form-group">
+                            <label>📝 Что было изменено:</label>
+                            <div id="regenerationChangesList" class="info-box" style="background: rgba(118, 75, 162, 0.2); padding: 1rem; border-radius: 8px; border-left: 4px solid #764ba2;"></div>
+                        </div>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn" onclick="regenerateContent()">🔄 Перегенерировать</button>
+                        <button class="btn btn-secondary" onclick="clearRegeneration()">🗑️ Очистить перегенерацию</button>
+                        <button class="btn" onclick="fillCommentsFromFailedCriteria()" style="background: rgba(118, 75, 162, 0.6);">📋 Заполнить из непройденных критериев</button>
+                    </div>
+                    
+                    <div class="divider"></div>
+                    
+                    <!-- Вкладки -->
+                    <div class="tabs">
+                        <button class="tab active" onclick="showTab('readme', this)">📄 Итоговый README</button>
+                        <button class="tab" onclick="showTab('practice', this)">🧪 Практика</button>
+                        <button class="tab" onclick="showTab('generatedData', this)">📦 Данные</button>
+                        <button class="tab" onclick="showTab('metrics', this)">📈 Метрики</button>
+                        <button class="tab" onclick="showTab('report', this)">📊 Отчет</button>
+                        <button class="tab" onclick="showTab('regen', this)">🔄 Перегенерация</button>
+                    </div>
+                    
+                    <!-- Вкладка README -->
+                    <div id="readme" class="tab-content active">
+                        <div id="readmeContent" class="markdown-preview"></div>
+                        <div class="divider"></div>
+                        <h3>💾 Скачать</h3>
+                        <button class="btn" onclick="downloadResults()" id="downloadBtn">📦 Скачать архив</button>
+                    </div>
+                    
+                    <!-- Вкладка Практика -->
+                    <div id="practice" class="tab-content">
+                        <h3>🧪 План практики</h3>
+                        <div id="practicePlanDetails" class="info-box"></div>
+                        <div class="divider"></div>
+                        <h3>🧯 CriticAgent</h3>
+                        <div id="practiceCriticIssues" class="info-box"></div>
+                    </div>
+
+                    <!-- Вкладка Данные -->
+                    <div id="generatedData" class="tab-content">
+                        <h3>📦 Сгенерированные данные</h3>
+                        <div id="generatedDataContent" class="generated-data-panel info-box"></div>
+                    </div>
+                    
+                    <!-- Вкладка Метрики -->
+                    <div id="metrics" class="tab-content">
+                        <div id="metricsVersionSwitcher" style="margin-bottom: 1rem; display: none;">
+                            <div class="tabs" style="margin-bottom: 0;">
+                                <button class="tab active" id="metricsTabOriginal" onclick="switchMetricsVersion('original', this)">📊 Оригинальная генерация</button>
+                                <button class="tab" id="metricsTabRegen" onclick="switchMetricsVersion('regenerated', this)">🔄 Перегенерированная</button>
+                            </div>
+                        </div>
+                        <div id="metricsContentOriginal" class="metrics-version-content"></div>
+                        <div id="metricsContentRegen" class="metrics-version-content" style="display: none;"></div>
+                    </div>
+                    
+                    <!-- Вкладка Отчет -->
+                    <div id="report" class="tab-content">
+                        <div id="reportVersionSwitcher" style="margin-bottom: 1rem; display: none;">
+                            <div class="tabs" style="margin-bottom: 0;">
+                                <button class="tab active" id="reportTabOriginal" onclick="switchReportVersion('original', this)">📊 Оригинальная генерация</button>
+                                <button class="tab" id="reportTabRegen" onclick="switchReportVersion('regenerated', this)">🔄 Перегенерированная</button>
+                            </div>
+                        </div>
+                        <div id="reportContentOriginal" class="report-version-content"></div>
+                        <div id="reportContentRegen" class="report-version-content" style="display: none;"></div>
+                    </div>
+                    
+                    <!-- Вкладка Перегенерация -->
+                    <div id="regen" class="tab-content">
+                        <div id="regenContent" class="markdown-preview"></div>
+                        <div class="divider"></div>
+                        <h3>💾 Скачать</h3>
+                        <button class="btn" onclick="downloadRegeneratedResults()" id="downloadRegenBtn">📦 Скачать перегенерированный архив</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="/static/js/modules/methodologyPanel.js?v=20260507-path-wrap-fix"></script>
+    <script src="/static/js/main.js?v=20260507-path-wrap-fix"></script>
+</body>
+</html>

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>V1 Architecture Diagram</title>
+  <style>
+    :root {
+      --bg: #f7f6f2;
+      --panel: #ffffff;
+      --stroke: #3a3a3a;
+      --accent: #cc3b3b;
+      --text: #222222;
+      --muted: #666666;
+      --knowledge: #eef4ff;
+      --input: #eef8ef;
+      --human: #fff7e8;
+      --core: #ffffff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+
+    .page {
+      width: 1600px;
+      margin: 0 auto;
+      padding: 24px;
+      background: var(--bg);
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      font-weight: 700;
+    }
+
+    p.lead {
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    svg {
+      width: 100%;
+      height: auto;
+      display: block;
+      background:
+        linear-gradient(to right, rgba(0, 0, 0, 0.04) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
+      background-size: 40px 40px;
+      border-radius: 12px;
+    }
+
+    .box {
+      fill: var(--panel);
+      stroke: var(--stroke);
+      stroke-width: 2;
+      rx: 14;
+      ry: 14;
+    }
+
+    .input {
+      fill: var(--input);
+    }
+
+    .knowledge {
+      fill: var(--knowledge);
+    }
+
+    .human {
+      fill: var(--human);
+    }
+
+    .core {
+      fill: var(--core);
+    }
+
+    .dashed {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 3;
+      stroke-dasharray: 14 10;
+      rx: 22;
+      ry: 22;
+    }
+
+    .title {
+      font-size: 18px;
+      font-weight: 700;
+      fill: var(--text);
+    }
+
+    .subtitle {
+      font-size: 14px;
+      fill: var(--muted);
+    }
+
+    .label {
+      font-size: 16px;
+      font-weight: 600;
+      fill: var(--text);
+    }
+
+    .small {
+      font-size: 13px;
+      fill: var(--text);
+    }
+
+    .tiny {
+      font-size: 12px;
+      fill: var(--muted);
+    }
+
+    .arrow {
+      stroke: #444444;
+      stroke-width: 2.4;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+
+    .soft-arrow {
+      stroke: #7a7a7a;
+      stroke-width: 2;
+      fill: none;
+      marker-end: url(#arrowSoft);
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <h1>V1 Architecture</h1>
+    <p class="lead">Один assistant-orchestrator, явное состояние проекта, human gates и отдельный цикл validation/revision.</p>
+
+    <svg viewBox="0 0 1600 1500" xmlns="http://www.w3.org/2000/svg" aria-labelledby="title desc" role="img">
+      <title id="title">V1 Architecture Diagram</title>
+      <desc id="desc">Схема пайплайна генерации README для учебного проекта с оркестратором, state store, human gates и контуром валидации.</desc>
+
+      <defs>
+        <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#444444" />
+        </marker>
+        <marker id="arrowSoft" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#7a7a7a" />
+        </marker>
+      </defs>
+
+      <rect x="250" y="260" width="1080" height="800" class="dashed"/>
+      <text x="274" y="290" class="title">V1 генерационный контур</text>
+
+      <rect x="70" y="90" width="250" height="90" class="box input"/>
+      <text x="195" y="124" text-anchor="middle" class="label">УП / Project form</text>
+      <text x="195" y="148" text-anchor="middle" class="small">машиночитаемый вход</text>
+
+      <rect x="365" y="90" width="340" height="100" class="box input"/>
+      <text x="535" y="122" text-anchor="middle" class="label">Предобработка входа</text>
+      <text x="535" y="146" text-anchor="middle" class="small">summary проекта, первичное описание,</text>
+      <text x="535" y="166" text-anchor="middle" class="small">нормализация полей</text>
+
+      <rect x="820" y="60" width="230" height="92" class="box knowledge"/>
+      <text x="935" y="94" text-anchor="middle" class="label">Граф предметной</text>
+      <text x="935" y="116" text-anchor="middle" class="label">области</text>
+      <text x="935" y="138" text-anchor="middle" class="tiny">зависимости тем</text>
+
+      <rect x="820" y="175" width="230" height="92" class="box knowledge"/>
+  <text x="935" y="209" text-anchor="middle" class="label">Контекст УП</text>
+      <text x="935" y="231" text-anchor="middle" class="label">проектов</text>
+
+      <rect x="1075" y="175" width="250" height="92" class="box knowledge"/>
+      <text x="1200" y="208" text-anchor="middle" class="label">Справочники</text>
+      <text x="1200" y="232" text-anchor="middle" class="small">навыки, темы, артефакты</text>
+
+      <rect x="1075" y="60" width="250" height="92" class="box knowledge"/>
+      <text x="1200" y="91" text-anchor="middle" class="label">Didactics manifest</text>
+      <text x="1200" y="115" text-anchor="middle" class="small">правила, tone, thresholds,</text>
+      <text x="1200" y="135" text-anchor="middle" class="small">контракты валидаторов</text>
+
+      <rect x="40" y="365" width="190" height="82" class="box human"/>
+      <text x="135" y="397" text-anchor="middle" class="label">Человек</text>
+      <text x="135" y="421" text-anchor="middle" class="small">методолог / автор</text>
+
+      <rect x="40" y="482" width="190" height="82" class="box human"/>
+      <text x="135" y="516" text-anchor="middle" class="label">Чат LLM</text>
+      <text x="135" y="538" text-anchor="middle" class="small">ассистент</text>
+
+      <rect x="290" y="420" width="260" height="92" class="box human"/>
+      <text x="420" y="454" text-anchor="middle" class="label">Сценарий работы</text>
+      <text x="420" y="478" text-anchor="middle" class="small">1. Новый проект из УП</text>
+      <text x="420" y="498" text-anchor="middle" class="small">2. Правки / пересборка</text>
+
+      <rect x="590" y="420" width="270" height="92" class="box knowledge"/>
+      <text x="725" y="452" text-anchor="middle" class="label">Контекстные источники</text>
+      <text x="725" y="476" text-anchor="middle" class="small">граф предметной области,</text>
+  <text x="725" y="496" text-anchor="middle" class="small">УП, справочники</text>
+
+      <rect x="900" y="420" width="320" height="92" class="box knowledge"/>
+      <text x="1060" y="452" text-anchor="middle" class="label">Правила генерации</text>
+      <text x="1060" y="476" text-anchor="middle" class="small">общие материалы, manifest,</text>
+      <text x="1060" y="496" text-anchor="middle" class="small">правила взаимодействия блоков</text>
+
+      <rect x="690" y="545" width="220" height="92" class="box core"/>
+      <text x="800" y="576" text-anchor="middle" class="label">Orchestrator</text>
+      <text x="800" y="600" text-anchor="middle" class="small">управляет шагами,</text>
+      <text x="800" y="620" text-anchor="middle" class="small">принимает решения</text>
+
+      <rect x="690" y="665" width="220" height="92" class="box core"/>
+      <text x="800" y="698" text-anchor="middle" class="label">Project State Store</text>
+      <text x="800" y="722" text-anchor="middle" class="small">ContextBundle, ProjectSpec,</text>
+      <text x="800" y="742" text-anchor="middle" class="small">Blueprint, Drafts, Reports</text>
+
+      <rect x="420" y="675" width="210" height="82" class="box core"/>
+      <text x="525" y="705" text-anchor="middle" class="label">Context gate</text>
+      <text x="525" y="728" text-anchor="middle" class="small">человек подтверждает</text>
+      <text x="525" y="746" text-anchor="middle" class="small">спорный контекст</text>
+
+      <rect x="690" y="790" width="220" height="82" class="box core"/>
+      <text x="800" y="820" text-anchor="middle" class="label">ProjectSpec Builder</text>
+      <text x="800" y="844" text-anchor="middle" class="small">внутренняя спецификация</text>
+
+      <rect x="420" y="790" width="210" height="82" class="box core"/>
+      <text x="525" y="820" text-anchor="middle" class="label">ProjectSpec gate</text>
+      <text x="525" y="844" text-anchor="middle" class="small">согласование смысла</text>
+
+      <rect x="690" y="905" width="220" height="82" class="box core"/>
+      <text x="800" y="935" text-anchor="middle" class="label">Blueprint Builder</text>
+      <text x="800" y="959" text-anchor="middle" class="small">каркас будущего README</text>
+
+      <rect x="420" y="905" width="210" height="82" class="box core"/>
+      <text x="525" y="935" text-anchor="middle" class="label">Blueprint gate</text>
+      <text x="525" y="959" text-anchor="middle" class="small">проверка структуры</text>
+
+      <rect x="955" y="900" width="250" height="105" class="box core"/>
+      <text x="1080" y="930" text-anchor="middle" class="label">Section Generator</text>
+      <text x="1080" y="954" text-anchor="middle" class="small">введение, теория, практика,</text>
+      <text x="1080" y="974" text-anchor="middle" class="small">артефакты, критерии,</text>
+      <text x="1080" y="994" text-anchor="middle" class="small">ожидаемый результат</text>
+
+      <rect x="960" y="1035" width="240" height="84" class="box core"/>
+      <text x="1080" y="1068" text-anchor="middle" class="label">Validation Engine</text>
+      <text x="1080" y="1092" text-anchor="middle" class="small">внутренние проверки</text>
+
+      <rect x="660" y="1035" width="220" height="84" class="box core"/>
+      <text x="770" y="1068" text-anchor="middle" class="label">Revision Engine</text>
+      <text x="770" y="1092" text-anchor="middle" class="small">точечные исправления</text>
+
+      <rect x="960" y="1145" width="240" height="84" class="box core"/>
+      <text x="1080" y="1178" text-anchor="middle" class="label">Assembly Builder</text>
+      <text x="1080" y="1202" text-anchor="middle" class="small">склейка, стиль, цельность</text>
+
+      <rect x="960" y="1255" width="240" height="92" class="box core"/>
+      <text x="1080" y="1286" text-anchor="middle" class="label">Final Acceptance</text>
+      <text x="1080" y="1310" text-anchor="middle" class="small">глобальные критерии,</text>
+      <text x="1080" y="1330" text-anchor="middle" class="small">финальная приемка</text>
+
+      <rect x="960" y="1375" width="240" height="92" class="box input"/>
+      <text x="1080" y="1407" text-anchor="middle" class="label">Export Package</text>
+      <text x="1080" y="1431" text-anchor="middle" class="small">README, checklist, rubric,</text>
+      <text x="1080" y="1451" text-anchor="middle" class="small">trace, файлы проекта</text>
+
+      <rect x="1300" y="1390" width="220" height="72" class="box input"/>
+      <text x="1410" y="1420" text-anchor="middle" class="label">Проверка целостности</text>
+      <text x="1410" y="1443" text-anchor="middle" class="small">финальный sanity check</text>
+
+      <path d="M 320 135 L 365 135" class="arrow"/>
+      <path d="M 535 190 L 535 420" class="arrow"/>
+
+      <path d="M 935 152 L 935 420" class="soft-arrow"/>
+      <path d="M 935 267 L 935 420" class="soft-arrow"/>
+      <path d="M 1075 221 L 860 221 L 860 420" class="soft-arrow"/>
+      <path d="M 1075 106 L 900 106 L 900 420" class="soft-arrow"/>
+
+      <path d="M 230 406 L 290 456" class="arrow"/>
+      <path d="M 230 523 L 290 476" class="arrow"/>
+
+      <path d="M 550 466 L 690 591" class="arrow"/>
+      <path d="M 725 512 L 725 545" class="soft-arrow"/>
+      <path d="M 900 466 L 910 466 L 910 591" class="soft-arrow"/>
+
+      <path d="M 800 637 L 800 665" class="arrow"/>
+      <path d="M 690 711 L 630 711" class="arrow"/>
+      <path d="M 525 757 L 525 790" class="arrow"/>
+      <path d="M 630 831 L 690 831" class="arrow"/>
+      <path d="M 800 872 L 800 905" class="arrow"/>
+      <path d="M 690 946 L 630 946" class="arrow"/>
+      <path d="M 630 946 L 630 946" class="arrow"/>
+      <path d="M 630 946 L 690 946" class="arrow"/>
+      <path d="M 910 946 L 955 946" class="arrow"/>
+      <path d="M 1080 1005 L 1080 1035" class="arrow"/>
+
+      <path d="M 960 1077 L 880 1077" class="arrow"/>
+      <path d="M 770 1035 L 770 995 L 955 995" class="arrow"/>
+
+      <path d="M 1080 1119 L 1080 1145" class="arrow"/>
+      <path d="M 1080 1229 L 1080 1255" class="arrow"/>
+      <path d="M 1080 1347 L 1080 1375" class="arrow"/>
+      <path d="M 1200 1421 L 1300 1421" class="arrow"/>
+
+      <path d="M 135 447 L 135 675 L 420 675" class="soft-arrow"/>
+      <path d="M 135 447 L 135 790 L 420 790" class="soft-arrow"/>
+      <path d="M 135 447 L 135 905 L 420 905" class="soft-arrow"/>
+    </svg>
+  </div>
+</body>
+</html>

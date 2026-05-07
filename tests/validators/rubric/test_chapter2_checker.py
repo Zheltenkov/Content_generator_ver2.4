@@ -1,0 +1,75 @@
+import re
+
+from content_gen.validators.rubric.chapter2_checker import Chapter2Checker
+
+
+def _checker() -> Chapter2Checker:
+    return Chapter2Checker(
+        language="ru",
+        regex_patterns={"rx_theory_part": re.compile(r"^###\s+Часть\s+\d+\.\s+.+$", re.M)},
+    )
+
+
+def _prose(topic: str) -> str:
+    sentence = (
+        f"**{topic}** — это рабочий элемент планирования, который помогает команде "
+        "связать цель, ограничения, зависимости, дорожную карту и ожидаемый результат. "
+        "В учебном проекте студент анализирует исходные факты, выделяет решения, "
+        "уточняет порядок работ и объясняет, как выбранная структура помогает команде "
+        "контролировать сроки, риски и следующий шаг. "
+    )
+    return sentence * 3
+
+
+def test_theory_volume_counts_prose_without_tables_or_mermaid() -> None:
+    table = "\n".join(
+        [
+            "| Очень длинная колонка | Еще одна длинная колонка |",
+            "| --- | --- |",
+            "| " + "данные " * 80 + " | " + "пояснение " * 80 + " |",
+        ]
+    )
+    diagram = "```mermaid\nflowchart TD\nA[Очень длинная подпись] --> B[Еще одна подпись]\n```"
+    ch2 = f"""
+### Часть 1. Бэклог
+{_prose("Бэклог")}
+{table}
+{diagram}
+**Пример:** Внешний пример не входит в лимит основной теории.
+
+### Часть 2. Дорожная карта
+{_prose("Дорожная карта")}
+{table}
+
+### Часть 3. Диаграмма Ганта
+{_prose("Диаграмма Ганта")}
+{diagram}
+"""
+
+    items = _checker().check(ch2, learning_outcomes=["умеет строить дорожную карту и диаграмму ганта"])
+
+    volume_item = next(item for item in items if item.id == "2.4.3")
+    lo_item = next(item for item in items if item.id == "2.4.5")
+    assert volume_item.score == 1
+    assert lo_item.score == 1
+    assert lo_item.details["coverage_percent"] >= 50
+
+
+def test_lo_coverage_reports_missing_evidence_without_llm() -> None:
+    ch2 = f"""
+### Часть 1. Бэклог
+{_prose("Бэклог")}
+
+### Часть 2. Дорожная карта
+{_prose("Дорожная карта")}
+
+### Часть 3. Диаграмма Ганта
+{_prose("Диаграмма Ганта")}
+"""
+
+    items = _checker().check(ch2, learning_outcomes=["умеет настраивать Kubernetes deployment и Helm chart"])
+
+    lo_item = next(item for item in items if item.id == "2.4.5")
+    assert lo_item.score == 0
+    assert lo_item.details["missing"]
+    assert "Недостаточно evidence" in lo_item.comments[0]

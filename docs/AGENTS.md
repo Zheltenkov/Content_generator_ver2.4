@@ -1,0 +1,109 @@
+# Агентная Система Content Generator
+
+## Обзор
+
+Content Generator использует оркестрацию через `AgentFlow`, но в текущем production-контуре это не "свободная мультиагентность", а управляемый пайплайн с явными фазами и typed state.
+
+Ключевой принцип:
+
+- deterministic orchestration в `orchestrator.py` и `flow.yaml`;
+- специализированные агенты только для отдельных шагов генерации;
+- контекст проекта приходит из `curriculum_context`, а не из локального retrieval-контура.
+
+## Основной Контур
+
+Фактический runtime-пайплайн:
+
+1. `context`
+   Фаза собирает `ProjectSeed`, `ProjectContextMeta`, `ContextAnalysisResult` и `ProjectContextBundle` из входного seed и контекста учебного плана.
+2. `task_planning`
+   Определение числа задач и сложности.
+3. `skeleton`
+   Создание каркаса README.
+4. `theory`
+   Генерация теории с проверками и локальными repair-pass.
+5. `practice`
+   Генерация практики.
+6. `global_quality`
+   Глобальная редактура и доводка.
+7. `antiplag`
+   Проверка на плагиат.
+8. `evaluation`
+   Рубрическая оценка.
+9. `translate`
+   Перевод после оценки.
+10. `finalize`
+   Сбор результата, архивных артефактов и метаданных.
+
+## Роли Компонентов
+
+### Orchestrator
+
+Файл: `content_gen/orchestrator.py`
+
+Отвечает за:
+
+- запуск flow;
+- перенос состояния между узлами;
+- финальную сборку отчёта;
+- сериализацию `flow_trace`;
+- упаковку артефактов.
+
+### OrchestratorPhases
+
+Файл: `content_gen/orchestrator_phases.py`
+
+Это application-layer фасад над агентами и валидаторами. Он не должен скрывать бизнес-логику в prompt-only виде: каждая фаза остаётся отдельной функцией/модулем.
+
+### Agents
+
+Директория: `content_gen/agents/`
+
+Production-значимые агенты:
+
+- `SkeletonAgent`
+- `IntroRulesAgent`
+- `TheoryAgent`
+- `PracticeAgent`
+- `TaskPlanner`
+- `TitleAnnotationAgent`
+- `ContentEditorAgent`
+- `StyleGuardAgent`
+- `AntiPlagiarismAgent`
+- `TranslatorAgent`
+- `RegenerationAgent`
+
+Служебные агенты:
+
+- `DatasetGeneratorAgent`
+  Генерирует файлы данных для практических задач.
+
+## Structured Outputs
+
+Файл: `content_gen/llm/structured_output.py`
+
+Structured Outputs применяются там, где ответ модели критичен по контракту. Основной принцип:
+
+- schema-first;
+- Pydantic как доменный контракт;
+- fallback/repair вне промпта, в коде.
+
+## Что Удалено Из Runtime
+
+Из production-контура выведены:
+
+- локальный каталог `data/` как источник контекста;
+- обязательный bootstrap локального retrieval-индекса;
+- старые фасады локального контекстного поиска.
+
+Это важно для handoff:
+
+- devops не должен поднимать локальный индекс как обязательную часть сервиса;
+- отсутствие локального markdown-корпуса больше не считается ошибкой запуска;
+- контекстный контракт теперь проходит через входной `seed`.
+
+## Связанные Документы
+
+- [ARCHITECTURE.md](ARCHITECTURE.md)
+- [CRITERIA.md](CRITERIA.md)
+- [API.md](API.md)

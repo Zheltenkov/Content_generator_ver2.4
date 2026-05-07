@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎓 Школа 21 — Выбор режима</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <style>
+        .mode-container {
+            max-width: 900px;
+            margin: 4rem auto;
+            padding: 2rem;
+            background: rgba(10, 14, 39, 0.9);
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+            border: 1px solid rgba(118, 75, 162, 0.4);
+            text-align: center;
+        }
+        .mode-header h1 {
+            color: #64ffda;
+            margin-bottom: 0.5rem;
+        }
+        .mode-header p {
+            color: #b8c5d6;
+            margin-bottom: 2rem;
+        }
+        .mode-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 1.5rem;
+        }
+        .mode-card {
+            background: rgba(20, 25, 50, 0.8);
+            border-radius: 10px;
+            padding: 1.5rem;
+            border: 1px solid rgba(118, 75, 162, 0.4);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            text-align: left;
+        }
+        .mode-card h2 {
+            color: #e0e6ed;
+            margin-bottom: 0.5rem;
+        }
+        .mode-card p {
+            color: #b8c5d6;
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+        .mode-card ul {
+            color: #b8c5d6;
+            font-size: 0.9rem;
+            margin-left: 1.25rem;
+            margin-bottom: 1rem;
+        }
+        .mode-card .btn {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="mode-container">
+            <div class="mode-header">
+                <h1>🎓 Генератор учебных проектов</h1>
+                <p>Выберите режим работы</p>
+            </div>
+            <div class="mode-grid">
+                <div class="mode-card">
+                    <h2>🚀 Генерация README</h2>
+                    <p>Полный пайплайн: от задумки до итогового README с теорией, практикой и критериями.</p>
+                    <ul>
+          <li>Анализ учебного плана и ЗУНов</li>
+                        <li>План практики, задачи и критерии</li>
+                        <li>Диаграммы, формулы, отчёты</li>
+                    </ul>
+                    <button class="btn" onclick="goToGenerator()">Перейти к генератору</button>
+                </div>
+                <div class="mode-card">
+                    <h2>✅ Проверка README</h2>
+                    <p>Загрузите готовый README.md и получите разбор по всем критериям с комментариями.</p>
+                    <ul>
+                        <li>Все 39 критериев проверки</li>
+                        <li>Комментарии, что улучшить и почему</li>
+                        <li>Текстовые метрики и структура</li>
+                    </ul>
+                    <button class="btn" onclick="goToChecker()">Перейти к проверке</button>
+                </div>
+                <div class="mode-card">
+                    <h2>🌐 Перевод README</h2>
+                    <p>Переведите любой README или другой markdown-документ на нужный язык с сохранением структуры.</p>
+                    <ul>
+                        <li>Сохранение структуры Markdown и формул</li>
+                        <li>Поддержка диаграмм Mermaid и таблиц</li>
+                        <li>Скачивание переведённого README</li>
+                    </ul>
+                    <button class="btn" onclick="goToTranslator()">Перейти к переводу</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        // Простейшая проверка токена: если его нет — отправляем на / (login)
+        (function() {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                window.location.replace('/');
+                return;
+            }
+        })();
+
+        function goToGenerator() {
+            window.location.href = '/app/generate';
+        }
+
+        function goToChecker() {
+            window.location.href = '/app/check';
+        }
+
+        function goToTranslator() {
+            window.location.href = '/app/translate';
+        }
+    </script>
+</body>
+</html>
+

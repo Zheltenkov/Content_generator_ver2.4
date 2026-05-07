@@ -1,0 +1,327 @@
+"""Главное FastAPI приложение."""
+
+import asyncio
+import os
+from pathlib import Path
+
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
+
+from api.db.session import get_database_status, init_db
+from api.middleware.activity_tracking import ActivityTrackingMiddleware
+from api.middleware.request_logging import RequestLoggingMiddleware
+from api.routers import (
+    admin,
+    auth,
+    curriculum,
+    download,
+    excel_parser,
+    generation,
+    health,
+    metrics,
+    readme_check,
+    readme_improvement,
+    readme_translate,
+    regeneration,
+    thematic_blocks,
+)
+from api.utils.logger import setup_logging
+
+# Настраиваем логирование
+logger = setup_logging(level=os.getenv("LOG_LEVEL", "INFO"))
+
+# Инициализация rate limiter
+limiter = Limiter(key_func=get_remote_address)
+
+app = FastAPI(
+    title="Content Generator API",
+    version="1.0.0",
+    description="API для генерации учебного контента для Школы 21"
+)
+
+# Добавляем rate limiter в app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Применяем rate limiting к роутеру generation
+from slowapi.middleware import SlowAPIMiddleware
+
+app.add_middleware(SlowAPIMiddleware)
+
+# Добавляем middleware для логирования запросов
+# Важно: должен быть после rate limiting, но до других middleware
+app.add_middleware(RequestLoggingMiddleware)
+
+# Добавляем middleware для отслеживания активности пользователей
+# Обновляем активность не чаще чем раз в минуту
+update_interval = int(os.getenv("ACTIVITY_UPDATE_INTERVAL_SECONDS", "60"))
+app.add_middleware(ActivityTrackingMiddleware, update_interval_seconds=update_interval)
+
+# CORS (настраивается через переменные окружения)
+# Для ПК-версии: по умолчанию разрешаем только локальные адреса
+default_cors_origins = "http://localhost:8000,http://127.0.0.1:8000,http://localhost:3000,http://127.0.0.1:3000"
+cors_origins = os.getenv("CORS_ORIGINS", default_cors_origins).split(",")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
+# Статические файлы (UI)
+static_dir = Path("static")
+if static_dir.exists():
+    static_path = static_dir.absolute()
+    logger.info(f"📁 Статические файлы: {static_path}")
+
+    # Определяем роуты для HTML страниц ПЕРЕД mount статических файлов
+    @app.get("/")
+    async def read_root():
+        """Главная страница с UI."""
+        login_path = static_path / "login.html"
+        logger.debug(f"🔍 Запрос главной страницы, путь: {login_path}")
+        if not login_path.exists():
+            logger.error(f"❌ Файл login.html не найден: {login_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл login.html не найден: {login_path}"}
+            )
+        logger.debug(f"✅ Возвращаем login.html: {login_path}")
+        return FileResponse(str(login_path))
+
+    @app.get("/register")
+    async def read_register():
+        """Страница регистрации."""
+        register_path = static_path / "register.html"
+        if not register_path.exists():
+            logger.error(f"❌ Файл register.html не найден: {register_path}")
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Страница регистрации не найдена"}
+            )
+        return FileResponse(str(register_path))
+
+    @app.get("/forgot-password")
+    async def read_forgot_password():
+        """Страница восстановления пароля."""
+        forgot_path = static_path / "forgot-password.html"
+        if not forgot_path.exists():
+            logger.error(f"❌ Файл forgot-password.html не найден: {forgot_path}")
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Страница восстановления пароля не найдена"}
+            )
+        return FileResponse(str(forgot_path))
+
+    @app.get("/reset-password")
+    async def read_reset_password():
+        """Страница сброса пароля по токену."""
+        reset_path = static_path / "reset-password.html"
+        if not reset_path.exists():
+            logger.error(f"❌ Файл reset-password.html не найден: {reset_path}")
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "Страница сброса пароля не найдена"}
+            )
+        return FileResponse(str(reset_path))
+
+    # Mount статических файлов ПОСЛЕ определения роутов
+    app.mount("/static", StaticFiles(directory=str(static_path)), name="static")
+
+    @app.get("/app")
+    async def read_app():
+        """Страница выбора режима после аутентификации."""
+        app_path = static_path / "app.html"
+        if not app_path.exists():
+            logger.error(f"❌ Файл app.html не найден: {app_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл app.html не найден: {app_path}"}
+            )
+        return FileResponse(str(app_path))
+
+    @app.get("/app/generate")
+    async def read_app_generate():
+        """Страница генератора README."""
+        index_path = static_path / "index.html"
+        if not index_path.exists():
+            logger.error(f"❌ Файл index.html не найден: {index_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл index.html не найден: {index_path}"}
+            )
+        return FileResponse(str(index_path))
+
+    @app.get("/app/check")
+    async def read_app_check():
+        """Страница проверки README."""
+        checker_path = static_path / "checker.html"
+        if not checker_path.exists():
+            logger.error(f"❌ Файл checker.html не найден: {checker_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл checker.html не найден: {checker_path}"}
+            )
+        return FileResponse(str(checker_path))
+
+    @app.get("/app/translate")
+    async def read_app_translate():
+        """Страница перевода README."""
+        translator_path = static_path / "translator.html"
+        if not translator_path.exists():
+            logger.error(f"❌ Файл translator.html не найден: {translator_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл translator.html не найден: {translator_path}"},
+            )
+        return FileResponse(str(translator_path))
+else:
+    logger.warning(f"⚠️ Директория static не найдена: {static_dir.absolute()}")
+
+# Роутеры
+app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+app.include_router(generation.router, prefix="/api/v1", tags=["generation"])
+app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(regeneration.router, prefix="/api/v1", tags=["regeneration"])
+app.include_router(download.router, prefix="/api/v1", tags=["download"])
+app.include_router(metrics.router, prefix="/api/v1", tags=["metrics"])
+app.include_router(thematic_blocks.router, prefix="/api/v1", tags=["thematic-blocks"])
+app.include_router(excel_parser.router, prefix="/api/v1", tags=["excel"])
+app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+app.include_router(readme_check.router, prefix="/api/v1", tags=["readme-check"])
+app.include_router(readme_improvement.router, prefix="/api/v1", tags=["readme-improvement"])
+app.include_router(readme_translate.router, prefix="/api/v1", tags=["readme-translate"])
+app.include_router(curriculum.router, prefix="/api/v1", tags=["curriculum"])
+
+# Reverse extraction router
+from api.routers import reverse_extraction
+
+app.include_router(reverse_extraction.router, prefix="/api/v1", tags=["reverse-extraction"])
+
+# Limiter уже настроен в generation.py через декоратор
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Глобальный обработчик исключений для возврата понятных ошибок."""
+    logger.error(f"❌ Необработанное исключение: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": f"Внутренняя ошибка сервера: {str(exc)}",
+            "type": type(exc).__name__
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Обработчик ошибок валидации."""
+    logger.warning(f"⚠️ Ошибка валидации запроса: {exc}")
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "detail": exc.errors(),
+            "body": exc.body
+        }
+    )
+
+
+@app.on_event("startup")
+async def startup_event():
+    """События при запуске приложения."""
+    logger.info("🚀 FastAPI приложение запущено")
+    logger.info(f"📝 Режим: {'development' if os.getenv('RELOAD', 'true').lower() == 'true' else 'production'}")
+    logger.info(f"🌐 CORS origins: {os.getenv('CORS_ORIGINS', '*')}")
+
+    # Убеждаемся, что таблицы БД созданы
+    try:
+        init_db()
+        logger.info("✅ База данных инициализирована")
+    except Exception as e:
+        db_status = get_database_status()
+        logger.error(
+            "⚠️ Ошибка при инициализации БД: target=%s error=%s",
+            db_status.get("target"),
+            db_status.get("error") or str(e),
+        )
+
+    # Запускаем периодическую очистку старых логов
+    cleanup_task = None
+
+    async def periodic_log_cleanup():
+        """Периодическая очистка старых логов из БД."""
+        from api.db.logging_db import cleanup_old_logs_async
+
+        # Интервал очистки: каждые 6 часов
+        cleanup_interval = 6 * 60 * 60  # 6 часов в секундах
+        # Количество дней для хранения логов (по умолчанию 1)
+        days_to_keep = int(os.getenv("LOG_RETENTION_DAYS", "1"))
+
+        try:
+            while True:
+                try:
+                    await asyncio.sleep(cleanup_interval)
+                    logger.info(f"🧹 Начинаем очистку старых логов (старше {days_to_keep} дней)...")
+                    deleted_count = await cleanup_old_logs_async(days_to_keep=days_to_keep)
+                    if deleted_count > 0:
+                        logger.info(f"✅ Удалено {deleted_count} старых записей логов")
+                    else:
+                        logger.debug("ℹ️ Старых логов для удаления не найдено")
+                except asyncio.CancelledError:
+                    logger.info("🛑 Задача очистки логов отменена")
+                    raise
+                except Exception as e:
+                    logger.error(f"❌ Ошибка при очистке старых логов: {e}", exc_info=True)
+                    # При ошибке ждем 1 час перед следующей попыткой
+                    try:
+                        await asyncio.sleep(3600)
+                    except asyncio.CancelledError:
+                        logger.info("🛑 Задача очистки логов отменена")
+                        raise
+        except asyncio.CancelledError:
+            logger.info("🛑 Задача очистки логов завершена")
+            raise
+
+    # Запускаем фоновую задачу очистки
+    cleanup_task = asyncio.create_task(periodic_log_cleanup())
+    logger.info("✅ Периодическая очистка логов запущена (каждые 6 часов)")
+
+    # Сохраняем задачу для корректного завершения
+    app.state.cleanup_task = cleanup_task
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """События при остановке приложения."""
+    logger.info("🛑 Начало корректного завершения работы приложения...")
+
+    # Отменяем фоновую задачу очистки логов
+    try:
+        cleanup_task = getattr(app.state, 'cleanup_task', None)
+        if cleanup_task and not cleanup_task.done():
+            cleanup_task.cancel()
+            try:
+                await cleanup_task
+            except asyncio.CancelledError:
+                pass
+            logger.info("✅ Фоновая задача очистки логов отменена")
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка при отмене задачи очистки: {e}")
+
+    # Закрываем пул потоков для логирования
+    try:
+        from api.db.logging_db import _executor
+        _executor.shutdown(wait=False, cancel_futures=True)
+        logger.info("✅ Пул потоков для логирования закрыт")
+    except Exception as e:
+        logger.warning(f"⚠️ Ошибка при закрытии пула потоков: {e}")
+
+    logger.info("🛑 FastAPI приложение корректно остановлено")

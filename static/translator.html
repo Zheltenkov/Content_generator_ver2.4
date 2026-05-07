@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🌐 Перевод README - Школа 21</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        window.MathJax = window.MathJax || {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            chtml: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            svg: {
+                displayAlign: 'center',
+                displayIndent: '0',
+                scale: 1.18
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+                ignoreHtmlClass: 'tex2jax_ignore',
+                processHtmlClass: 'tex2jax_process'
+            }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <link rel="stylesheet" href="/static/css/styles.css">
+    <!-- Утилиты для UI -->
+    <script src="/static/js/utils/sanitize.js"></script>
+    <script src="/static/js/utils/toast.js"></script>
+    <script src="/static/js/utils/modal.js"></script>
+    <script src="/static/js/utils/loading.js"></script>
+    <script src="/static/js/utils/validation.js"></script>
+</head>
+<body>
+    <div class="header">
+        <h1>🌐 Перевод README и субтитров</h1>
+        <p>Переведите документ (Markdown) или загрузите видео — получите субтитры на выбранном языке</p>
+    </div>
+
+    <div class="container">
+        <div class="two-columns">
+            <!-- Левая колонка: исходные данные -->
+            <div class="column">
+                <div class="form-group">
+                    <label>Режим</label>
+                    <div style="display: flex; gap: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.35rem;">
+                            <input type="radio" name="translationModeSource" value="document" id="translationSourceDocument" checked onchange="toggleTranslationSourceMode()">
+                            <span>Документ (README/Markdown)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 0.35rem;">
+                            <input type="radio" name="translationModeSource" value="video" id="translationSourceVideo" onchange="toggleTranslationSourceMode()">
+                            <span>Видео (субтитры)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="translationDocumentBlock">
+                <h2>📝 Исходный документ</h2>
+
+                <div class="form-group">
+                    <label>Загрузите README/Markdown файл</label>
+                    <div class="file-upload" onclick="document.getElementById('translationFile').click()">
+                        <input type="file" id="translationFile" accept=".md,.markdown,.txt" onchange="handleTranslationFileSelect(event)">
+                        <p>📁 Нажмите для загрузки файла</p>
+                        <small id="translationFileName"></small>
+                    </div>
+                    <small style="color: #8892b0; display: block; margin-top: 0.25rem;">Только файлы .md отображаются с разметкой Markdown; остальные файлы и вставленный текст — как обычный текст.</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Или вставьте markdown вручную</label>
+                    <textarea id="translationInput" rows="10" placeholder="Вставьте здесь содержимое README или другого markdown-документа..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label>Режим перевода</label>
+                    <select id="translationMode">
+                        <option value="literal">Дословный — максимально точный перевод</option>
+                        <option value="combined">Комбинация версий — дословный + улучшение читаемости</option>
+                    </select>
+                    <small style="color: #8892b0; display: block; margin-top: 0.25rem;">
+                        «Комбинация»: сначала дословный перевод, затем переписывание для стиля и объединение двух версий (дольше по времени).
+                    </small>
+                </div>
+                </div>
+
+                <div id="translationVideoBlock" style="display: none;">
+                <h2>Видео для субтитров</h2>
+                <div class="form-group">
+                    <label>Загрузите видео</label>
+                    <div class="file-upload" onclick="document.getElementById('translationVideoFile').click()">
+                        <input type="file" id="translationVideoFile" accept=".mp4,.webm,.mov,.avi,.mkv,.m4v" onchange="handleTranslationVideoSelect(event)">
+                        <p>Нажмите для загрузки видео</p>
+                        <small id="translationVideoFileName"></small>
+                    </div>
+                    <small style="color: #8892b0; display: block; margin-top: 0.25rem;">MP4, WebM, MOV, AVI, MKV. До 100 MB. Речь распознаётся (RU), переводится.</small>
+                </div>
+                <div class="form-group">
+                    <label>Результат</label>
+                    <select id="translationOutputMode">
+                        <option value="burned_video">Видео с вжёженными субтитрами</option>
+                        <option value="subtitles_only">Файлы субтитров VTT/SRT/ASS</option>
+                        <option value="both">Все вместе</option>
+                    </select>
+                    <small style="color: #8892b0; display: block; margin-top: 0.25rem;">Что выдавать по завершении: только видео, только файлы субтитров или и то и другое.</small>
+                </div>
+                <div id="translationUploadProgressContainer" style="display: none; margin-top: 0.5rem; padding: 0.4rem 0.5rem; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid rgba(100, 255, 218, 0.25);">
+                    <div id="translationUploadProgressLabel" style="color: #64ffda; margin-bottom: 0.25rem; font-size: 0.9rem;">Загрузка видео: 0%</div>
+                    <div style="width: 100%; height: 10px; background: rgba(100, 255, 218, 0.15); border-radius: 6px; overflow: hidden;">
+                        <div id="translationUploadProgressBar" style="height: 100%; width: 0%; background: #64ffda; transition: width 0.2s ease;"></div>
+                    </div>
+                </div>
+                </div>
+
+                <div class="form-group" id="translationTargetLanguageGroup">
+                    <label>Целевой язык перевода</label>
+                    <select id="translationLanguage">
+                        <option value="ru">ru - русский</option>
+                        <option value="en" selected>en - английский</option>
+                        <option value="kg">kg - киргизский</option>
+                        <option value="uz">uz - узбекский</option>
+                        <option value="tg">tg - таджикский</option>
+                    </select>
+                </div>
+
+                <div class="btn-group">
+                    <button class="btn" onclick="translateReadme()">🚀 Перевести</button>
+                    <button class="btn btn-secondary" onclick="clearTranslationForm()">🗑️ Очистить</button>
+                </div>
+
+                <div id="translationStatus" style="margin-top: 1rem;"></div>
+                <div id="translationProgressContainer" style="display: none; margin-top: 0.75rem; padding: 0.5rem; background: rgba(0,0,0,0.2); border-radius: 6px; border: 1px solid rgba(100, 255, 218, 0.3);">
+                    <div id="translationProgressPhase" style="color: #64ffda; margin-bottom: 0.35rem; font-size: 0.95rem;"></div>
+                    <div style="width: 100%; height: 12px; background: rgba(100, 255, 218, 0.15); border-radius: 6px; overflow: hidden;">
+                        <div id="translationProgressBar" style="height: 100%; width: 0%; background: #64ffda; transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="margin-top: 1.5rem;">
+                    <button class="btn btn-secondary" onclick="goToModeSelection()">⬅ Главное меню</button>
+                    <button class="btn btn-secondary" onclick="handleLogout()">🚪 Выйти</button>
+                </div>
+            </div>
+
+            <!-- Правая колонка: результат -->
+            <div class="column">
+                <h2>📊 Результат перевода</h2>
+
+                <div id="translationNoResults" class="info-box">
+                    <p>Загрузите документ и нажмите «Перевести», чтобы увидеть результат.</p>
+                </div>
+
+                <div id="translationResultsArea" style="display: none;">
+                    <div class="tabs">
+                        <button class="tab active" id="translationTabOriginalBtn" onclick="switchTranslationTab('original')">📄 Оригинал</button>
+                        <button class="tab" id="translationTabTranslatedBtn" onclick="switchTranslationTab('translated')">🌐 Перевод</button>
+                    </div>
+
+                    <div id="translationTabOriginal" class="tab-content active">
+                        <div id="translationOriginalContent" class="markdown-preview"></div>
+                    </div>
+
+                    <div id="translationTabTranslated" class="tab-content">
+                        <div id="translationTranslatedContent" class="markdown-preview"></div>
+                        <div class="divider"></div>
+                        <h3>Скачать</h3>
+                        <button class="btn" onclick="downloadTranslatedMarkdown()" id="downloadTranslatedMarkdownBtn">Скачать переведённый README</button>
+                        <div id="translationVideoDownloadSection" style="display: none;">
+                            <p style="margin-bottom: 0.5rem;">Скачать видео с переводом и субтитры:</p>
+                            <div class="btn-group" id="translationVideoDownloadLinks"></div>
+                        </div>
+                        <button class="btn" onclick="downloadTranslatedSubtitles()" id="downloadTranslatedSubtitlesBtn" style="display: none;">Скачать субтитры</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/main.js"></script>
+    <script>
+        (function () {
+            const token = localStorage.getItem('auth_token');
+            if (!token) {
+                window.location.replace('/');
+                return;
+            }
+        })();
+
+        function goToModeSelection() {
+            window.location.href = '/app';
+        }
+
+        function switchTranslationTab(tab) {
+            const originalBtn = document.getElementById('translationTabOriginalBtn');
+            const translatedBtn = document.getElementById('translationTabTranslatedBtn');
+            const originalTab = document.getElementById('translationTabOriginal');
+            const translatedTab = document.getElementById('translationTabTranslated');
+
+            if (!originalBtn || !translatedBtn || !originalTab || !translatedTab) {
+                return;
+            }
+
+            if (tab === 'original') {
+                originalBtn.classList.add('active');
+                translatedBtn.classList.remove('active');
+                originalTab.classList.add('active');
+                translatedTab.classList.remove('active');
+            } else {
+                originalBtn.classList.remove('active');
+                translatedBtn.classList.add('active');
+                originalTab.classList.remove('active');
+                translatedTab.classList.add('active');
+            }
+        }
+
+        function toggleTranslationSourceMode() {
+            const docBlock = document.getElementById('translationDocumentBlock');
+            const videoBlock = document.getElementById('translationVideoBlock');
+            const docRadio = document.getElementById('translationSourceDocument');
+            if (docBlock && videoBlock && docRadio) {
+                const isDoc = docRadio.checked;
+                docBlock.style.display = isDoc ? 'block' : 'none';
+                videoBlock.style.display = isDoc ? 'none' : 'block';
+            }
+        }
+
+        function handleTranslationVideoSelect(event) {
+            const input = event && event.target;
+            const label = document.getElementById('translationVideoFileName');
+            if (!input || !label) return;
+            const file = input.files && input.files[0];
+            if (file) {
+                label.textContent = 'Выбран файл: ' + file.name;
+            } else {
+                label.textContent = '';
+            }
+        }
+
+        function clearTranslationForm() {
+            const fileInput = document.getElementById('translationFile');
+            const fileName = document.getElementById('translationFileName');
+            const input = document.getElementById('translationInput');
+            const status = document.getElementById('translationStatus');
+
+            if (fileInput) {
+                fileInput.value = '';
+            }
+            if (fileName) {
+                fileName.textContent = '';
+            }
+            const videoInput = document.getElementById('translationVideoFile');
+            const videoFileName = document.getElementById('translationVideoFileName');
+            if (videoInput) videoInput.value = '';
+            if (videoFileName) videoFileName.textContent = '';
+            if (input) {
+                input.value = '';
+            }
+            if (status) {
+                status.innerHTML = '';
+            }
+
+            if (window.resetTranslationState) {
+                window.resetTranslationState();
+            }
+        }
+    </script>
+</body>
+</html>
