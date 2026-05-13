@@ -81,15 +81,8 @@ class LoadingManager {
         spinner.innerHTML = `
             <div class="spinner-wrapper">
                 <div class="spinner"></div>
-                <p style="margin-top: 1rem; color: #b8c5d6;">${message}</p>
+                <p class="loading-message">${message}</p>
             </div>
-        `;
-        spinner.style.cssText = `
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem;
-            min-height: 200px;
         `;
 
         if (container) {
@@ -125,24 +118,12 @@ class LoadingManager {
         progressBar.id = progressId;
         progressBar.className = 'progress-bar-container';
         progressBar.innerHTML = `
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.5rem;">
-                <span style="color: #b8c5d6; font-weight: 600;">${label}</span>
-                <span class="progress-percent" style="color: #64ffda; font-weight: 600;">0%</span>
+            <div class="progress-bar-head">
+                <span class="progress-label">${label}</span>
+                <span class="progress-percent">0%</span>
             </div>
-            <div class="progress-bar-track" style="
-                width: 100%;
-                height: 8px;
-                background: rgba(118, 75, 162, 0.2);
-                border-radius: 4px;
-                overflow: hidden;
-            ">
-                <div class="progress-bar-fill" style="
-                    height: 100%;
-                    width: 0%;
-                    background: linear-gradient(90deg, #764ba2 0%, #64ffda 100%);
-                    border-radius: 4px;
-                    transition: width 0.3s ease;
-                "></div>
+            <div class="progress-bar-track">
+                <div class="progress-bar-fill"></div>
             </div>
         `;
 
@@ -209,17 +190,7 @@ class LoadingManager {
             button.dataset.originalText = originalText || button.textContent;
             button.disabled = true;
             button.innerHTML = `
-                <span class="button-spinner" style="
-                    display: inline-block;
-                    width: 16px;
-                    height: 16px;
-                    border: 2px solid rgba(255,255,255,0.3);
-                    border-top-color: #fff;
-                    border-radius: 50%;
-                    animation: spin 0.6s linear infinite;
-                    margin-right: 0.5rem;
-                    vertical-align: middle;
-                "></span>
+                <span class="s21-button-spinner"></span>
                 ${button.dataset.originalText}
             `;
         } else {
@@ -227,47 +198,6 @@ class LoadingManager {
             button.textContent = button.dataset.originalText || originalText || 'Отправить';
         }
     }
-}
-
-// Добавляем CSS для spinner
-if (!document.getElementById('loading-styles')) {
-    const style = document.createElement('style');
-    style.id = 'loading-styles';
-    style.textContent = `
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .spinner-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .spinner {
-            width: 50px;
-            height: 50px;
-            border: 4px solid rgba(118, 75, 162, 0.3);
-            border-top-color: #64ffda;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-        }
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 2rem;
-        }
-        .loading .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(118, 75, 162, 0.3);
-            border-top-color: #64ffda;
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 1rem;
-        }
-    `;
-    document.head.appendChild(style);
 }
 
 // Создаем глобальный экземпляр

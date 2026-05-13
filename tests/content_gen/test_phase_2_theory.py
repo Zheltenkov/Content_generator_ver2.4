@@ -1,11 +1,9 @@
 from types import SimpleNamespace
 
 from content_gen.agents.theory import TheoryResult
+from content_gen.models.readme_document import ReadmeDocument
 from content_gen.models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
-from content_gen.orchestrator_phases_modules.phases.phase_2 import (
-    _remove_static_instruction_leaks,
-    phase_2_theory,
-)
+from content_gen.theory_phase_executor import TheoryPhaseExecutor, _remove_static_instruction_leaks
 from content_gen.validators.theory_checks import TheoryChecks
 
 
@@ -44,8 +42,64 @@ def _invalid_part(idx: int) -> TheoryPart:
     )
 
 
+def test_theory_executor_renders_theory_as_typed_document() -> None:
+    seed = _make_seed()
+    document = ReadmeDocument.from_markdown(
+        "# README\n\n"
+        "## Глава 2. Теоретический блок\n\n"
+        "Черновик.\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "Практика."
+    )
+    part = TheoryPart(
+        title="Коммуникация",
+        body=_valid_body(),
+        example="Команда фиксирует договоренности перед запуском.",
+        bridge_questions=["Что ты проверишь перед практикой?"],
+    )
+
+    updated = TheoryPhaseExecutor(SimpleNamespace()).render_document(document, [part], seed)
+
+    assert updated.section_by_title_fragment("2.1").title == "2.1. Коммуникация"
+    assert "Команда фиксирует договоренности" in updated.section_by_title_fragment("2.1").to_markdown()
+    assert updated.section_by_title_fragment("Глава 3") is not None
+
+
+def test_theory_executor_replaces_enhanced_theory_as_typed_document() -> None:
+    seed = _make_seed()
+    document = ReadmeDocument.from_markdown(
+        "# README\n\n"
+        "## Глава 2. Теоретический блок\n\n"
+        "Старый текст.\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "Практика."
+    )
+    enhanced = (
+        "# README\n\n"
+        "## Глава 2. Теоретический блок\n\n"
+        "Новая теория.\n\n"
+        "### 2.1. Новый раздел\n\n"
+        "Детали.\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "Практика."
+    )
+
+    updated = TheoryPhaseExecutor._replace_with_enhanced_theory_document(document, enhanced, seed)
+
+    assert updated.section_by_title_fragment("2.1").body == "Детали."
+    assert "Старый текст" not in updated.to_markdown()
+    assert updated.section_by_title_fragment("Глава 3") is not None
+
+
 class _TheoryAgentStub:
-    def generate(self, seed, context_meta, desired_parts=3):
+    def generate(
+        self,
+        seed,
+        context_meta,
+        desired_parts=3,
+        practice_plan_contract=None,
+        section_context=None,
+    ):
         return TheoryResult(parts=[_invalid_part(1), _invalid_part(2), _invalid_part(3)])
 
 
@@ -97,21 +151,25 @@ class _OrchestratorStub:
         self.progress_tracker = None
 
 
-def test_phase_2_theory_returns_only_final_issues_after_regeneration():
+def test_theory_executor_returns_only_final_issues_after_regeneration():
     orchestrator = _OrchestratorStub()
     seed = _make_seed()
     context_meta = ProjectContextMeta(track="PjM", thematic_block="PjM")
     markdown = "## Глава 2. Теоретический блок\n\nЧерновик\n\n## Глава 3. Практический блок\n"
 
-    updated_md, theory_parts, issues, warnings = phase_2_theory(orchestrator, seed, context_meta, markdown)
+    result = TheoryPhaseExecutor(orchestrator).execute(
+        seed,
+        context_meta,
+        markdown,
+    )
 
-    assert len(theory_parts) == 3
-    assert not [issue for issue in issues if getattr(issue, "severity", None) == "hard"]
-    assert "### 2.1." in updated_md
-    assert "### Часть 1." not in updated_md
-    assert "**Пример:**" in updated_md
-    assert "**Вопросы к практике:**" in updated_md
-    assert any("локальная коррекция сняла критические замечания" in warning for warning in warnings)
+    assert len(result.theory_parts) == 3
+    assert not [issue for issue in result.issues if getattr(issue, "severity", None) == "hard"]
+    assert "### 2.1." in result.markdown
+    assert "### Часть 1." not in result.markdown
+    assert "**Пример:**" in result.markdown
+    assert "**Вопросы к практике:**" in result.markdown
+    assert any("локальная коррекция сняла критические замечания" in warning for warning in result.warnings)
 
 
 def test_static_instruction_leak_is_removed_from_theory_body():

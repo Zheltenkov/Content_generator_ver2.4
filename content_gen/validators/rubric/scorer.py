@@ -5,6 +5,7 @@ import re
 
 from ...llm.client import LLMClient
 from ...models.criteria_models import CriteriaItem, CriteriaReport
+from ...models.readme_document import ReadmeDocument
 from ...embeddings import create_embedding_function
 from ...utils.logging import safe_print
 from ...utils.validation_cache import get_cache
@@ -44,8 +45,8 @@ class RubricScorer:
         self.rx_chapter1 = re.compile(r"^##\s+Глава\s+1[^\n]*\n", re.M)
         self.rx_chapter2 = re.compile(r"^##\s+Глава\s+2[^\n]*\n", re.M)
         self.rx_chapter3 = re.compile(r"^##\s+Глава\s+3[^\n]*\n", re.M)
-        self.rx_theory_part = re.compile(r"^###\s+(?:2\.\d+|Часть\s+\d+)\.", re.M)
-        self.rx_task = re.compile(r"^###\s+(?:Задание|Задача)\s+\d+\.", re.M)
+        self.rx_theory_part = re.compile(r"^###\s+2\.\d+\.", re.M)
+        self.rx_task = re.compile(r"^###\s+Задани(?:е|я)\s+\d+\.", re.M)
 
         # Директивы и маркетинговые триггеры
         from ...config.banned_phrases import BANNED_BY_LANG
@@ -98,15 +99,6 @@ class RubricScorer:
             regex_patterns=regex_patterns
         )
 
-    def run(self, input_data: dict[str, object]) -> dict[str, CriteriaReport]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        result = self.score(
-            md=input_data.get("md", ""),
-            learning_outcomes=input_data.get("learning_outcomes"),
-            use_cache=bool(input_data.get("use_cache", True)),
-        )
-        return {"result": result}
-
     def score(self, md: str, learning_outcomes: list[str] | None = None, use_cache: bool = True) -> CriteriaReport:
         """
         Оценивает проект по всем критериям.
@@ -129,20 +121,54 @@ class RubricScorer:
                 safe_print("  ✅ Результат валидации найден в кэше", flush=True)
                 return cached_report
 
+        report = self._score_sections(md, learning_outcomes=learning_outcomes)
+
+        # Сохраняем в кэш
+        if use_cache:
+            cache = get_cache()
+            cache.set(md, report, context={"learning_outcomes": learning_outcomes or []})
+
+        return report
+
+    def score_document(
+        self,
+        document: ReadmeDocument,
+        learning_outcomes: list[str] | None = None,
+        use_cache: bool = True,
+    ) -> CriteriaReport:
+        """Score a typed README document through typed checker entrypoints."""
+        md = document.to_markdown()
+        if use_cache:
+            cache = get_cache()
+            cached_report = cache.get(md, context={"learning_outcomes": learning_outcomes or []})
+            if cached_report is not None:
+                safe_print("  ✅ Результат валидации найден в кэше", flush=True)
+                return cached_report
+
+        report = self._score_sections(md, learning_outcomes=learning_outcomes, document=document)
+        if use_cache:
+            cache = get_cache()
+            cache.set(md, report, context={"learning_outcomes": learning_outcomes or []})
+        return report
+
+    def _score_sections(
+        self,
+        md: str,
+        *,
+        learning_outcomes: list[str] | None = None,
+        document: ReadmeDocument | None = None,
+    ) -> CriteriaReport:
+        """Run independent rubric sections against Markdown or typed document input."""
         items: list[CriteriaItem] = []
 
         safe_print("  📋 Начало проверки критериев (параллельный режим)...", flush=True)
 
-        # Параллельное выполнение независимых разделов
-        # Разделы 1, 2, 3, 4 независимы и могут выполняться параллельно
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            # Запускаем все проверки параллельно
-            future_section1 = executor.submit(self.section1_checker.check, md)
-            future_section2 = executor.submit(self.section2_checker.check, md, learning_outcomes)
-            future_section3 = executor.submit(self.section3_checker.check, md)
-            future_section4 = executor.submit(self.section4_checker.check, md)
+            future_section1 = executor.submit(self._check_section1, md, document)
+            future_section2 = executor.submit(self._check_section2, md, learning_outcomes, document)
+            future_section3 = executor.submit(self._check_section3, md, document)
+            future_section4 = executor.submit(self._check_section4, md, document)
 
-            # Ждем результаты и обрабатываем их по мере готовности
             safe_print("  📋 Раздел 1: Соответствие шаблону структуры (1.1-1.6)...", flush=True)
             section1_items = future_section1.result()
             items.extend(section1_items)
@@ -167,34 +193,58 @@ class RubricScorer:
             section4_score = sum(item.score for item in section4_items)
             safe_print(f"    ✅ Раздел 4: {section4_score}/{len(section4_items)} критериев пройдено", flush=True)
 
-        # Подсчет итогов
+        return self._build_report(items)
+
+    def _check_section1(self, md: str, document: ReadmeDocument | None) -> list[CriteriaItem]:
+        """Run Section 1 through typed checker when a document is available."""
+        if document is not None and hasattr(self.section1_checker, "check_document"):
+            return self.section1_checker.check_document(document)
+        return self.section1_checker.check(md)
+
+    def _check_section2(
+        self,
+        md: str,
+        learning_outcomes: list[str] | None,
+        document: ReadmeDocument | None,
+    ) -> list[CriteriaItem]:
+        """Run Section 2 through typed checker when a document is available."""
+        if document is not None and hasattr(self.section2_checker, "check_document"):
+            return self.section2_checker.check_document(document, learning_outcomes)
+        return self.section2_checker.check(md, learning_outcomes)
+
+    def _check_section3(self, md: str, document: ReadmeDocument | None) -> list[CriteriaItem]:
+        """Run Section 3 through typed checker when a document is available."""
+        if document is not None and hasattr(self.section3_checker, "check_document"):
+            return self.section3_checker.check_document(document)
+        return self.section3_checker.check(md)
+
+    def _check_section4(self, md: str, document: ReadmeDocument | None) -> list[CriteriaItem]:
+        """Run Section 4 through typed checker when a document is available."""
+        if document is not None and hasattr(self.section4_checker, "check_document"):
+            return self.section4_checker.check_document(document)
+        return self.section4_checker.check(md)
+
+    @staticmethod
+    def _build_report(items: list[CriteriaItem]) -> CriteriaReport:
+        """Build the final criteria report from section items."""
         total = sum(item.score for item in items)
         max_score = len(items)
-
-        # Проверяем, что все 39 критериев проверены
         if max_score != 39:
             safe_print(f"  ⚠️ Предупреждение: ожидалось 39 критериев, получено {max_score}", flush=True)
 
-        # Сводка по разделам
-        summary = {}
+        summary: dict[str, int] = {}
         for item in items:
-            section = item.id.split('.')[0]
+            section = item.id.split(".")[0]
             if section not in summary:
                 summary[section] = 0
             summary[section] += item.score
 
-        safe_print(f"  ✅ Проверка критериев завершена: {total}/{max_score} баллов ({total/max_score*100:.1f}%)", flush=True)
+        percent = total / max_score * 100 if max_score else 0.0
+        safe_print(f"  ✅ Проверка критериев завершена: {total}/{max_score} баллов ({percent:.1f}%)", flush=True)
 
-        report = CriteriaReport(
+        return CriteriaReport(
             items=items,
             total=total,
             max_score=max_score,
-            summary=summary
+            summary=summary,
         )
-
-        # Сохраняем в кэш
-        if use_cache:
-            cache = get_cache()
-            cache.set(md, report, context={"learning_outcomes": learning_outcomes or []})
-
-        return report

@@ -33,7 +33,6 @@ class GenerationFlowHandlers:
 
     def __init__(
         self,
-        phases: Any,
         task_planner: TaskPlanner,
         result_assembler: ResultAssembler,
         log_phase: Callable[[str, str], None],
@@ -49,21 +48,23 @@ class GenerationFlowHandlers:
         finalize_service: FinalizeNodeService | None = None,
         section_context_recorder: SectionContextRecorder | None = None,
     ) -> None:
-        self.phases = phases
         self.task_planner = task_planner
         self.result_assembler = result_assembler
         self.log_phase = log_phase
         self.section_context_recorder = section_context_recorder or SectionContextRecorder()
-        self.context_service = context_service or self._default_context_service()
-        self.title_annotation_service = title_annotation_service or self._default_title_annotation_service()
-        self.task_planning_service = task_planning_service or self._default_task_planning_service()
-        self.skeleton_service = skeleton_service or self._default_skeleton_service()
-        self.theory_service = theory_service or self._default_theory_service()
-        self.practice_service = practice_service or self._default_practice_service()
-        self.quality_service = quality_service or self._default_quality_service()
-        self.evaluation_service = evaluation_service or self._default_evaluation_service()
-        self.translation_service = translation_service or self._default_translation_service()
-        self.finalize_service = finalize_service or self._default_finalize_service()
+        self.context_service = context_service
+        self.title_annotation_service = title_annotation_service
+        self.task_planning_service = task_planning_service or TaskPlanningNodeService(self.task_planner)
+        self.skeleton_service = skeleton_service
+        self.theory_service = theory_service
+        self.practice_service = practice_service
+        self.quality_service = quality_service
+        self.evaluation_service = evaluation_service
+        self.translation_service = translation_service
+        self.finalize_service = finalize_service or FinalizeNodeService(
+            self.result_assembler,
+            self.section_context_recorder,
+        )
 
     def registry(self) -> dict[str, Callable[[dict[str, Any]], FlowNodeOutput]]:
         """Return AgentFlow handler registry."""
@@ -80,9 +81,71 @@ class GenerationFlowHandlers:
             "finalize": self.node_finalize,
         }
 
+    @classmethod
+    def from_node_executors(
+        cls,
+        *,
+        node_executors: Any,
+        task_planner: TaskPlanner,
+        result_assembler: ResultAssembler,
+        log_phase: Callable[[str, str], None],
+        section_context_recorder: SectionContextRecorder | None = None,
+    ) -> "GenerationFlowHandlers":
+        """Build handlers from concrete node executors."""
+        recorder = section_context_recorder or SectionContextRecorder()
+        return cls(
+            task_planner=task_planner,
+            result_assembler=result_assembler,
+            log_phase=log_phase,
+            context_service=ContextNodeService(node_executors.context.execute),
+            title_annotation_service=TitleAnnotationNodeService(node_executors.structure.generate_title_annotation),
+            task_planning_service=TaskPlanningNodeService(
+                task_planner,
+                runtime_state=node_executors.runtime,
+            ),
+            skeleton_service=SkeletonNodeService(
+                node_executors.structure.build_skeleton,
+                node_executors.structure.build_structure,
+                cls._serialize_issues,
+                cls._has_hard_issues,
+                cls._issue_messages,
+                cls._json_safe,
+            ),
+            theory_service=TheoryNodeService(
+                node_executors.theory.execute,
+                recorder,
+                cls._serialize_issues,
+                cls._has_hard_issues,
+                cls._issue_messages,
+                runtime_state=node_executors.runtime,
+            ),
+            practice_service=PracticeNodeService(
+                node_executors.practice.execute,
+                recorder,
+                cls._serialize_issues,
+                cls._has_hard_issues,
+                cls._issue_messages,
+                runtime_state=node_executors.runtime,
+            ),
+            quality_service=QualityNodeService(node_executors.quality.execute, runtime_state=node_executors.runtime),
+            evaluation_service=EvaluationNodeService(
+                node_executors.evaluation.execute,
+                cls._serialize_issues,
+            ),
+            translation_service=TranslationNodeService(node_executors.translation.execute),
+            finalize_service=FinalizeNodeService(
+                result_assembler,
+                recorder,
+                runtime_state=node_executors.runtime,
+            ),
+            section_context_recorder=recorder,
+        )
+
     def node_context(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("context", "Создание seed и контекста проекта из УП")
-        result = self._require_service(self.context_service, "context").execute(GenerationContext.from_legacy(context))
+        result = self._require_service(self.context_service, "context").execute(
+            GenerationContext.from_flow_context(context)
+        )
         context["target_language"] = result.target_language
         context["generate_bonus"] = result.generate_bonus
         context.setdefault("warnings", []).extend(result.warnings)
@@ -91,7 +154,7 @@ class GenerationFlowHandlers:
     def node_task_planning(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("task_planning", "Планирование практических задач")
         result = self._require_service(self.task_planning_service, "task_planning").execute(
-            GenerationContext.from_legacy(context)
+            GenerationContext.from_flow_context(context)
         )
         context.update(
             {
@@ -107,13 +170,16 @@ class GenerationFlowHandlers:
     def node_title_annotation(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("title_annotation", "Агент названия и аннотации")
         result = self._require_service(self.title_annotation_service, "title_annotation").execute(
-            GenerationContext.from_legacy(context)
+            GenerationContext.from_flow_context(context)
         )
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
 
     def node_skeleton(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("skeleton", "Агент каркаса: создание структуры README")
-        result = self._require_service(self.skeleton_service, "skeleton").execute(GenerationContext.from_legacy(context))
+        result = self._require_service(self.skeleton_service, "skeleton").execute(
+            GenerationContext.from_flow_context(context)
+        )
+        context["readme_document"] = result.readme_document
         context.setdefault("warnings", []).extend(result.warnings)
         context.setdefault("issues", []).extend(result.serialized_issues)
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
@@ -121,24 +187,29 @@ class GenerationFlowHandlers:
     def node_theory(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("theory", "Теоретический агент: генерация теории")
         result = self._require_service(self.theory_service, "theory").execute(
-            GenerationContext.from_legacy(context),
+            GenerationContext.from_flow_context(context),
             context,
         )
         context.setdefault("issues", []).extend(result.serialized_issues)
         context.setdefault("warnings", []).extend(result.warnings)
+        context["readme_document"] = result.readme_document
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
 
     def node_practice(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("practice", "Практический агент: генерация практических задач")
         result = self._require_service(self.practice_service, "practice").execute(
-            GenerationContext.from_legacy(context),
+            GenerationContext.from_flow_context(context),
             context,
         )
+        context["readme_document"] = result.readme_document
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
 
     def node_global_quality(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("quality", "Агент качества: проверка и улучшение контента")
-        result = self._require_service(self.quality_service, "quality").execute(GenerationContext.from_legacy(context))
+        result = self._require_service(self.quality_service, "quality").execute(
+            GenerationContext.from_flow_context(context)
+        )
+        context["readme_document"] = result.readme_document
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
 
     def node_translate(self, context: dict[str, Any]) -> FlowNodeOutput:
@@ -176,7 +247,7 @@ class GenerationFlowHandlers:
             logger.info("Translation skipped because target_language='%s'", target_language)
 
         result = self._require_service(self.translation_service, "translate").execute(
-            GenerationContext.from_legacy(context),
+            GenerationContext.from_flow_context(context),
             target_language=target_language,
         )
         original_md = result.markdown
@@ -193,12 +264,13 @@ class GenerationFlowHandlers:
         else:
             logger.warning("Translation output equals original. First 200 chars: %s", translated_md[:200])
 
+        context["readme_document"] = result.readme_document
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
 
     def node_evaluation(self, context: dict[str, Any]) -> FlowNodeOutput:
         self.log_phase("evaluation", "Агент оценки: проверка критериев")
         result = self._require_service(self.evaluation_service, "evaluation").execute(
-            GenerationContext.from_legacy(context)
+            GenerationContext.from_flow_context(context)
         )
         context["issues"].extend(result.serialized_issues)
         return FlowNodeOutput(updates=result.updates(), issues=result.issues, status=result.status)
@@ -246,76 +318,6 @@ class GenerationFlowHandlers:
     @classmethod
     def _json_safe(cls, value: Any) -> Any:
         return SectionContextRecorder.json_safe(value)
-
-    def _default_context_service(self) -> ContextNodeService | None:
-        if hasattr(self.phases, "phase_0_context"):
-            return ContextNodeService(self.phases.phase_0_context)
-        return None
-
-    def _default_title_annotation_service(self) -> TitleAnnotationNodeService | None:
-        if hasattr(self.phases, "phase_1_title_annotation"):
-            return TitleAnnotationNodeService(self.phases.phase_1_title_annotation)
-        return None
-
-    def _default_task_planning_service(self) -> TaskPlanningNodeService:
-        return TaskPlanningNodeService(self.task_planner, legacy_state=self.phases)
-
-    def _default_skeleton_service(self) -> SkeletonNodeService | None:
-        if not (hasattr(self.phases, "phase_1_skeleton") and hasattr(self.phases, "phase_1_structure")):
-            return None
-        return SkeletonNodeService(
-            self.phases.phase_1_skeleton,
-            self.phases.phase_1_structure,
-            self._serialize_issues,
-            self._has_hard_issues,
-            self._issue_messages,
-            self._json_safe,
-        )
-
-    def _default_theory_service(self) -> TheoryNodeService | None:
-        if hasattr(self.phases, "phase_2_theory"):
-            return TheoryNodeService(
-                self.phases.phase_2_theory,
-                self.section_context_recorder,
-                self._serialize_issues,
-                self._has_hard_issues,
-                self._issue_messages,
-            )
-        return None
-
-    def _default_practice_service(self) -> PracticeNodeService | None:
-        if hasattr(self.phases, "phase_3_practice"):
-            return PracticeNodeService(
-                self.phases.phase_3_practice,
-                self.section_context_recorder,
-                self._serialize_issues,
-                self._has_hard_issues,
-                self._issue_messages,
-                legacy_state=self.phases,
-            )
-        return None
-
-    def _default_quality_service(self) -> QualityNodeService | None:
-        if hasattr(self.phases, "phase_4_global_quality"):
-            return QualityNodeService(self.phases.phase_4_global_quality)
-        return None
-
-    def _default_evaluation_service(self) -> EvaluationNodeService | None:
-        if hasattr(self.phases, "phase_6_final_evaluation"):
-            return EvaluationNodeService(self.phases.phase_6_final_evaluation, self._serialize_issues)
-        return None
-
-    def _default_translation_service(self) -> TranslationNodeService | None:
-        if hasattr(self.phases, "phase_7_translate"):
-            return TranslationNodeService(self.phases.phase_7_translate)
-        return None
-
-    def _default_finalize_service(self) -> FinalizeNodeService:
-        return FinalizeNodeService(
-            self.result_assembler,
-            self.section_context_recorder,
-            legacy_state=self.phases,
-        )
 
     @staticmethod
     def _require_service(service: Any | None, node_id: str) -> Any:

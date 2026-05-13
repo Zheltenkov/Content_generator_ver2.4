@@ -37,7 +37,7 @@ class CachedLLMClient(LLMClient):
         self,
         model: str | None = None,
         api_key: str | None = None,
-        provider: str = "openai",
+        provider: str | None = None,
         temperature: float | None = None,
         enable_cache: bool | None = None,
         enable_batching: bool | None = None,
@@ -50,7 +50,7 @@ class CachedLLMClient(LLMClient):
         Args:
             model: Модель LLM
             api_key: API ключ
-            provider: Провайдер (openai, azure)
+            provider: Провайдер (openai, deepseek, azure, gigachat); по умолчанию LLM_PROVIDER из env
             temperature: Температура
             enable_cache: Включить кэширование (по умолчанию из env или True)
             enable_batching: Включить батчинг (по умолчанию из env или True)
@@ -59,7 +59,14 @@ class CachedLLMClient(LLMClient):
             max_retries: Максимальное количество повторов (по умолчанию 3)
             retry_delay: Начальная задержка между повторами в секундах (по умолчанию 1.0)
         """
-        super().__init__(model, api_key, provider, temperature)
+        super().__init__(
+            model=model,
+            api_key=api_key,
+            provider=provider,
+            temperature=temperature,
+            max_retries=max_retries,
+            retry_delay=retry_delay,
+        )
 
         # Настройки из переменных окружения или значения по умолчанию
         self.enable_cache = enable_cache if enable_cache is not None else (
@@ -91,12 +98,13 @@ class CachedLLMClient(LLMClient):
                     # Если Redis недоступен, продолжаем без него
                     pass
 
-    def _cache_key(self, system: str, user: str, response_format: str | None, **kwargs) -> str:
+    def _cache_key(self, system: str, user: str, response_format: str | dict[str, Any] | None, **kwargs) -> str:
         """Генерирует ключ кэша."""
         key_data = {
             "system": system,
             "user": user,
             "response_format": response_format,
+            "provider": self.provider,
             "model": self.model,
             "temperature": self.temperature,
             **kwargs
@@ -206,7 +214,7 @@ class CachedLLMClient(LLMClient):
         self,
         system: str,
         user: str,
-        response_format: str | None = None,
+        response_format: str | dict[str, Any] | None = None,
         use_cache: bool = True,
         **kwargs,
     ) -> str:
@@ -228,6 +236,8 @@ class CachedLLMClient(LLMClient):
             cache_key = self._cache_key(system, user, response_format, **kwargs)
             cached_response = self._get_from_cache(cache_key)
             if cached_response is not None:
+                self._last_finish_reason = "cache_hit"
+                self._last_token_usage = None
                 return cached_response
 
         # Выполняем запрос с retry

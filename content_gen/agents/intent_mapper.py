@@ -24,14 +24,6 @@ class IntentWarnings:
 class IntentMapper:
     """Нормализует и валидирует входные данные от методолога."""
 
-    def run(self, input_data: dict[str, Any]) -> dict[str, Any]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        seed, warnings = self.map(input_data.get("raw", {}))
-        return {
-            "seed": seed,
-            "warnings": warnings,
-        }
-
     def map(self, raw: dict[str, Any]) -> tuple[ProjectSeed, IntentWarnings]:
         """
         Преобразует сырые данные в валидированный ProjectSeed.

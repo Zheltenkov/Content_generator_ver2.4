@@ -16,9 +16,10 @@ from collections.abc import Callable
 from pathlib import Path
 import logging
 
+from content_gen.llm.client import resolve_llm_provider
+from content_gen.subtitles.pipeline import build_srt, build_vtt, extract_audio
 from content_gen.subtitles.pipeline import transcribe as openai_whisper_transcribe
 
-TRANSLATE_MODEL = os.getenv("TRANSLATE_SUBTITLES_MODEL", "gpt-4o-mini")
 WHISPER_MODEL = os.getenv("WHISPER_ASR_MODEL", "large-v3-turbo")
 TRANSLATE_BATCH_SIZE = int(os.getenv("TRANSLATE_BATCH_SIZE", "60"))
 SUBTITLE_CONTEXT_WINDOW = max(0, int(os.getenv("SUBTITLE_CONTEXT_WINDOW", "1")))
@@ -31,20 +32,14 @@ LATIN_RE = re.compile(r"[A-Za-z]")
 _whisper_model_cache = None
 
 
-def _format_ts_srt(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int((seconds % 1) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
-
-
-def _format_ts_vtt(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    ms = int((seconds % 1) * 1000)
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}"
+def _resolve_subtitle_translate_model() -> str | None:
+    """Resolve optional subtitle translation model without leaking OpenAI defaults to other providers."""
+    provider = resolve_llm_provider()
+    provider_override = os.getenv(f"{provider.upper()}_TRANSLATE_SUBTITLES_MODEL", "").strip()
+    if provider_override:
+        return provider_override
+    generic_override = os.getenv("TRANSLATE_SUBTITLES_MODEL", "").strip()
+    return generic_override if provider == "openai" and generic_override else None
 
 
 def _format_ts_ass(seconds: float) -> str:
@@ -55,41 +50,6 @@ def _format_ts_ass(seconds: float) -> str:
     cs = int((s % 1) * 100)
     sec = int(s)
     return f"{h}:{m:02d}:{sec:02d}.{cs:02d}"
-
-
-def extract_audio(
-    video_path: str | Path,
-    progress_callback: Callable[[str], None] | None = None,
-) -> str:
-    """Извлекает аудио mono 16kHz в временный mp3. Возвращает путь к файлу."""
-    if progress_callback:
-        progress_callback("extract_audio")
-    video_path = Path(video_path)
-    if not video_path.is_file():
-        raise FileNotFoundError(f"Видео не найдено: {video_path}")
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise RuntimeError("ffmpeg не найден. Установите ffmpeg.")
-    fd, out_path = tempfile.mkstemp(suffix=".mp3")
-    os.close(fd)
-    try:
-        cmd = [
-            ffmpeg, "-y", "-i", str(video_path), "-vn",
-            "-acodec", "libmp3lame", "-ac", "1", "-ar", "16000",
-            "-q:a", "4", out_path,
-        ]
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if r.returncode != 0:
-            raise RuntimeError(f"ffmpeg error: {(r.stderr or '')[-500:]}")
-        return out_path
-    except Exception:
-        if os.path.exists(out_path):
-            try:
-                os.unlink(out_path)
-            except OSError:
-                pass
-        raise
-
 
 def get_audio_duration_seconds(audio_path: str) -> float:
     """Возвращает длительность аудио в секундах через ffprobe."""
@@ -606,33 +566,6 @@ def _normalize_translate_response(data) -> list[dict]:
     return [data]
 
 
-def build_srt(segments: list[dict]) -> str:
-    lines = []
-    for i, seg in enumerate(segments, 1):
-        start, end = seg.get("start", 0), seg.get("end", 0)
-        text = (seg.get("text") or "").strip().replace("\n", " ")
-        if not text:
-            continue
-        lines.append(str(i))
-        lines.append(f"{_format_ts_srt(start)} --> {_format_ts_srt(end)}")
-        lines.append(text)
-        lines.append("")
-    return "\n".join(lines).strip()
-
-
-def build_vtt(segments: list[dict]) -> str:
-    lines = ["WEBVTT", ""]
-    for seg in segments:
-        start, end = seg.get("start", 0), seg.get("end", 0)
-        text = (seg.get("text") or "").strip().replace("\n", " ")
-        if not text:
-            continue
-        lines.append(f"{_format_ts_vtt(start)} --> {_format_ts_vtt(end)}")
-        lines.append(text)
-        lines.append("")
-    return "\n".join(lines).strip()
-
-
 def build_ass(segments: list[dict], style_preset: str = "boxed") -> str:
     """
     Генерирует ASS. style_preset: boxed (белый текст + подложка) или outline (белый + обводка).
@@ -792,7 +725,7 @@ def run_burned_subs_pipeline(
     """
     from content_gen.llm.cached_client import CachedLLMClient
     if llm_client is None:
-        llm_client = CachedLLMClient(provider="openai", model=TRANSLATE_MODEL, enable_cache=True, enable_batching=True)
+        llm_client = CachedLLMClient(model=_resolve_subtitle_translate_model(), enable_cache=True, enable_batching=True)
     video_path = Path(video_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

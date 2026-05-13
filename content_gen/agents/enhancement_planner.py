@@ -31,6 +31,7 @@ from ..models.enhancement_plan import (
 )
 from ..models.generation_profile import DEFAULT_PROFILE, GenerationProfile, get_profile_by_name
 from ..models.schemas import ProjectSeed, TheoryPart
+from ..observability import FallbackTraceEvent
 from ..utils.logging import safe_print
 
 
@@ -431,7 +432,14 @@ class EnhancementPlanner:
             if not per_part_plans:
                 safe_print(f"[PLANNER] ⚠️ План пустой (0 частей), создаем fallback план для {len(parts)} частей", flush=True)
                 safe_print(f"[PLANNER] Причина: per_part={llm_response.per_part}, len={len(llm_response.per_part) if llm_response.per_part else 0}", flush=True)
-                return self._create_fallback_plan(parts, global_targets, is_programming, budget)
+                return self._create_fallback_plan(
+                    parts,
+                    global_targets,
+                    is_programming,
+                    budget,
+                    reason="structured response contained no per_part plan",
+                    fallback_type="empty_enhancement_plan",
+                )
 
             plan = EnhancementPlan(
                 global_targets=global_targets,
@@ -441,7 +449,7 @@ class EnhancementPlanner:
                 reasoning=llm_response.reasoning or ""
             )
         except Exception as e:
-            # Fallback на старый метод парсинга при ошибке
+            # Recovery path for providers that reject structured output.
             safe_print(f"[PLANNER] ОШИБКА structured output, используем fallback: {e}", flush=True)
             response = self.llm.complete(
                 system=system_prompt,
@@ -449,7 +457,7 @@ class EnhancementPlanner:
                 response_format="json_object"
             )
 
-            # Парсим JSON ответ (старая логика)
+            # Parse raw JSON from the recovery response.
             try:
                 json_start = response.find("{")
                 json_end = response.rfind("}") + 1
@@ -462,7 +470,14 @@ class EnhancementPlanner:
                 safe_print(f"[PLANNER] ОШИБКА парсинга JSON: {parse_error}", flush=True)
                 safe_print(f"[PLANNER] Ответ LLM: {response[:500]}", flush=True)
                 # Fallback: создаем минимальный план
-                return self._create_fallback_plan(parts, global_targets, is_programming, budget)
+                return self._create_fallback_plan(
+                    parts,
+                    global_targets,
+                    is_programming,
+                    budget,
+                    reason=f"json_parse_error: {parse_error}",
+                    fallback_type="enhancement_plan_json_parse_error",
+                )
 
             # Преобразуем данные в модель
             per_part_plans = {}
@@ -516,6 +531,9 @@ class EnhancementPlanner:
         global_targets: GlobalEnhancementTargets,
         is_programming: bool,
         budget: EnhancementBudget | None = None,
+        *,
+        reason: str = "fallback plan requested",
+        fallback_type: str = "enhancement_plan_fallback",
     ) -> EnhancementPlan:
         """Создает минимальный план при ошибке парсинга."""
         safe_print(f"[PLANNER] Создание fallback плана для {len(parts)} частей", flush=True)
@@ -556,5 +574,19 @@ class EnhancementPlanner:
             budget=budget or EnhancementBudget(**DEFAULT_ENHANCEMENT_BUDGET),
             per_part=per_part_plans,
             is_programming_project=is_programming,
-            reasoning="Fallback план"
+            reasoning="Fallback план",
+            fallback_traces=[
+                FallbackTraceEvent.from_fallback(
+                    node="theory_enhancement",
+                    fallback_type=fallback_type,
+                    reason=reason,
+                    quality_risk="medium",
+                    inputs={
+                        "parts_count": len(parts),
+                        "global_targets": global_targets.model_dump(mode="json"),
+                        "is_programming": is_programming,
+                    },
+                    trace={"planned_parts": sorted(per_part_plans)},
+                ).model_dump(mode="json")
+            ],
         )

@@ -152,8 +152,8 @@
         const html = `
             <div class="methodology-review-header">
                 <div>
-                    <div class="methodology-review-title">Решение методолога</div>
-                    <div class="methodology-stage-meta">${esc(message)}</div>
+                    <div class="methodology-review-title">Результат этапа и решение методолога</div>
+                    <div class="methodology-stage-meta">${esc(message || 'Проверьте сгенерированный артефакт. Комментарии из чата можно сохранить как правки перед продолжением.')}</div>
                 </div>
                 <span class="methodology-review-status">needs_review</span>
             </div>

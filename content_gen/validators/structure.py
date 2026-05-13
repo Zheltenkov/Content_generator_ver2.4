@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 from ..config.thresholds import THRESHOLDS
+from ..models.readme_document import ReadmeDocument, ReadmeSection
 from ..utils.text_analysis import count_words
 
 
@@ -24,27 +25,23 @@ class IntroValidator:
         self.rx_instr = re.compile(r"^###\s+Инструкция\s*(.+)$", re.S | re.M)
 
     def validate_markdown(self, md: str) -> list[Issue]:
-        """
-        Валидирует структуру Главы 1.
+        """Validate Chapter 1 from a Markdown boundary payload."""
+        return self.validate_document(ReadmeDocument.from_markdown(md))
 
-        Args:
-            md: Markdown документ
-
-        Returns:
-            Список найденных проблем
-        """
+    def validate_document(self, document: ReadmeDocument) -> list[Issue]:
+        """Validate Chapter 1 against the typed README document tree."""
         issues: list[Issue] = []
-        m_intro = self.rx_intro.search(md)
-        m_instr = self.rx_instr.search(md)
-        if not m_intro:
+        intro_section = self._find_h3_section(document, "Введение")
+        instruction_section = self._find_h3_section(document, "Инструкция")
+        if intro_section is None:
             issues.append(Issue("intro", "error", "Отсутствует секция «Введение»."))
             return issues
-        if not m_instr:
+        if instruction_section is None:
             issues.append(Issue("instruction", "error", "Отсутствует секция «Инструкция»."))
             return issues
 
-        intro = m_intro.group(1).strip()
-        instr = m_instr.group(1).strip()
+        intro = intro_section.body.strip()
+        instr = instruction_section.body.strip()
 
         lo, hi = THRESHOLDS["intro_words"]
         # Используем универсальную функцию подсчета слов (по умолчанию русский)
@@ -71,4 +68,19 @@ class IntroValidator:
                 issues.append(Issue("intro.instruction_text", "error", f"В «Инструкции» отсутствует слово «{req}»."))
 
         return issues
+
+    @staticmethod
+    def _find_h3_section(document: ReadmeDocument, title: str) -> ReadmeSection | None:
+        """Find an exact H3 section title in Chapter 1, falling back to root H3 snippets."""
+        normalized = title.casefold().strip()
+        candidates: list[ReadmeSection] = []
+        chapter = document.chapter_section(1)
+        if chapter is not None:
+            candidates.extend(chapter.flatten())
+        candidates.extend(section for section in document.sections if section.level == 3)
+        for section in candidates:
+            normalized_title = section.title.casefold().strip()
+            if section.level == 3 and (normalized_title == normalized or normalized_title.startswith(f"{normalized} ")):
+                return section
+        return None
 

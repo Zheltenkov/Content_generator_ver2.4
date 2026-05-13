@@ -167,8 +167,8 @@ def test_orchestrator_flow_logs_versions(monkeypatch):
             "finalize": finalize,
         }
 
-    monkeypatch.setattr(Orchestrator, "_build_flow_registry", registry)
     orchestrator = Orchestrator(DummyLLM())
+    monkeypatch.setattr(orchestrator.flow_handlers, "registry", lambda: registry(orchestrator))
     result = orchestrator.run_v2(raw_input={}, track_files=None)
 
     assert result.agent_config_versions == agent_versions
@@ -232,8 +232,8 @@ def test_orchestrator_pauses_for_title_checkpoint_when_ui_callback_enabled(monke
         }
 
     monkeypatch.delenv("METHODOLOGY_HUMAN_CHECKPOINTS", raising=False)
-    monkeypatch.setattr(Orchestrator, "_build_flow_registry", registry)
     orchestrator = Orchestrator(DummyLLM(), methodology_progress_callback=lambda _payload: None)
+    monkeypatch.setattr(orchestrator.flow_handlers, "registry", lambda: registry(orchestrator))
 
     with pytest.raises(MethodologyGateInterrupt) as exc_info:
         orchestrator.run_v2(raw_input={}, track_files=None)
@@ -295,7 +295,7 @@ def test_finalize_prefers_structured_artifacts(monkeypatch):
         ),
     }
 
-    output = orchestrator._node_finalize(context)
+    output = orchestrator.flow_handlers.node_finalize(context)
 
     assert output.status == "success"
     assert context["result"].spec.title == "Structured Title"

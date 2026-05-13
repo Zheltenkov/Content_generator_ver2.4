@@ -7,6 +7,7 @@ from content_gen.models.schemas import (
     ProjectSeed,
     TheoryPart,
 )
+from content_gen.models.readme_document import ReadmeDocument
 from content_gen.result_assembly import ResultAssembler
 
 
@@ -84,16 +85,64 @@ def test_result_assembler_builds_spec_report_and_assets() -> None:
                 artifact_location="project/task/README.md",
             )
         ],
+        "node_traces": [{"node": "finalize", "input_hash": "abc"}],
+        "llm_traces": [{"node": "theory", "agent": "TheoryAgent", "input_hash": "def"}],
+        "fallback_traces": [{"node": "task_planning", "fallback_type": "default_task_plan"}],
+        "compatibility_events": [{"source": "paused_generation_codec", "compatibility_type": "unknown_paused_type"}],
     }
 
     finalized = assembler.assemble(context, dataset_files=[{"path": "data/sample.csv", "data": b"a,b\n"}])
 
     assert finalized.project_spec.title == "Публичные выступления"
+    assert finalized.readme_document.title == "Публичные выступления"
     assert finalized.result.report_json["title_en"] == "PublicSpeaking"
     assert finalized.result.report_json["text_stats"]["chars"] == len(finalized.markdown)
+    assert finalized.result.report_json["readme_document"]["title"] == "Публичные выступления"
+    assert finalized.result.report_json["node_traces"] == [{"node": "finalize", "input_hash": "abc"}]
+    assert finalized.result.report_json["llm_traces"] == [
+        {"node": "theory", "agent": "TheoryAgent", "input_hash": "def"}
+    ]
+    assert finalized.result.report_json["fallback_traces"] == [
+        {"node": "task_planning", "fallback_type": "default_task_plan"}
+    ]
+    assert finalized.result.report_json["compatibility_events"] == [
+        {"source": "paused_generation_codec", "compatibility_type": "unknown_paused_type"}
+    ]
     assert finalized.result.report_json["assets"]["files"]
     assert finalized.assets_binary["files"][0]["path"] == "project/task/README.md"
     artifact_template = finalized.assets_binary["files"][0]["data"].decode("utf-8")
     assert "Этот файл — рабочий шаблон артефакта, а не готовое решение." in artifact_template
     assert "## Входные данные" in artifact_template
     assert "## Итоговый артефакт" in artifact_template
+
+
+def test_result_assembler_reparses_stale_readme_document_from_final_markdown() -> None:
+    assembler = ResultAssembler(
+        llm_client=DummyLLM(),
+        title_annotation_agent=UnexpectedTitleAgent(),
+        intro_splitter=lambda _markdown: ("intro", "instruction"),
+        theory_parts_parser=lambda _markdown: [],
+        practice_tasks_parser=lambda _markdown: [],
+    )
+    context = {
+        "seed": _seed(),
+        "context_meta": _context_meta(),
+        "context_analysis": _context_analysis(),
+        "rubric_json": {"score": 5},
+        "warnings": [],
+        "issues": [],
+        "markdown": "# Новый README\n\n## Глава 2. Теория\n\nНовая теория.",
+        "target_language": "ru",
+        "title": "Новый README",
+        "annotation": Annotation(text="Annotation", chars=10),
+        "intro_section": IntroSection(intro_text="Intro", instruction_text="Instruction"),
+        "theory_parts": [],
+        "practice_tasks": [],
+        "readme_document": ReadmeDocument.from_markdown("# Старый README\n\nСтарое тело."),
+    }
+
+    finalized = assembler.assemble(context)
+
+    assert finalized.readme_document.title == "Новый README"
+    assert finalized.result.report_json["readme_document"]["title"] == "Новый README"
+    assert finalized.result.report_json["readme_document"]["sections"][0]["title"] == "Глава 2. Теория"

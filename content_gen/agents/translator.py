@@ -143,18 +143,6 @@ class TranslatorAgent:
         self.llm = llm_client
         self._default_max_chunk_length = 10000
 
-    def run(self, input_data: dict[str, object]) -> dict[str, str]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        result = self.translate(
-            markdown=input_data.get("markdown", ""),
-            target_language=input_data.get("target_language", "en"),
-            seed=input_data["seed"],
-            translation_mode=input_data.get("translation_mode", "literal"),
-            progress_callback=input_data.get("progress_callback"),
-            strict=bool(input_data.get("strict", False)),
-        )
-        return {"result": result}
-
     # ------------------------------------------------------------------
     # input language detection
     # ------------------------------------------------------------------

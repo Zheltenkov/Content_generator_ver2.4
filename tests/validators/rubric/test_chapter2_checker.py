@@ -6,7 +6,7 @@ from content_gen.validators.rubric.chapter2_checker import Chapter2Checker
 def _checker() -> Chapter2Checker:
     return Chapter2Checker(
         language="ru",
-        regex_patterns={"rx_theory_part": re.compile(r"^###\s+Часть\s+\d+\.\s+.+$", re.M)},
+        regex_patterns={"rx_theory_part": re.compile(r"^###\s+2\.\d+\.\s+.+$", re.M)},
     )
 
 
@@ -31,17 +31,17 @@ def test_theory_volume_counts_prose_without_tables_or_mermaid() -> None:
     )
     diagram = "```mermaid\nflowchart TD\nA[Очень длинная подпись] --> B[Еще одна подпись]\n```"
     ch2 = f"""
-### Часть 1. Бэклог
+### 2.1. Бэклог
 {_prose("Бэклог")}
 {table}
 {diagram}
 **Пример:** Внешний пример не входит в лимит основной теории.
 
-### Часть 2. Дорожная карта
+### 2.2. Дорожная карта
 {_prose("Дорожная карта")}
 {table}
 
-### Часть 3. Диаграмма Ганта
+### 2.3. Диаграмма Ганта
 {_prose("Диаграмма Ганта")}
 {diagram}
 """
@@ -57,13 +57,13 @@ def test_theory_volume_counts_prose_without_tables_or_mermaid() -> None:
 
 def test_lo_coverage_reports_missing_evidence_without_llm() -> None:
     ch2 = f"""
-### Часть 1. Бэклог
+### 2.1. Бэклог
 {_prose("Бэклог")}
 
-### Часть 2. Дорожная карта
+### 2.2. Дорожная карта
 {_prose("Дорожная карта")}
 
-### Часть 3. Диаграмма Ганта
+### 2.3. Диаграмма Ганта
 {_prose("Диаграмма Ганта")}
 """
 

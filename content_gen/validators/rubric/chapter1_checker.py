@@ -3,8 +3,10 @@
 import re
 
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import count_words
+from .document_utils import chapter_content
 
 
 class Chapter1Checker:
@@ -341,6 +343,10 @@ class Chapter1Checker:
             ))
 
         return items
+
+    def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
+        """2.3: Проверка Главы 1 из typed README document."""
+        return self.check(chapter_content(document, 1, language=self.lang))
 
     @staticmethod
     def _has_contextual_constraints_script(instruction_text: str) -> bool:

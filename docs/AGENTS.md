@@ -49,11 +49,11 @@ Content Generator использует оркестрацию через `AgentF
 - сериализацию `flow_trace`;
 - упаковку артефактов.
 
-### OrchestratorPhases
+### GenerationFlowHandlers
 
-Файл: `content_gen/orchestrator_phases.py`
+Файл: `content_gen/flow_handlers.py`
 
-Это application-layer фасад над агентами и валидаторами. Он не должен скрывать бизнес-логику в prompt-only виде: каждая фаза остаётся отдельной функцией/модулем.
+Это application-layer слой над node services/executors. Он связывает AgentFlow-ноды с concrete services и не должен скрывать бизнес-логику в prompt-only виде.
 
 ### Agents
 

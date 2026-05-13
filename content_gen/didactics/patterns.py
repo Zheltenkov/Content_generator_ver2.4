@@ -5,14 +5,13 @@ from __future__ import annotations
 import re
 
 # Theory headers
-THEORY_PART_TITLE_PATTERN = r"^###\s+(?:2\.\d+|Часть\s+\d+)\."
-THEORY_PART_SPLIT_PATTERN = r"(?=^###\s+(?:2\.\d+|Часть\s+\d+)\.)"
-THEORY_PART_PARSE_PATTERN = r"^###\s+(?:2\.(\d+)|Часть\s+(\d+))\.\s*(.+?)\s*$"
+THEORY_PART_TITLE_PATTERN = r"^###\s+2\.\d+\."
+THEORY_PART_SPLIT_PATTERN = r"(?=^###\s+2\.\d+\.)"
+THEORY_PART_PARSE_PATTERN = r"^###\s+2\.(\d+)\.\s*(.+?)\s*$"
 
 # Practice headers
 PRACTICE_TASK_TITLE_PATTERN_STRICT = r"^###\s+Задани(?:е|я)\s+\d+\."
-PRACTICE_TASK_TITLE_PATTERN_LEGACY = r"^###\s+(?:Задание|Задача)\s+\d+\."
-PRACTICE_TASK_PARSE_PATTERN_LEGACY = r"^###\s+(?:Задание|Задача)\s+(\d+)\.\s*(.+?)\s*$"
+PRACTICE_TASK_PARSE_PATTERN = r"^###\s+Задани(?:е|я)\s+(\d+)\.\s*(.+?)\s*$"
 
 
 def compile_theory_part_title() -> re.Pattern[str]:
@@ -28,10 +27,8 @@ def compile_theory_part_parse() -> re.Pattern[str]:
 
 
 def compile_practice_task_title(strict: bool = True) -> re.Pattern[str]:
-    if strict:
-        return re.compile(PRACTICE_TASK_TITLE_PATTERN_STRICT, re.M)
-    return re.compile(PRACTICE_TASK_TITLE_PATTERN_LEGACY, re.M)
+    return re.compile(PRACTICE_TASK_TITLE_PATTERN_STRICT, re.M)
 
 
-def compile_practice_task_parse_legacy() -> re.Pattern[str]:
-    return re.compile(PRACTICE_TASK_PARSE_PATTERN_LEGACY, re.M)
+def compile_practice_task_parse() -> re.Pattern[str]:
+    return re.compile(PRACTICE_TASK_PARSE_PATTERN, re.M)

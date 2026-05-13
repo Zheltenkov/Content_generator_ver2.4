@@ -1,4 +1,4 @@
-from content_gen.orchestrator_phases_modules.phases.phase_0 import _build_narrative_anchor
+from content_gen.context_phase_executor import _build_narrative_anchor
 
 
 def test_narrative_anchor_does_not_leak_raw_unrelated_skill_names() -> None:

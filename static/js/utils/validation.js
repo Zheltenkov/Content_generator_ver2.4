@@ -92,20 +92,12 @@ class FormValidator {
 
         // Добавляем класс ошибки
         field.classList.add('error');
-        field.style.borderColor = '#ff6b6b';
+        field.classList.remove('s21-input-focus', 's21-input-valid');
 
         // Создаем элемент с ошибкой
         const errorElement = document.createElement('div');
         errorElement.className = 'validation-error';
         errorElement.id = `${fieldId}-error`;
-        errorElement.style.cssText = `
-            color: #ff6b6b;
-            font-size: 0.85rem;
-            margin-top: 0.25rem;
-            display: flex;
-            align-items: center;
-            gap: 0.25rem;
-        `;
         errorElement.innerHTML = `<span>❌</span><span>${message}</span>`;
 
         // Вставляем после поля
@@ -121,7 +113,7 @@ class FormValidator {
         const field = document.getElementById(fieldId);
         if (field) {
             field.classList.remove('error');
-            field.style.borderColor = '';
+            field.classList.remove('s21-input-valid');
         }
 
         const errorElement = document.getElementById(`${fieldId}-error`);
@@ -144,7 +136,7 @@ class FormValidator {
         // Убираем классы ошибок со всех полей
         document.querySelectorAll('.error').forEach((field) => {
             field.classList.remove('error');
-            field.style.borderColor = '';
+            field.classList.remove('s21-input-focus', 's21-input-valid');
         });
     }
 
@@ -298,9 +290,10 @@ function initRealtimeValidation() {
             } else {
                 validator.clearError(field.id);
                 // Подсветка успешного заполнения
-                element.style.borderColor = '#64ffda';
+                element.classList.remove('s21-input-focus');
+                element.classList.add('s21-input-valid');
                 setTimeout(() => {
-                    element.style.borderColor = '';
+                    element.classList.remove('s21-input-valid');
                 }, 2000);
             }
         });
@@ -322,7 +315,8 @@ function initRealtimeValidation() {
         
         // Подсветка при фокусе
         element.addEventListener('focus', () => {
-            element.style.borderColor = '#764ba2';
+            element.classList.add('s21-input-focus');
+            element.classList.remove('s21-input-valid');
         });
     });
     
@@ -336,9 +330,9 @@ function initRealtimeValidation() {
                     validator.showError(select.id, result.message);
                 } else {
                     validator.clearError(select.id);
-                    select.style.borderColor = '#64ffda';
+                    select.classList.add('s21-input-valid');
                     setTimeout(() => {
-                        select.style.borderColor = '';
+                        select.classList.remove('s21-input-valid');
                     }, 2000);
                 }
             }

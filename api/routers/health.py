@@ -9,6 +9,7 @@ from fastapi import APIRouter
 
 from api.db.session import check_database_connection, get_database_status
 from api.utils.logger import get_logger
+from content_gen.llm.client import get_llm_provider_summary
 
 router = APIRouter()
 logger = get_logger("health")
@@ -21,7 +22,7 @@ async def health_check() -> dict[str, Any]:
     
     Проверяет:
     - Подключение к БД
-    - Доступность внешних сервисов (OpenAI)
+    - Доступность внешних LLM provider-ов
     - Использование ресурсов (память, CPU)
     
     Args:
@@ -51,13 +52,30 @@ async def health_check() -> dict[str, Any]:
         }
         logger.error("Database health check failed: %s", checks["database"]["message"])
 
-    # Проверка доступности LLM API
-    llm_available = bool(os.getenv("OPENAI_API_KEY") or os.getenv("AZURE_OPENAI_API_KEY"))
-    checks["llm"] = {
-        "status": "ok" if llm_available else "warning",
-        "available": llm_available,
-        "message": "LLM API key configured" if llm_available else "LLM API key not configured"
-    }
+    # Проверка доступности выбранного LLM provider.
+    try:
+        llm_summary = get_llm_provider_summary()
+        llm_available = bool(llm_summary["available"])
+        checks["llm"] = {
+            "status": "ok" if llm_available else "warning",
+            "available": llm_available,
+            "provider": llm_summary["provider"],
+            "model": llm_summary["model"],
+            "base_url": llm_summary["base_url"],
+            "message": (
+                f"LLM provider configured via {llm_summary['credential_env']}"
+                if llm_available
+                else f"LLM provider not configured: set {llm_summary['credential_env']}"
+            ),
+        }
+    except Exception as e:
+        llm_available = False
+        checks["llm"] = {
+            "status": "error",
+            "available": False,
+            "provider": os.getenv("LLM_PROVIDER", "openai"),
+            "message": str(e),
+        }
 
     if not llm_available:
         status = "degraded"

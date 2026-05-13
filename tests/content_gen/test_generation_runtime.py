@@ -2,10 +2,8 @@ from types import SimpleNamespace
 
 from content_gen.generation_runtime import GenerationRuntimeContainer
 import content_gen.phase_executors as phase_executors
-from content_gen.orchestrator_phases_modules.phases.phase_4 import phase_4_global_quality
-from content_gen.orchestrator_phases_modules.phases.phase_6 import phase_6_final_evaluation
-from content_gen.orchestrator_phases_modules.phases.phase_7 import phase_7_translate
-from content_gen.orchestrator_phases import OrchestratorPhases
+from content_gen.models.readme_document import ReadmeDocument
+from content_gen.node_executor_bundle import GenerationNodeExecutorBundle
 from content_gen.practice_phase_executor import PracticePhaseExecutor
 from content_gen.phase_executors import (
     ContextPhaseExecutor,
@@ -23,163 +21,21 @@ class FakeLLM:
         return ""
 
 
-def test_orchestrator_phases_delegates_runtime_state() -> None:
-    phases = OrchestratorPhases(FakeLLM())
+def test_node_executor_bundle_builds_concrete_executors() -> None:
+    runtime = GenerationRuntimeContainer(FakeLLM())
+    node_executors = GenerationNodeExecutorBundle.from_runtime(runtime)
 
-    phases.story_map_contract = {"completion": "done"}
-    phases.dataset_files = [{"path": "materials/raw.csv"}]
-
-    assert isinstance(phases.runtime, GenerationRuntimeContainer)
-    assert isinstance(phases.context_executor, ContextPhaseExecutor)
-    assert isinstance(phases.structure_executor, StructurePhaseExecutor)
-    assert isinstance(phases.theory_executor, TheoryPhaseExecutor)
-    assert isinstance(phases.practice_executor, PracticePhaseExecutor)
-    assert isinstance(phases.quality_executor, QualityPhaseExecutor)
-    assert isinstance(phases.evaluation_executor, EvaluationPhaseExecutor)
-    assert isinstance(phases.translation_executor, TranslationPhaseExecutor)
-    assert phases.runtime.story_map_contract == {"completion": "done"}
-    assert phases.runtime.dataset_files == [{"path": "materials/raw.csv"}]
-    assert phases.intro is phases.runtime.intro
+    assert isinstance(node_executors.runtime, GenerationRuntimeContainer)
+    assert isinstance(node_executors.context, ContextPhaseExecutor)
+    assert isinstance(node_executors.structure, StructurePhaseExecutor)
+    assert isinstance(node_executors.theory, TheoryPhaseExecutor)
+    assert isinstance(node_executors.practice, PracticePhaseExecutor)
+    assert isinstance(node_executors.quality, QualityPhaseExecutor)
+    assert isinstance(node_executors.evaluation, EvaluationPhaseExecutor)
+    assert isinstance(node_executors.translation, TranslationPhaseExecutor)
 
 
-def test_orchestrator_phases_delegates_context_to_executor(monkeypatch) -> None:
-    phases = OrchestratorPhases(FakeLLM())
-    captured = {}
-
-    def fake_execute(raw_input, track_files):
-        captured["raw_input"] = raw_input
-        captured["track_files"] = track_files
-        return None, None, None, None, [], []
-
-    monkeypatch.setattr(phases.context_executor, "execute", fake_execute)
-
-    phases.phase_0_context({"language": "ru"}, ["track.xlsx"])
-
-    assert captured["raw_input"] == {"language": "ru"}
-    assert captured["track_files"] == ["track.xlsx"]
-
-
-def test_orchestrator_phases_delegates_structure_to_executor(monkeypatch) -> None:
-    phases = OrchestratorPhases(FakeLLM())
-    captured = {}
-
-    def fake_generate_title_annotation(seed, context_meta):
-        captured["seed"] = seed
-        captured["context_meta"] = context_meta
-        return "Название", {"text": "Аннотация"}
-
-    monkeypatch.setattr(
-        phases.structure_executor,
-        "generate_title_annotation",
-        fake_generate_title_annotation,
-    )
-
-    seed = object()
-    context_meta = object()
-    title, annotation = phases.phase_1_title_annotation(seed, context_meta)
-
-    assert title == "Название"
-    assert annotation == {"text": "Аннотация"}
-    assert captured == {"seed": seed, "context_meta": context_meta}
-
-
-def test_orchestrator_phases_delegates_theory_to_executor(monkeypatch) -> None:
-    phases = OrchestratorPhases(FakeLLM())
-    captured = {}
-
-    def fake_execute(seed, context_meta, markdown, practice_plan_contract=None, section_context=None):
-        captured.update(
-            {
-                "seed": seed,
-                "context_meta": context_meta,
-                "markdown": markdown,
-                "practice_plan_contract": practice_plan_contract,
-                "section_context": section_context,
-            }
-        )
-        return "theory-md", [], [], []
-
-    monkeypatch.setattr(phases.theory_executor, "execute", fake_execute)
-
-    seed = object()
-    context_meta = object()
-    result = phases.phase_2_theory(
-        seed,
-        context_meta,
-        "# md",
-        practice_plan_contract={"plan": True},
-        section_context={"allowed": True},
-    )
-
-    assert result == ("theory-md", [], [], [])
-    assert captured == {
-        "seed": seed,
-        "context_meta": context_meta,
-        "markdown": "# md",
-        "practice_plan_contract": {"plan": True},
-        "section_context": {"allowed": True},
-    }
-
-
-def test_orchestrator_phases_delegates_practice_to_executor(monkeypatch) -> None:
-    phases = OrchestratorPhases(FakeLLM())
-    captured = {}
-
-    def fake_execute(seed, markdown, generate_bonus, practice_plan_contract=None, artifact_chain_plan=None, section_context=None):
-        captured.update(
-            {
-                "seed": seed,
-                "markdown": markdown,
-                "generate_bonus": generate_bonus,
-                "practice_plan_contract": practice_plan_contract,
-                "artifact_chain_plan": artifact_chain_plan,
-                "section_context": section_context,
-            }
-        )
-        return "practice-md", [], [], []
-
-    monkeypatch.setattr(phases.practice_executor, "execute", fake_execute)
-
-    seed = object()
-    result = phases.phase_3_practice(
-        seed,
-        "# md",
-        True,
-        practice_plan_contract={"plan": True},
-        artifact_chain_plan={"chain": True},
-        section_context={"allowed": True},
-    )
-
-    assert result == ("practice-md", [], [], [])
-    assert captured == {
-        "seed": seed,
-        "markdown": "# md",
-        "generate_bonus": True,
-        "practice_plan_contract": {"plan": True},
-        "artifact_chain_plan": {"chain": True},
-        "section_context": {"allowed": True},
-    }
-
-
-def test_orchestrator_phases_delegates_terminal_phases_to_executors(monkeypatch) -> None:
-    phases = OrchestratorPhases(FakeLLM())
-
-    monkeypatch.setattr(phases.quality_executor, "execute", lambda seed, markdown: markdown + "\nquality")
-    monkeypatch.setattr(phases.evaluation_executor, "execute", lambda seed, markdown: ({"ok": True}, ["issue"]))
-    monkeypatch.setattr(
-        phases.translation_executor,
-        "execute",
-        lambda seed, markdown, target_language: (markdown, f"{target_language}:{markdown}"),
-    )
-
-    seed = object()
-
-    assert phases.phase_4_global_quality(seed, "# md") == "# md\nquality"
-    assert phases.phase_6_final_evaluation(seed, "# md") == ({"ok": True}, ["issue"])
-    assert phases.phase_7_translate(seed, "# md", "en") == ("# md", "en:# md")
-
-
-def test_quality_phase_wrapper_executes_canonical_quality_logic() -> None:
+def test_quality_phase_executor_executes_canonical_quality_logic() -> None:
     class ContentEditor:
         def ensure_global_coherence(self, markdown, _seed):
             return markdown
@@ -204,14 +60,102 @@ def test_quality_phase_wrapper_executes_canonical_quality_logic() -> None:
     )
     seed = SimpleNamespace(language="ru", title_seed="Проект", project_description="")
 
-    markdown = phase_4_global_quality(runtime, seed, "# Проект\n")
+    result = QualityPhaseExecutor(runtime).execute(seed, "# Проект\n")
 
-    assert "## Заключение" in markdown
-    assert "Собери итоговый макет" in markdown
-    assert "- [Заключение](#заключение)" in markdown
+    assert "## Заключение" in result.markdown
+    assert "Собери итоговый макет" in result.markdown
+    assert "- [Заключение](#заключение)" in result.markdown
 
 
-def test_translation_phase_wrapper_executes_canonical_translation_logic() -> None:
+def test_quality_phase_executor_returns_typed_document() -> None:
+    class ContentEditor:
+        def ensure_global_coherence(self, markdown, _seed):
+            return markdown
+
+    class Toc:
+        def build(self, _markdown, language):
+            assert language == "ru"
+            return SimpleNamespace(toc_md="- [Заключение](#заключение)")
+
+        def inject(self, markdown, toc_md):
+            return f"{markdown}\n\n{toc_md}"
+
+    class Style:
+        def lint(self, _markdown, _language):
+            return []
+
+    runtime = SimpleNamespace(
+        content_editor=ContentEditor(),
+        story_map_contract=SimpleNamespace(completion="Собери итоговый макет."),
+        toc=Toc(),
+        style=Style(),
+    )
+    seed = SimpleNamespace(language="ru", title_seed="Проект", project_description="")
+    document = ReadmeDocument.from_markdown("# Проект\n\nАннотация.")
+
+    result = QualityPhaseExecutor(runtime).execute(seed, document.to_markdown(), readme_document=document)
+
+    assert result.readme_document.title == "Проект"
+    assert result.readme_document.section_by_title_fragment("Заключение") is not None
+    assert "Собери итоговый макет" in result.markdown
+
+
+def test_quality_phase_executor_prefers_typed_quality_contracts() -> None:
+    calls = []
+
+    class ContentEditor:
+        def ensure_global_coherence_document(self, document, _seed):
+            calls.append("editor_document")
+            return document
+
+        def ensure_global_coherence(self, *_args):
+            raise AssertionError("legacy editor path should not be used")
+
+    class Toc:
+        def build_document(self, document, language):
+            calls.append(("toc_build_document", document.title, language))
+            return SimpleNamespace(toc_md="- [Глава 1. Введение](#глава-1-введение)")
+
+        def inject_document(self, document, toc_md, language):
+            calls.append(("toc_inject_document", language))
+            return document.with_upserted_section_by_title_fragment(
+                "Содержание",
+                f"## Содержание\n\n{toc_md}",
+                fallback_level=2,
+            )
+
+        def build(self, *_args, **_kwargs):
+            raise AssertionError("legacy TOC path should not be used")
+
+        def inject(self, *_args, **_kwargs):
+            raise AssertionError("legacy TOC path should not be used")
+
+    class Style:
+        def lint_document(self, document, language):
+            calls.append(("style_lint_document", document.title, language))
+            return []
+
+        def lint(self, *_args):
+            raise AssertionError("legacy style lint path should not be used")
+
+    runtime = SimpleNamespace(
+        content_editor=ContentEditor(),
+        story_map_contract=SimpleNamespace(completion="Собери итоговый макет."),
+        toc=Toc(),
+        style=Style(),
+    )
+    seed = SimpleNamespace(language="ru", title_seed="Проект", project_description="")
+    document = ReadmeDocument.from_markdown("# Проект\n\n## Глава 1. Введение\n\nТекст.")
+
+    result = QualityPhaseExecutor(runtime).execute(seed, document.to_markdown(), readme_document=document)
+
+    assert "editor_document" in calls
+    assert ("toc_build_document", "Проект", "ru") in calls
+    assert ("style_lint_document", "Проект", "ru") in calls
+    assert result.readme_document.section_by_title_fragment("Содержание") is not None
+
+
+def test_translation_phase_executor_executes_canonical_translation_logic() -> None:
     class Translator:
         def translate(self, markdown, target_language, _seed):
             return f"{target_language}:{markdown}"
@@ -219,11 +163,33 @@ def test_translation_phase_wrapper_executes_canonical_translation_logic() -> Non
     runtime = SimpleNamespace(translator=Translator())
     seed = SimpleNamespace(language="ru")
 
-    assert phase_7_translate(runtime, seed, "# md", "en") == ("# md", "en:# md")
-    assert phase_7_translate(runtime, seed, "# md", "ru") == ("# md", "# md")
+    translated = TranslationPhaseExecutor(runtime).execute(seed, "# md", "en")
+    untranslated = TranslationPhaseExecutor(runtime).execute(seed, "# md", "ru")
+
+    assert translated.markdown == "# md"
+    assert translated.translated_markdown == "en:# md"
+    assert untranslated.markdown == "# md"
+    assert untranslated.translated_markdown == "# md"
 
 
-def test_evaluation_phase_wrapper_executes_canonical_evaluation_logic(monkeypatch) -> None:
+def test_translation_phase_executor_returns_typed_document() -> None:
+    class Translator:
+        def translate(self, markdown, target_language, _seed):
+            return f"# {target_language.upper()}\n\n{markdown}"
+
+    runtime = SimpleNamespace(translator=Translator())
+    seed = SimpleNamespace(language="ru")
+    document = ReadmeDocument.from_markdown("# README\n\nBody.")
+
+    result = TranslationPhaseExecutor(runtime).execute(seed, document.to_markdown(), "en", readme_document=document)
+
+    assert result.readme_document is document
+    assert result.translated_readme_document.title == "EN"
+    assert result.markdown == document.to_markdown()
+    assert result.translated_markdown.startswith("# EN")
+
+
+def test_evaluation_phase_executor_executes_canonical_evaluation_logic(monkeypatch) -> None:
     class Validator:
         def __init__(self, message):
             self.message = message
@@ -251,11 +217,48 @@ def test_evaluation_phase_wrapper_executes_canonical_evaluation_logic(monkeypatc
     )
     seed = SimpleNamespace(language="ru", tasks_count=1, learning_outcomes=["LO"])
 
-    rubric_json, issues = phase_6_final_evaluation(runtime, seed, "# md")
+    result = EvaluationPhaseExecutor(runtime).execute(seed, "# md")
 
-    assert rubric_json == {"report": {"markdown": "# md", "learning_outcomes": ["LO"]}}
-    assert [issue["message"] for issue in issues] == ["intro", "theory", "practice"]
+    assert result.rubric_json == {"report": {"markdown": "# md", "learning_outcomes": ["LO"]}}
+    assert [issue["message"] for issue in result.issues] == ["intro", "theory", "practice"]
     assert isinstance(runtime.rubric, Rubric)
+
+
+def test_evaluation_phase_executor_returns_typed_document(monkeypatch) -> None:
+    class Validator:
+        def validate_markdown(self, *_args):
+            return []
+
+    class Rubric:
+        def __init__(self, language, llm_client):
+            self.language = language
+            self.llm_client = llm_client
+
+        def score(self, markdown, learning_outcomes):
+            return {"markdown": markdown, "learning_outcomes": learning_outcomes}
+
+        def score_document(self, readme_document, learning_outcomes):
+            return {"title": readme_document.title, "learning_outcomes": learning_outcomes}
+
+    monkeypatch.setattr(phase_executors, "RubricScorer", Rubric)
+    monkeypatch.setattr(phase_executors, "criteria_to_json", lambda report: {"report": report})
+
+    runtime = SimpleNamespace(
+        intro_validator=Validator(),
+        theory_validator=Validator(),
+        practice_validator=Validator(),
+        llm=FakeLLM(),
+        rubric=None,
+    )
+    seed = SimpleNamespace(language="ru", tasks_count=1, learning_outcomes=["LO"])
+    document = ReadmeDocument.from_markdown("# README\n\nBody.")
+
+    result = EvaluationPhaseExecutor(runtime).execute(seed, document.to_markdown(), readme_document=document)
+
+    assert result.readme_document is document
+    assert result.rubric_json["report"]["title"] == "README"
+    assert result.rubric_json["report"]["learning_outcomes"] == ["LO"]
+    assert result.issues == []
 
 
 def test_practice_executor_selects_serious_critic_issues_only() -> None:
@@ -314,3 +317,32 @@ def test_practice_executor_renders_practice_and_bonus_blocks() -> None:
 
     assert "### Задание 1. Собрать артефакт" in markdown
     assert "### Бонусное задание 1*" in markdown
+
+
+def test_practice_executor_renders_practice_as_typed_document() -> None:
+    task = SimpleNamespace(
+        title="Собрать артефакт",
+        situation="Есть задача",
+        input_data="Бриф",
+        goal="Собрать таблицу",
+        constraints_or_risk="Не добавлять лишних данных",
+        group_roles=[],
+        expected_artifact="Таблица",
+        artifact_location="materials/task.csv",
+        p2p_criteria=["Файл открыт"],
+        approach_bullets=["Заполни строки"],
+    )
+    document = ReadmeDocument.from_markdown(
+        "# README\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "Черновик\n\n"
+        "## Бонус\n\n"
+        "Черновик"
+    )
+    seed = SimpleNamespace(language="ru")
+
+    updated, changed = PracticePhaseExecutor.render_practice_document(document, [task], [task], True, seed)
+
+    assert changed is True
+    assert updated.section_by_title_fragment("Задание 1").title == "Задание 1. Собрать артефакт"
+    assert updated.section_by_title_fragment("Бонусное задание").title == "Бонусное задание 1*. Собрать артефакт"

@@ -70,6 +70,10 @@ class EnhancementPlan(BaseModel):
     )
     is_programming_project: bool = Field(description="Является ли проект программистским")
     reasoning: str = Field(description="Обоснование глобального плана")
+    fallback_traces: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Machine-readable fallback events that affected this plan"
+    )
 
 
 class EnhancementExecutionLog(BaseModel):

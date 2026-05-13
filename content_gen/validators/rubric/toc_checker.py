@@ -4,7 +4,9 @@ import json
 import re
 
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
+from ...models.readme_document import ReadmeDocument, ReadmeSection
 from ...utils.logging import safe_print
+from .document_utils import section_content, toc_section
 from .utils import semantic_similarity as _semantic_similarity
 
 
@@ -20,11 +22,10 @@ def is_service_heading(h: str) -> bool:
 def normalize_heading_for_search(h: str) -> str:
     """Нормализует заголовок из TOC для поиска в тексте.
     
-    Убирает префиксы типа "Глава 1.", "Часть 2.", ведущие номера и т.п.
+    Убирает канонические префиксы типа "Глава 1." и ведущие номера.
     """
     h = h.strip()
-    # Убираем префиксы "Глава 1.", "Глава 1", "Часть 2.", "Часть 2"
-    h = re.sub(r'^(Глава|Часть|Chapter|Part)\s+\d+\.?\s*', '', h, flags=re.I)
+    h = re.sub(r'^(Глава|Chapter)\s+\d+\.?\s*', '', h, flags=re.I)
     # Убираем ведущие номера "1.", "2.1." и т.п.
     h = re.sub(r'^\d+(\.\d+)*\.?\s*', '', h)
     return h.strip()
@@ -86,7 +87,7 @@ class TOCChecker:
                     safe_print(f"      [2.2.4] ⏭️ Заголовок '{heading[:50]}' служебный, пропускаем", flush=True)
                     continue
 
-                # Нормализуем заголовок для поиска (убираем "Глава 1.", "Часть 2." и т.п.)
+                # Нормализуем заголовок для поиска (убираем "Глава 1." и ведущие номера).
                 normalized_heading = normalize_heading_for_search(heading)
 
                 # Находим соответствующий раздел по нормализованному заголовку
@@ -127,8 +128,7 @@ class TOCChecker:
                     if not section_match and len(heading_words) >= 2:
                         # Извлекаем ключевые слова из оригинального заголовка (после номера)
                         orig_words = heading.strip().split()
-                        # Пропускаем первые слова, если это "Глава N" или "Часть N"
-                        if len(orig_words) >= 3 and orig_words[0].lower() in ['глава', 'часть', 'chapter', 'part']:
+                        if len(orig_words) >= 3 and orig_words[0].lower() in ['глава', 'chapter']:
                             orig_words = orig_words[2:]  # Пропускаем "Глава" и номер
                         if len(orig_words) >= 2:
                             pattern = rf'^##\s+.*?{re.escape(" ".join(orig_words[:2]))}.*?$'
@@ -543,4 +543,217 @@ class TOCChecker:
             ))
 
         return items
+
+    def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
+        """2.2: Проверка оглавления из typed README document."""
+        toc = toc_section(document)
+        if toc is None:
+            return self._toc_failure_items()
+
+        toc_block = section_content(toc)
+        links = re.findall(r'\[([^\]]+)\]\(#([^\)]+)\)', toc_block)
+        toc_links = [text for text, _anchor in links]
+        heading_sections = [
+            section
+            for section in document.sections
+            for section in section.flatten()
+            if section.level in {2, 3} and section.metadata.get("section_kind") != "toc"
+        ]
+        heading_by_normalized = {
+            self._normalize_title(section.title): section
+            for section in heading_sections
+        }
+        heading_titles = set(heading_by_normalized)
+        items: list[CriteriaItem] = []
+
+        has_chapter1 = document.chapter_section(1, language=self.lang) is not None
+        has_chapter2 = document.chapter_section(2, language=self.lang) is not None
+        has_chapter3 = document.chapter_section(3, language=self.lang) is not None
+        has_top_level = any(line.startswith(("- ", "* ")) or re.match(r"^\d+\.\s+\[", line) for line in toc_block.splitlines())
+        has_subsections = any(re.match(r"^\s+[-*]\s+\[", line) for line in toc_block.splitlines())
+
+        if has_chapter1 and has_chapter2 and has_chapter3 and has_top_level and has_subsections:
+            items.append(CriteriaItem(
+                id="2.2.1",
+                title="Проверка структуры уровней",
+                description="Оглавление содержит два уровня: Главы и подразделы",
+                check_method=CheckMethod.SCRIPT,
+                score=1,
+                comments=[],
+                parent_id="2.2",
+            ))
+        else:
+            missing = []
+            if not has_chapter1:
+                missing.append("Глава 1")
+            if not has_chapter2:
+                missing.append("Глава 2")
+            if not has_chapter3:
+                missing.append("Глава 3")
+            if not has_top_level:
+                missing.append("верхний уровень оглавления")
+            if not has_subsections:
+                missing.append("подразделы")
+            items.append(CriteriaItem(
+                id="2.2.1",
+                title="Проверка структуры уровней",
+                description="Оглавление содержит два уровня: Главы и подразделы",
+                check_method=CheckMethod.SCRIPT,
+                score=0,
+                comments=[f"Отсутствуют: {', '.join(missing)}"],
+                parent_id="2.2",
+            ))
+
+        invalid_links = []
+        valid_links = 0
+        for link_text, anchor in links:
+            normalized_link = self._normalize_title(link_text)
+            normalized_anchor = anchor.strip().casefold()
+            section = heading_by_normalized.get(normalized_link)
+            if section and ReadmeDocument.slugify(section.title) == normalized_anchor:
+                valid_links += 1
+            elif section:
+                invalid_links.append(f"{link_text} → {anchor}")
+            else:
+                invalid_links.append(f"{link_text} → {anchor}")
+
+        if links and not invalid_links:
+            items.append(CriteriaItem(
+                id="2.2.2",
+                title="Проверка корректности Markdown-ссылок",
+                description="Все ссылки в оглавлении корректны и ведут на существующие заголовки",
+                check_method=CheckMethod.SCRIPT,
+                score=1,
+                comments=[],
+                parent_id="2.2",
+                details={"total_links": len(links), "valid_links": valid_links},
+            ))
+        else:
+            items.append(CriteriaItem(
+                id="2.2.2",
+                title="Проверка корректности Markdown-ссылок",
+                description="Все ссылки в оглавлении корректны и ведут на существующие заголовки",
+                check_method=CheckMethod.SCRIPT,
+                score=0,
+                comments=[f"Найдено {len(invalid_links)} невалидных ссылок из {len(links)}"] if links else ["Нет ссылок в оглавлении"],
+                parent_id="2.2",
+                details={"invalid_links": invalid_links[:5]},
+            ))
+
+        mismatches = [
+            link_text
+            for link_text in toc_links
+            if self._normalize_title(link_text) not in heading_titles
+        ]
+        items.append(CriteriaItem(
+            id="2.2.3",
+            title="Проверка согласованности названий",
+            description="Названия в оглавлении совпадают с реальными заголовками",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if not mismatches else 0,
+            comments=[] if not mismatches else [f"Несовпадения: {', '.join(mismatches[:3])}"],
+            parent_id="2.2",
+            details={} if not mismatches else {"mismatches": mismatches},
+        ))
+
+        if toc_links:
+            hybrid_check, detailed_comments = self._check_heading_accuracy_sections(toc_links[:5], heading_by_normalized)
+            check_method = CheckMethod.HYBRID if (self.embedding_function and self.llm) else (
+                CheckMethod.AI_AGENT if self.llm else CheckMethod.SBERT
+            )
+            items.append(CriteriaItem(
+                id="2.2.4",
+                title="Проверка смысловой точности заголовков",
+                description="Заголовки отражают содержание разделов (SBERT + LLM)",
+                check_method=check_method,
+                score=1 if hybrid_check else 0,
+                comments=detailed_comments if detailed_comments else ([] if hybrid_check else ["Некоторые заголовки не отражают содержание разделов"]),
+                parent_id="2.2",
+                strictness=StrictnessLevel.SOFT,
+            ))
+        else:
+            items.append(CriteriaItem(
+                id="2.2.4",
+                title="Проверка смысловой точности заголовков",
+                description="Заголовки отражают содержание разделов",
+                check_method=CheckMethod.AI_AGENT,
+                score=0,
+                comments=["ИИ-агент недоступен для проверки"],
+                parent_id="2.2",
+                strictness=StrictnessLevel.SOFT,
+            ))
+
+        return items
+
+    @staticmethod
+    def _normalize_title(title: str) -> str:
+        """Normalize TOC and real heading titles for typed comparison."""
+        return re.sub(r"[-\s]+", " ", (title or "").casefold()).strip()
+
+    @staticmethod
+    def _toc_failure_items() -> list[CriteriaItem]:
+        """Return standard failures when the typed TOC section is absent."""
+        return [
+            CriteriaItem(
+                id=sub_id,
+                title=f"Проверка оглавления ({sub_id})",
+                description="Требуется оглавление",
+                check_method=CheckMethod.SCRIPT,
+                score=0,
+                comments=["Нет раздела «Содержание/Оглавление»"],
+                parent_id="2.2",
+            )
+            for sub_id in ["2.2.1", "2.2.2", "2.2.3", "2.2.4"]
+        ]
+
+    def _check_heading_accuracy_sections(
+        self,
+        headings: list[str],
+        sections_by_title: dict[str, ReadmeSection],
+    ) -> tuple[bool, list[str]]:
+        """Check TOC heading accuracy using typed section bodies."""
+        accurate_count = 0
+        total_checked = 0
+        comments: list[str] = []
+        generic_headings = [
+            "введение", "инструкция", "теория", "основные понятия", "обзор",
+            "заключение", "выводы", "практика", "задачи", "примеры",
+            "дополнительно", "общая информация",
+        ]
+
+        for heading in headings:
+            normalized = self._normalize_title(heading)
+            if is_service_heading(heading):
+                continue
+            section = sections_by_title.get(normalized)
+            if section is None:
+                comments.append(f"Заголовок \"{heading}\": раздел не найден в документе")
+                continue
+            body = section_content(section)
+            if not body:
+                comments.append(f"Заголовок \"{heading}\": раздел пустой, нет содержания")
+                continue
+            total_checked += 1
+            normalized_heading = normalize_heading_for_search(heading).lower()
+            if any(generic in normalized_heading for generic in generic_headings):
+                accurate_count += 1
+                continue
+            score = _semantic_similarity(
+                heading.strip(),
+                body[:2000],
+                lang=self.lang,
+                embedding_function=self.embedding_function,
+            )
+            if score >= 0.10:
+                accurate_count += 1
+            else:
+                comments.append(f"Заголовок \"{heading}\": низкое семантическое сходство ({score:.3f})")
+
+        if total_checked == 0:
+            return False, comments or ["Не удалось проверить соответствие заголовков содержанию"]
+        if accurate_count == 0:
+            return False, comments or ["Ни один из проверенных заголовков не отражает содержание разделов"]
+        if accurate_count < total_checked:
+            return True, [f"Часть заголовков можно уточнить: точных {accurate_count} из {total_checked}", *comments]
+        return True, comments
 

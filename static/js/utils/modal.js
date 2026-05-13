@@ -9,75 +9,50 @@ class ModalManager {
     }
 
     init() {
+        if (this.overlay) {
+            return this.overlay;
+        }
+
+        const existingOverlay = document.getElementById('modal-overlay');
+        if (existingOverlay) {
+            this.overlay = existingOverlay;
+            return this.overlay;
+        }
+
+        if (!document.body) {
+            document.addEventListener('DOMContentLoaded', () => this.init(), { once: true });
+            return null;
+        }
+
         // Создаем overlay для модальных окон
         this.overlay = document.createElement('div');
         this.overlay.id = 'modal-overlay';
-        this.overlay.style.cssText = `
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.7);
-            backdrop-filter: blur(4px);
-            z-index: 9999;
-            display: none;
-            align-items: center;
-            justify-content: center;
-            animation: fadeIn 0.2s ease-out;
-        `;
         document.body.appendChild(this.overlay);
 
-        // Добавляем CSS анимации
-        if (!document.getElementById('modal-styles')) {
-            const style = document.createElement('style');
-            style.id = 'modal-styles';
-            style.textContent = `
-                @keyframes fadeIn {
-                    from { opacity: 0; }
-                    to { opacity: 1; }
-                }
-                @keyframes slideUp {
-                    from {
-                        transform: translateY(20px);
-                        opacity: 0;
-                    }
-                    to {
-                        transform: translateY(0);
-                        opacity: 1;
-                    }
-                }
-                .modal-content {
-                    animation: slideUp 0.3s ease-out;
-                }
-            `;
-            document.head.appendChild(style);
-        }
+        return this.overlay;
     }
 
     confirm(title, message, confirmText = 'Подтвердить', cancelText = 'Отмена') {
         return new Promise((resolve) => {
+            const overlay = this.init();
+            if (!overlay) {
+                document.addEventListener('DOMContentLoaded', async () => {
+                    resolve(await this.confirm(title, message, confirmText, cancelText));
+                }, { once: true });
+                return;
+            }
+
             const modal = document.createElement('div');
-            modal.className = 'modal-content';
-            modal.style.cssText = `
-                background: rgba(10, 14, 39, 0.95);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(118, 75, 162, 0.4);
-                border-radius: 12px;
-                padding: 2rem;
-                max-width: 500px;
-                width: 90%;
-                box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            `;
+            modal.className = 's21-confirm-modal';
 
             modal.innerHTML = `
-                <h3 style="color: #64ffda; margin-bottom: 1rem; font-size: 1.5rem;">${title}</h3>
-                <p style="color: #b8c5d6; margin-bottom: 2rem; line-height: 1.6;">${message}</p>
-                <div style="display: flex; gap: 1rem; justify-content: flex-end;">
-                    <button class="btn btn-secondary" data-action="cancel" style="width: auto; padding: 0.75rem 1.5rem;">
+                <h3 class="s21-confirm-title">${title}</h3>
+                <p class="s21-confirm-message">${message}</p>
+                <div class="s21-confirm-actions">
+                    <button class="btn btn-secondary" data-action="cancel">
                         ${cancelText}
                     </button>
-                    <button class="btn btn-danger" data-action="confirm" style="width: auto; padding: 0.75rem 1.5rem;">
+                    <button class="btn btn-danger" data-action="confirm">
                         ${confirmText}
                     </button>
                 </div>
@@ -95,15 +70,15 @@ class ModalManager {
             };
 
             modal.addEventListener('click', handleClick);
-            this.overlay.addEventListener('click', (e) => {
-                if (e.target === this.overlay) {
+            overlay.addEventListener('click', (e) => {
+                if (e.target === overlay) {
                     this.close();
                     resolve(false);
                 }
             });
 
-            this.overlay.appendChild(modal);
-            this.overlay.style.display = 'flex';
+            overlay.appendChild(modal);
+            overlay.style.display = 'flex';
 
             // Закрытие по Escape
             const handleEscape = (e) => {
@@ -118,6 +93,10 @@ class ModalManager {
     }
 
     close() {
+        if (!this.overlay) {
+            return;
+        }
+
         this.overlay.style.display = 'none';
         this.overlay.innerHTML = '';
     }

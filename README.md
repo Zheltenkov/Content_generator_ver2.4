@@ -40,11 +40,7 @@ Content Generator
 │   │
 │   ├── 🎯 orchestrator.py       # Оркестратор пайплайна (AgentFlow)
 │   │
-│   ├── 📋 orchestrator_phases_modules/  # Модули фаз генерации
-│   │   └── phases/              # Phase 0-7 (Curriculum Context → Skeleton → Theory → Practice → Quality → Antiplag → Evaluation → Translate)
-│   │
 │   ├── 📚 curriculum/           # Контекст учебного плана и граф проектов
-│   ├── 🧩 extraction/           # Служебное извлечение ЗУНов
 │   │
 │   ├── 🔄 reverse_extraction/   # Обратное извлечение данных
 │   │   ├── agents/              # Агенты извлечения

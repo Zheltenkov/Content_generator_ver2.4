@@ -2,6 +2,7 @@
 
 import logging
 import os
+import socket
 import sys
 
 
@@ -26,6 +27,17 @@ def _ensure_project_venv() -> None:
 
     os.environ["CONTENT_GENERATOR_SKIP_VENV_REEXEC"] = "1"
     os.execv(venv_python, [venv_python, *sys.argv])
+
+
+def _can_bind_port(host: str, port: int) -> bool:
+    """Check port availability before importing the FastAPI application."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind((host, port))
+        except OSError:
+            return False
+    return True
+
 
 if __name__ == "__main__":
     _ensure_project_venv()
@@ -57,6 +69,24 @@ if __name__ == "__main__":
         docs_host = "localhost"
     else:
         docs_host = host
+
+    if not _can_bind_port(host, port):
+        print(
+            f"❌ Порт {port} уже занят для {host}. Сервер не запущен повторно.",
+            file=sys.stderr,
+            flush=True,
+        )
+        print(
+            f"   Проверьте текущий процесс: http://{docs_host}:{port}/api/v1/health",
+            file=sys.stderr,
+            flush=True,
+        )
+        print(
+            "   Либо остановите старый сервер, либо задайте другой порт: $env:PORT='8001'; python run.py",
+            file=sys.stderr,
+            flush=True,
+        )
+        sys.exit(1)
 
     print(f"🚀 Запуск FastAPI сервера на http://{host}:{port}", file=sys.stderr, flush=True)
     print(f"📝 Режим разработки (reload): {reload}", file=sys.stderr, flush=True)

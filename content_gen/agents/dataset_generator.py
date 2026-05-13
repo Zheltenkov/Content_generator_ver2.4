@@ -609,24 +609,3 @@ class DatasetGeneratorAgent(BaseAgent):
     def _find_evidence_spec(filename: str, spec_index: dict[str, EvidenceSpec]) -> EvidenceSpec | None:
         normalized = filename.replace("\\", "/").lower()
         return spec_index.get(normalized) or spec_index.get(normalized.split("/")[-1])
-
-    def process(self, input_data: dict[str, Any]) -> dict[str, Any]:
-        """
-        Обрабатывает входные данные (реализация BaseAgent).
-
-        Args:
-            input_data: Должен содержать 'tasks' (List[PracticeTask]) и 'seed' (ProjectSeed)
-
-        Returns:
-            Словарь с результатами обработки
-        """
-        tasks = input_data.get('tasks', [])
-        seed = input_data.get('seed')
-
-        if not seed:
-            raise ValueError("ProjectSeed обязателен для DatasetGeneratorAgent")
-
-        files = self.generate_files(tasks, seed, input_data.get("evidence_specs"))
-        return {
-            'files': files
-        }

@@ -310,7 +310,7 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(logContent, `Ошибка: ${e.message}. Проверьте консоль браузера (F12) для подробностей.`);
                     } else {
-                        logContent.textContent = `❌ Ошибка: ${e.message}. Проверьте консоль браузера (F12) для подробностей.`;
+                        logContent.textContent = `Ошибка: ${e.message}. Проверьте консоль браузера (F12) для подробностей.`;
                     }
                 }
                 const generationLogs = document.getElementById('generationLogs');
@@ -332,7 +332,7 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(logContent, `Ошибка: ${errorMsg}. Проверьте консоль браузера (F12) для подробностей.`);
                     } else {
-                        logContent.textContent = `❌ Ошибка: ${errorMsg}. Проверьте консоль браузера (F12) для подробностей.`;
+                        logContent.textContent = `Ошибка: ${errorMsg}. Проверьте консоль браузера (F12) для подробностей.`;
                     }
                 }
                 const generationLogs = document.getElementById('generationLogs');
@@ -384,6 +384,7 @@
         let currentResult = null;
         let currentFilter = 'all'; // 'all', 'passed', 'failed'
         window.currentFilter = 'all'; // Глобальная копия для фильтра
+        let currentReadmeRenderMode = 'preview';
         let currentSeed = null;
         let generationTimer = null;
         let generationStartTime = null;
@@ -391,15 +392,24 @@
         let lastKnownGenerationPhase = null;
         let lastKnownGenerationProgress = 0;
         let lastKnownGenerationAgent = 'Инициализация...';
+        let currentGenerationStatus = 'idle';
 
         window.methodologyPanel?.configure({
             apiUrl: API_URL,
             getAuthHeaders,
             getCurrentRequestId: () => currentRequestId,
             onApproved: (requestId) => {
+                currentGenerationStatus = 'in_progress';
                 showCompactGenerationProgress('Генерация проекта продолжается...', {
                     progress: Math.max(lastKnownGenerationProgress || 0, 1),
                     agent: lastKnownGenerationAgent || 'Продолжение генерации'
+                });
+                showGenerationRunView(currentSeed || {}, {
+                    phase: lastKnownGenerationPhase || 'initialization',
+                    status: 'in_progress',
+                    progress: Math.max(lastKnownGenerationProgress || 0, 1),
+                    agent: lastKnownGenerationAgent || 'Продолжение генерации',
+                    message: 'Применяем решение методолога и продолжаем пайплайн.'
                 });
                 const cancelBtn = document.getElementById('cancelGenerationBtn');
                 if (cancelBtn) {
@@ -409,7 +419,7 @@
                 const btn = document.getElementById('generateBtn');
                 if (btn) {
                     btn.disabled = true;
-                    btn.textContent = '⏳ Генерация...';
+                    btn.textContent = 'Генерация...';
                 }
                 startTimer();
                 pollGenerationStatus(requestId);
@@ -420,6 +430,7 @@
             onRejected: (_requestId, comment) => {
                 stopGenerationTracking();
                 hideCancelButton();
+                document.body.classList.remove('generation-running', 'generation-stage-review');
                 const logContent = document.getElementById('logContent');
                 if (logContent) {
                     const text = comment
@@ -434,7 +445,7 @@
                 const btn = document.getElementById('generateBtn');
                 if (btn) {
                     btn.disabled = false;
-                    btn.textContent = '🚀 Сгенерировать';
+                    btn.textContent = 'Сгенерировать';
                 }
                 const noResults = document.getElementById('noResults');
                 const resultsArea = document.getElementById('resultsArea');
@@ -488,7 +499,11 @@
 
             const readmeContainer = document.getElementById('readmeContent');
             if (readmeContainer) {
-                displayMarkdown(markdown, 'readmeContent');
+                if (document.body.classList.contains('generation-completed')) {
+                    renderResultReadme(markdown);
+                } else {
+                    displayMarkdown(markdown, 'readmeContent');
+                }
             }
 
             const previewContainer = document.getElementById('readmePreview');
@@ -517,6 +532,7 @@
                     lastKnownGenerationPhase,
                     lastKnownGenerationProgress,
                     lastKnownGenerationAgent,
+                    currentGenerationStatus,
                     timestamp: Date.now()
                 };
                 sessionStorage.setItem('generation_state', JSON.stringify(state));
@@ -552,6 +568,7 @@
                         lastKnownGenerationPhase = state.lastKnownGenerationPhase || lastKnownGenerationPhase;
                         lastKnownGenerationProgress = Number(state.lastKnownGenerationProgress || 0);
                         lastKnownGenerationAgent = state.lastKnownGenerationAgent || lastKnownGenerationAgent;
+                        currentGenerationStatus = state.currentGenerationStatus || currentGenerationStatus;
                         
                         // Если есть requestId, проверяем статус генерации на сервере
                         if (currentRequestId) {
@@ -565,6 +582,7 @@
                                     const status = statusData.status;
                                     
                                     if (status === 'pending' || status === 'in_progress') {
+                                        currentGenerationStatus = status;
                                         // Генерация еще идет - возобновляем polling и таймер
                                         console.log('🔄 Генерация еще идет, возобновляем polling...');
                                         
@@ -574,6 +592,12 @@
                                             generationLogs.style.display = 'block';
                                         }
                                         showCompactGenerationProgress('Генерация проекта продолжается...', {
+                                            progress: Math.max(lastKnownGenerationProgress || 0, 1),
+                                            agent: lastKnownGenerationAgent || 'Продолжение генерации'
+                                        });
+                                        showGenerationRunView(currentSeed || {}, {
+                                            phase: lastKnownGenerationPhase || 'initialization',
+                                            status,
                                             progress: Math.max(lastKnownGenerationProgress || 0, 1),
                                             agent: lastKnownGenerationAgent || 'Продолжение генерации'
                                         });
@@ -588,10 +612,28 @@
                                         const btn = document.getElementById('generateBtn');
                                         if (btn) {
                                             btn.disabled = true;
-                                            btn.textContent = '⏳ Генерация...';
+                                            btn.textContent = 'Генерация...';
                                         }
                                         
                                         return true; // Не продолжаем восстановление UI, так как генерация еще идет
+                                    } else if (status === 'needs_review') {
+                                        currentGenerationStatus = status;
+                                        const message = statusData.error || 'Требуется ручная методологическая проверка';
+                                        showGenerationRunView(currentSeed || {}, {
+                                            phase: statusData.methodology?.checkpoint?.stage || lastKnownGenerationPhase || 'methodology_review',
+                                            status,
+                                            methodology: statusData.methodology || null,
+                                            progress: Math.max(lastKnownGenerationProgress || 0, progressFromCheckpointStage(statusData.methodology?.checkpoint?.stage), 1),
+                                            message,
+                                            agent: 'Ожидание методолога'
+                                        });
+                                        showMethodologyReviewActions(currentRequestId, message);
+                                        const btn = document.getElementById('generateBtn');
+                                        if (btn) {
+                                            btn.disabled = false;
+                                            btn.textContent = 'Сгенерировать';
+                                        }
+                                        return true;
                                     } else if (status === 'failed') {
                                         // Генерация завершилась с ошибкой
                                         console.log('❌ Генерация завершилась с ошибкой');
@@ -601,7 +643,7 @@
                                             if (window.sanitize) {
                                                 window.sanitize.safeSetErrorMessage(logContent, `Ошибка генерации: ${errorMsg}`);
                                             } else {
-                                                logContent.textContent = `❌ Ошибка генерации: ${errorMsg}`;
+                                                logContent.textContent = `Ошибка генерации: ${errorMsg}`;
                                             }
                                         }
                                         clearGenerationState();
@@ -783,6 +825,9 @@
                 lastKnownGenerationPhase = null;
                 lastKnownGenerationProgress = 0;
                 lastKnownGenerationAgent = 'Инициализация...';
+                currentGenerationStatus = 'idle';
+                finishGenerationRun('idle');
+                hideMethodologyAssistantChat();
                 console.log('✅ Состояние генерации очищено');
             } catch (error) {
                 console.error('❌ Ошибка очистки состояния:', error);
@@ -793,6 +838,7 @@
             // Восстанавливаем значения полей формы
             if (seed.language) document.getElementById('language').value = seed.language;
             if (seed.project_type) document.getElementById('projectType').value = seed.project_type;
+            if (seed.direction) setValue('direction', seed.direction);
             if (seed.thematic_block) document.getElementById('thematicBlock').value = seed.thematic_block;
             if (seed.audience_level) document.getElementById('audienceLevel').value = seed.audience_level;
             if (seed.required_tools) document.getElementById('requiredTools').value = seed.required_tools.join(', ');
@@ -802,14 +848,38 @@
             if (seed.learning_outcomes) document.getElementById('learningOutcomes').value = seed.learning_outcomes.join('\n');
             if (seed.skills) document.getElementById('skills').value = seed.skills.join('\n');
             if (seed.group_size) document.getElementById('groupSize').value = seed.group_size;
+            if (seed.tasks_count !== undefined && seed.tasks_count !== null) setValue('tasksCount', seed.tasks_count);
+            if (seed.task_complexity) setValue('taskComplexity', seed.task_complexity);
             if (seed.repo_path_template) document.getElementById('repoPathTemplate').value = seed.repo_path_template;
+            if (seed.repo_base_url) setValue('repoBaseUrl', seed.repo_base_url);
+            if (seed.platform_name) setValue('platformName', seed.platform_name);
+            if (seed.gitlab_link) setValue('gitlabLink', seed.gitlab_link);
+            if (seed.workload_hours !== undefined && seed.workload_hours !== null) setValue('workloadHours', seed.workload_hours);
+            if (seed.workload_days !== undefined && seed.workload_days !== null) setValue('workloadDays', seed.workload_days);
+            if (seed.xp_reward !== undefined && seed.xp_reward !== null) setValue('xpReward', seed.xp_reward);
+            if (seed.additional_materials) setValue('additionalMaterials', seed.additional_materials);
+            if (seed.expert_notes) setValue('expertNotes', seed.expert_notes);
+            if (seed.context_track_dir) setValue('contextTrackDir', seed.context_track_dir);
+            if (seed.last_known_order !== undefined && seed.last_known_order !== null) setValue('lastKnownOrder', seed.last_known_order);
+            if (seed.target_languages) setValue('targetLanguages', seed.target_languages.join(', '));
+            if (seed.zun) setValue('zun', seed.zun);
+            if (seed.reference_project_hint) setValue('referenceProjectHint', seed.reference_project_hint);
+            if (seed.reference_practice_hint) setValue('referencePracticeHint', seed.reference_practice_hint);
+            if (seed.is_programming_project !== undefined && seed.is_programming_project !== null) {
+                setValue('isProgrammingProject', String(!!seed.is_programming_project));
+            }
             
             // Восстанавливаем чекбоксы
             setChecked('methodologyHumanReview', !!seed.methodology_human_review);
+            setChecked('includeFormulas', !!seed.include_formulas);
+            setChecked('includeTables', !!seed.include_tables);
+            setChecked('includeDiagrams', !!seed.include_diagrams);
             if (seed.bonus_wish !== null && seed.bonus_wish !== undefined) {
                 setChecked('generateBonus', true);
                 setValue('bonusWish', seed.bonus_wish || '');
+                toggleBonusWish();
             }
+            toggleGroupSize();
             
         }
         // Направления (ранее thematicBlocks)
@@ -838,7 +908,7 @@
             const file = fileInput && fileInput.files ? fileInput.files[0] : null;
             if (!file) return;
             
-            document.getElementById('curriculumFileName').textContent = '⏳ Загрузка...';
+            document.getElementById('curriculumFileName').textContent = 'Загрузка...';
             
             const formData = new FormData();
             formData.append('file', file);
@@ -878,7 +948,7 @@
                 // Показываем каскадные селекторы
                 document.getElementById('curriculumBlockGroup').style.display = 'block';
                 
-                document.getElementById('curriculumFileName').textContent = `✅ ${file.name} (${currentCurriculum.blocks.length} блоков)`;
+                document.getElementById('curriculumFileName').textContent = `${file.name} (${currentCurriculum.blocks.length} блоков)`;
                 
                 if (window.toast) {
                     window.toast.success(`УП загружен: ${currentCurriculum.direction} (${currentCurriculum.blocks.length} блоков)`);
@@ -887,7 +957,7 @@
                 console.log('✅ УП загружен:', currentCurriculum);
                 
             } catch (error) {
-                document.getElementById('curriculumFileName').textContent = `❌ Ошибка: ${error.message}`;
+                document.getElementById('curriculumFileName').textContent = `Ошибка: ${error.message}`;
                 console.error('❌ Ошибка загрузки УП:', error);
                 if (window.toast) {
                     window.toast.error(`Ошибка загрузки УП: ${error.message}`);
@@ -1015,6 +1085,31 @@
             if (project.group_size) {
                 document.getElementById('groupSize').value = project.group_size;
             }
+
+            if (project.tasks_count !== undefined && project.tasks_count !== null) {
+                setValue('tasksCount', project.tasks_count);
+            }
+            if (project.task_complexity) {
+                setValue('taskComplexity', project.task_complexity);
+            }
+            if (project.zun) {
+                setValue('zun', project.zun);
+            }
+            if (project.target_languages) {
+                setValue(
+                    'targetLanguages',
+                    Array.isArray(project.target_languages) ? project.target_languages.join(', ') : project.target_languages
+                );
+            }
+            setValue('platformName', project.platform_name || project.title || '');
+            setValue('gitlabLink', project.gitlab_link || '');
+            setValue('workloadHours', project.workload_hours || '');
+            setValue('workloadDays', project.workload_days || '');
+            setValue('xpReward', project.xp || project.xp_reward || '');
+            setValue('additionalMaterials', project.additional_materials || '');
+            setValue('expertNotes', project.expert_notes || '');
+            setValue('contextTrackDir', project.context_track_dir || '');
+            setValue('lastKnownOrder', project.order || '');
             
             // Направление
             if (block.code && block.code !== 'UNK') {
@@ -1138,7 +1233,7 @@
                     currentCurriculum = JSON.parse(savedCurriculum);
                     populateCurriculumBlocks();
                     document.getElementById('curriculumBlockGroup').style.display = 'block';
-                    document.getElementById('curriculumFileName').textContent = `✅ ${currentCurriculum.direction} (восстановлен из сессии)`;
+                    document.getElementById('curriculumFileName').textContent = `${currentCurriculum.direction} (восстановлен из сессии)`;
                     console.log('📚 УП восстановлен из сессии');
                 }
                 
@@ -1342,6 +1437,7 @@
             if (data.thematic_block || data.track) {
                 document.getElementById('thematicBlock').value = data.thematic_block || data.track;
             }
+            if (data.direction) setValue('direction', data.direction);
             if (data.audience_level) document.getElementById('audienceLevel').value = data.audience_level;
             // Маппинг: project_title -> title_seed для обратной совместимости
             if (data.title_seed || data.project_title) {
@@ -1371,8 +1467,38 @@
                 document.getElementById('groupSize').value = data.group_size;
                 toggleGroupSize();
             }
+            if (data.tasks_count !== undefined && data.tasks_count !== null) setValue('tasksCount', data.tasks_count);
+            if (data.task_complexity) setValue('taskComplexity', data.task_complexity);
             if (data.repo_base_url) document.getElementById('repoBaseUrl').value = data.repo_base_url;
             if (data.repo_path_template) document.getElementById('repoPathTemplate').value = data.repo_path_template;
+            if (data.platform_name) setValue('platformName', data.platform_name);
+            if (data.gitlab_link) setValue('gitlabLink', data.gitlab_link);
+            if (data.workload_hours !== undefined && data.workload_hours !== null) setValue('workloadHours', data.workload_hours);
+            if (data.workload_days !== undefined && data.workload_days !== null) setValue('workloadDays', data.workload_days);
+            if (data.xp_reward !== undefined && data.xp_reward !== null) {
+                setValue('xpReward', data.xp_reward);
+            } else if (data.xp !== undefined && data.xp !== null) {
+                setValue('xpReward', data.xp);
+            }
+            if (data.additional_materials) setValue('additionalMaterials', data.additional_materials);
+            if (data.expert_notes) setValue('expertNotes', data.expert_notes);
+            if (data.context_track_dir) setValue('contextTrackDir', data.context_track_dir);
+            if (data.last_known_order !== undefined && data.last_known_order !== null) setValue('lastKnownOrder', data.last_known_order);
+            if (data.target_languages) {
+                setValue(
+                    'targetLanguages',
+                    Array.isArray(data.target_languages) ? data.target_languages.join(', ') : data.target_languages
+                );
+            }
+            if (data.zun) setValue('zun', data.zun);
+            if (data.reference_project_hint) setValue('referenceProjectHint', data.reference_project_hint);
+            if (data.reference_practice_hint) setValue('referencePracticeHint', data.reference_practice_hint);
+            if (data.is_programming_project !== undefined && data.is_programming_project !== null) {
+                setValue('isProgrammingProject', String(!!data.is_programming_project));
+            }
+            setChecked('includeFormulas', !!data.include_formulas);
+            setChecked('includeTables', !!data.include_tables);
+            setChecked('includeDiagrams', !!data.include_diagrams);
             if (data.bonus_wish) {
                 setChecked('generateBonus', true);
                 setValue('bonusWish', data.bonus_wish);
@@ -1441,6 +1567,7 @@
         async function clearForm() {
             // Очищаем состояние генерации при очистке формы
             clearGenerationState();
+            resetGeneratorChrome();
             
             // Используем модальное окно для подтверждения
             let confirmed = false;
@@ -1480,6 +1607,22 @@
                 document.getElementById('projectDescription').value = '';
                 document.getElementById('learningOutcomes').value = '';
                 document.getElementById('skills').value = '';
+                setValue('tasksCount', '');
+                setValue('taskComplexity', '');
+                setValue('targetLanguages', '');
+                setValue('zun', '');
+                setValue('referenceProjectHint', '');
+                setValue('referencePracticeHint', '');
+                setValue('isProgrammingProject', '');
+                setValue('platformName', '');
+                setValue('gitlabLink', '');
+                setValue('workloadHours', '');
+                setValue('workloadDays', '');
+                setValue('xpReward', '');
+                setValue('additionalMaterials', '');
+                setValue('expertNotes', '');
+                setValue('contextTrackDir', '');
+                setValue('lastKnownOrder', '');
                 
                 // Настройки репозитория
                 document.getElementById('repoBaseUrl').value = '';
@@ -1491,6 +1634,9 @@
                 setDisplay('bonusWishGroup', 'none');
                 
                 setChecked('methodologyHumanReview', false);
+                setChecked('includeFormulas', false);
+                setChecked('includeTables', false);
+                setChecked('includeDiagrams', false);
                 
                 // Файлы
                 const specFileInput = document.getElementById('specFile');
@@ -1498,18 +1644,9 @@
                 const trackFilesInput = document.getElementById('trackFiles');
                 const trackFilesNamesEl = document.getElementById('trackFilesNames');
                 if (specFileInput) specFileInput.value = '';
-                if (fileNameEl) fileNameEl.textContent = '';
+                if (fileNameEl) fileNameEl.textContent = 'Старый формат спецификации';
                 if (trackFilesInput) trackFilesInput.value = '';
-                if (trackFilesNamesEl) trackFilesNamesEl.textContent = '';
-                
-                // Закрываем все expanders
-                const expanders = ['repoExpander', 'advancedExpander'];
-                expanders.forEach(id => {
-                    const expander = document.getElementById(id);
-                    if (expander) {
-                        expander.style.display = 'none';
-                    }
-                });
+                if (trackFilesNamesEl) trackFilesNamesEl.textContent = 'Дополнительный контекст';
                 
                 console.log('✅ Форма очищена');
                 if (window.toast) {
@@ -1540,6 +1677,7 @@
             currentResult = null;
             currentSeed = null;
             clearGenerationState(); // Очищаем сохраненное состояние
+            resetGeneratorChrome();
             document.getElementById('noResults').style.display = 'block';
             document.getElementById('resultsArea').style.display = 'none';
             
@@ -1655,6 +1793,9 @@
                     }
                 }
             }
+            if (document.body.classList.contains('generation-completed')) {
+                setCompletedChrome('metrics');
+            }
         }
         
         function updateVersionButtons() {
@@ -1713,6 +1854,10 @@
             if (timerElement) {
                 timerElement.textContent = formatTime(elapsed);
             }
+            const runTimerElement = document.getElementById('generationRunTimer');
+            if (runTimerElement) {
+                runTimerElement.textContent = formatTime(elapsed);
+            }
         }
         
         // Функция для запуска таймера с использованием requestAnimationFrame для надежности
@@ -1759,12 +1904,64 @@
             }, 100);
         }
 
+        function setGenerationStatusActive(active) {
+            const generationLogs = document.getElementById('generationLogs');
+            if (generationLogs) {
+                generationLogs.classList.toggle('is-active', !!active);
+            }
+        }
+
+        function timelineStageFromPhase(phase) {
+            const normalized = String(phase || '').trim();
+            if (!normalized) return null;
+            if (['initialization', 'context', 'task_planning', 'title', 'title_annotation'].includes(normalized)) return 'context';
+            if (['skeleton', 'intro_rules', 'structural_preflight'].includes(normalized)) return 'skeleton';
+            if (['theory', 'definitions', 'theory_checks', 'practice', 'dataset_generation'].includes(normalized)) return 'theory';
+            if (['quality', 'global_quality', 'evaluation', 'readme_check', 'validation'].includes(normalized)) return 'quality';
+            if (['finalize', 'completion'].includes(normalized)) return 'assembly';
+            return null;
+        }
+
+        function updateGenerationTimeline(phase, status = 'in_progress') {
+            const timeline = document.getElementById('generationTimeline');
+            if (!timeline) return;
+            const stages = ['context', 'skeleton', 'theory', 'quality', 'assembly'];
+            const activeStage = timelineStageFromPhase(phase) || (status === 'completed' ? 'assembly' : 'context');
+            const activeIndex = Math.max(0, stages.indexOf(activeStage));
+            timeline.querySelectorAll('.s21-tl-row').forEach((row) => {
+                const stage = row.getAttribute('data-stage');
+                const index = stages.indexOf(stage);
+                row.classList.remove('done', 'now', 'pending');
+                if (status === 'completed' || index < activeIndex) {
+                    row.classList.add('done');
+                } else if (index === activeIndex && status !== 'failed' && status !== 'cancelled' && status !== 'needs_review') {
+                    row.classList.add('now');
+                } else {
+                    row.classList.add('pending');
+                }
+                const time = row.querySelector('.s21-tl-time');
+                if (time) {
+                    if (status === 'completed' || index < activeIndex) time.textContent = 'готово';
+                    else if (index === activeIndex && status !== 'failed' && status !== 'cancelled' && status !== 'needs_review') time.textContent = 'в работе';
+                    else time.textContent = 'ожидает';
+                }
+            });
+        }
+
         function showCompactGenerationProgress(message = 'Генерация проекта...', options = {}) {
             const generationLogs = document.getElementById('generationLogs');
             const logContent = document.getElementById('logContent');
             if (generationLogs) {
                 generationLogs.style.display = 'block';
             }
+            setGenerationStatusActive(true);
+            updateGenerationTimeline(options.phase || lastKnownGenerationPhase, options.status || 'in_progress');
+            showGenerationRunView(currentSeed || {}, {
+                ...options,
+                message,
+                phase: options.phase || lastKnownGenerationPhase || 'initialization',
+                status: options.status || currentGenerationStatus || 'in_progress'
+            });
             if (!logContent) return;
 
             logContent.innerHTML = '';
@@ -1837,6 +2034,621 @@
                 final: 'global_quality'
             }[String(stage || '').trim()] || String(stage || '').trim();
             return calculateProgressFromPhase(normalized);
+        }
+
+        const GENERATION_RUN_STAGES = [
+            {
+                id: 'context',
+                title: 'Анализ контекста',
+                subtitle: 'Проверяем учебный план, ЗУНы, соседние проекты и ограничения.'
+            },
+            {
+                id: 'planning',
+                title: 'Планирование практики',
+                subtitle: 'Определяем количество задач, сложность и цепочку артефактов.'
+            },
+            {
+                id: 'skeleton',
+                title: 'Каркас README',
+                subtitle: 'Собираем структуру, содержание и навигацию будущего документа.'
+            },
+            {
+                id: 'theory',
+                title: 'Генерация теории',
+                subtitle: 'Пишем теоретические разделы, примеры и визуальные блоки.'
+            },
+            {
+                id: 'practice',
+                title: 'Генерация практики',
+                subtitle: 'Собираем задания, p2p-критерии, материалы и ожидаемые результаты.'
+            },
+            {
+                id: 'quality',
+                title: 'Проверка качества',
+                subtitle: 'Проверяем структуру, связность, полноту и didactics-контракты.'
+            },
+            {
+                id: 'antiplagiarism',
+                title: 'Антиплагиат',
+                subtitle: 'Контролируем повторы, копипасту и самостоятельность формулировок.'
+            },
+            {
+                id: 'evaluation',
+                title: 'Оценка по критериям',
+                subtitle: 'Сверяем README с rubric и фиксируем замечания.'
+            },
+            {
+                id: 'translation',
+                title: 'Перевод',
+                subtitle: 'Пропускается для русского README, используется в отдельном разделе перевода.'
+            },
+            {
+                id: 'assembly',
+                title: 'Сборка результата',
+                subtitle: 'Готовим README, отчёты и архив для скачивания.'
+            }
+        ];
+
+        function escapeHtmlSafe(value) {
+            const text = String(value ?? '');
+            if (window.sanitize?.escapeHtml) {
+                return window.sanitize.escapeHtml(text);
+            }
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function getSelectText(id) {
+            const element = document.getElementById(id);
+            if (!element || !element.selectedOptions || !element.selectedOptions.length) {
+                return element?.value || '';
+            }
+            return element.selectedOptions[0].textContent.trim();
+        }
+
+        function setTextContent(id, value) {
+            const element = document.getElementById(id);
+            if (element) {
+                element.textContent = value || '—';
+            }
+        }
+
+        function languageLabel(code) {
+            const labels = {
+                ru: 'RU · Русский',
+                en: 'EN · Английский',
+                kg: 'KG · Киргизский',
+                uz: 'UZ · Узбекский'
+            };
+            return labels[code] || code || '—';
+        }
+
+        function projectTypeLabel(seed) {
+            const type = seed?.project_type === 'group' ? 'Групповой' : 'Индивидуальный';
+            const audience = seed?.audience_level || getValueOrFallback('audienceLevel', '');
+            const group = seed?.project_type === 'group' && seed?.group_size ? ` · ${seed.group_size} чел.` : '';
+            return `${type}${audience ? ` · ${audience}` : ''}${group}`;
+        }
+
+        function getValueOrFallback(id, fallback = '') {
+            const element = document.getElementById(id);
+            return element ? element.value : fallback;
+        }
+
+        function renderGenerationRunSnapshot(seed = currentSeed || {}) {
+            const curriculumFileName = document.getElementById('curriculumFileName')?.textContent?.trim();
+            const curriculumProject = getSelectText('curriculumProject');
+            const blockText = getSelectText('curriculumBlock') || seed.thematic_block || getSelectText('direction');
+            const tasks = seed.tasks_count || getValueOrFallback('tasksCount') || 'авто';
+            const bonus = seed.bonus_wish !== null && seed.bonus_wish !== undefined && seed.bonus_wish !== ''
+                ? ' + бонус'
+                : (getChecked('generateBonus') ? ' + бонус' : '');
+
+            setTextContent('generationRunStartedAt', new Date(generationStartTime || Date.now()).toLocaleTimeString('ru-RU', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            }));
+            setTextContent('runParamCurriculum', curriculumFileName && !curriculumFileName.includes('Поддерживается') ? curriculumFileName : 'ручной ввод');
+            setTextContent('runParamDirection', getSelectText('direction') || seed.direction || '—');
+            setTextContent('runParamBlock', blockText || '—');
+            setTextContent('runParamProject', curriculumProject && !curriculumProject.includes('Выберите') ? curriculumProject : (seed.platform_name || seed.title_seed || '—'));
+            setTextContent('runParamTitle', seed.title_seed || getValueOrFallback('titleSeed') || '—');
+            setTextContent('runParamType', projectTypeLabel(seed));
+            setTextContent('runParamLanguage', languageLabel(seed.language || getValueOrFallback('language')));
+            setTextContent('runParamTasks', `${tasks}${bonus}`);
+            setTextContent('runParamMethodology', seed.methodology_human_review || getChecked('methodologyHumanReview') ? 'Включена' : 'Обычный режим');
+        }
+
+        function setGeneratorBrand(step, mark, sub) {
+            const badge = document.getElementById('generatorBrandBadge');
+            if (badge) {
+                badge.textContent = step;
+                badge.setAttribute('data-step', step);
+            }
+            setTextContent('generatorBrandMark', mark);
+            setTextContent('generatorBrandSub', sub || 'учебных проектов · v 2.4');
+        }
+
+        function setGeneratorSubbar({ backText, backHref, title, statusText, statusClass = 'info', rightHtml = '' } = {}) {
+            const back = document.getElementById('generatorBackLink');
+            if (back) {
+                back.textContent = backText || '← Главное меню';
+                back.href = backHref || '/app';
+                back.onclick = null;
+            }
+            setTextContent('generatorSubbarTitle', title || 'Генерация README');
+            const status = document.getElementById('generatorSubbarStatus');
+            if (status) {
+                status.className = `badge ${statusClass}`;
+                status.textContent = statusText || 'ЧЕРНОВИК';
+                status.style.display = statusText === null ? 'none' : 'inline-flex';
+            }
+            const right = document.getElementById('generatorSubbarRight');
+            if (right) {
+                if (rightHtml) {
+                    right.innerHTML = rightHtml;
+                } else {
+                    right.textContent = '✓ Автосохранено · локальное состояние';
+                }
+            }
+        }
+
+        function resetGeneratorChrome() {
+            document.body.classList.remove('generation-running', 'generation-stage-review', 'generation-completed', 'generation-metrics-view');
+            setGeneratorBrand('03.1', 'ФОРМА ПАРАМЕТРОВ', 'учебных проектов · v 2.4');
+            setGeneratorSubbar();
+        }
+
+        function formatGenerationElapsed() {
+            if (!generationStartTime) return '';
+            const elapsed = Math.max(0, Math.floor((Date.now() - Number(generationStartTime)) / 1000));
+            const minutes = String(Math.floor(elapsed / 60)).padStart(2, '0');
+            const seconds = String(elapsed % 60).padStart(2, '0');
+            return `${minutes}:${seconds}`;
+        }
+
+        function extractMarkdownTitle(markdown) {
+            const match = String(markdown || '').match(/^#\s+(.+)$/m);
+            return match ? match[1].replace(/^#+\s*/, '').trim() : '';
+        }
+
+        function getResultDisplayTitle(data = null) {
+            const result = data?.result || currentResult || {};
+            const seed = data?.seed || currentSeed || {};
+            const code = seed.platform_name || seed.project_code || result.platform_name || result.project_code || '';
+            const title = seed.title_seed || result.title_seed || result.title || extractMarkdownTitle(result.markdown || currentMarkdown);
+            if (code && title && !String(title).includes(code)) return `${code} · ${title}`;
+            return title || code || 'Итоговый README';
+        }
+
+        function getCurrentRubric() {
+            return currentMetricsVersion === 'regenerated' && regeneratedRubric ? regeneratedRubric : originalRubric;
+        }
+
+        function setCompletedChrome(tabName = 'readme') {
+            const isMetrics = tabName === 'metrics';
+            document.body.classList.add('generation-completed');
+            document.body.classList.toggle('generation-metrics-view', isMetrics);
+            document.body.classList.remove('generation-running', 'generation-stage-review');
+
+            const rubricSummary = getRubricSummary(getCurrentRubric());
+            const scoreText = rubricSummary.max > 0 ? `${rubricSummary.total} из ${rubricSummary.max}` : 'метрики';
+            if (isMetrics) {
+                setGeneratorBrand('03.4', 'МЕТРИКИ', `${scoreText} критериев`);
+                setGeneratorSubbar({
+                    backText: getResultDisplayTitle(),
+                    backHref: '#',
+                    title: 'Метрики качества',
+                    statusText: rubricSummary.max > 0 ? `✓ ${scoreText}` : 'МЕТРИКИ',
+                    statusClass: 'success',
+                    rightHtml: `
+                        <button class="btn btn-secondary btn-sm" type="button" onclick="fillCommentsFromFailedCriteria()">Заполнить из непройденных</button>
+                        <button class="btn btn-sm" type="button" onclick="openRegenerationFromMetrics()">Перегенерировать</button>
+                    `
+                });
+                const back = document.getElementById('generatorBackLink');
+                if (back) {
+                    back.onclick = (event) => {
+                        event.preventDefault();
+                        activateResultTab('readme');
+                    };
+                }
+                return;
+            }
+
+            const elapsed = formatGenerationElapsed();
+            setGeneratorBrand('03.3', 'РЕЗУЛЬТАТЫ', 'README + TOC');
+            setGeneratorSubbar({
+                backText: '← К параметрам',
+                backHref: '#',
+                title: getResultDisplayTitle(),
+                statusText: elapsed ? `✓ ГОТОВО · ${elapsed}` : '✓ ГОТОВО',
+                statusClass: 'success',
+                rightHtml: `
+                    <button class="btn btn-secondary btn-sm" type="button" onclick="showTab('regen', document.querySelector('.result-tabs .tab[onclick*=regen]'))">Перегенерация</button>
+                    <button class="btn btn-sm" type="button" onclick="downloadResults()" id="downloadBtn">↓ Скачать архив</button>
+                `
+            });
+            const back = document.getElementById('generatorBackLink');
+            if (back) {
+                back.onclick = (event) => {
+                    event.preventDefault();
+                    document.body.classList.remove('generation-completed', 'generation-metrics-view');
+                    const noResults = document.getElementById('noResults');
+                    const resultsArea = document.getElementById('resultsArea');
+                    if (resultsArea) resultsArea.style.display = 'none';
+                    if (noResults) noResults.style.display = 'block';
+                    resetGeneratorChrome();
+                };
+            }
+        }
+
+        function extractReadmeToc(markdown) {
+            const toc = [];
+            String(markdown || '').split(/\r?\n/).forEach((line) => {
+                const match = line.match(/^(#{1,3})\s+(.+?)\s*$/);
+                if (!match) return;
+                const title = match[2].replace(/[#*_`]/g, '').trim();
+                if (!title || /^содержание$/i.test(title)) return;
+                toc.push({
+                    level: match[1].length,
+                    title,
+                    key: `${match[1].length}-${title.toLowerCase().replace(/\s+/g, '-')}-${toc.length}`
+                });
+            });
+            return toc.slice(0, 18);
+        }
+
+        function renderReadmeToc(markdown) {
+            const aside = document.getElementById('readmeToc');
+            if (!aside) return;
+            const toc = extractReadmeToc(markdown);
+            aside.innerHTML = '';
+
+            const title = document.createElement('div');
+            title.className = 'readme-toc-title';
+            title.textContent = 'СОДЕРЖАНИЕ';
+            aside.appendChild(title);
+
+            if (!toc.length) {
+                const empty = document.createElement('div');
+                empty.className = 'readme-toc-empty';
+                empty.textContent = 'Заголовки появятся после рендера README.';
+                aside.appendChild(empty);
+                return;
+            }
+
+            toc.forEach((item, index) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `readme-toc-link level-${item.level}${index === 0 ? ' active' : ''}`;
+                button.textContent = item.title;
+                button.dataset.heading = item.title;
+                button.addEventListener('click', () => scrollReadmeToHeading(item.title, button));
+                aside.appendChild(button);
+            });
+        }
+
+        function scrollReadmeToHeading(title, activeButton = null) {
+            const container = document.getElementById('readmeContent');
+            if (!container) return;
+            const normalized = String(title || '').trim();
+            const heading = [...container.querySelectorAll('h1, h2, h3')]
+                .find((node) => (node.textContent || '').trim() === normalized);
+            if (heading) {
+                heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            document.querySelectorAll('#readmeToc .readme-toc-link').forEach((btn) => btn.classList.remove('active'));
+            if (activeButton) activeButton.classList.add('active');
+        }
+
+        function renderResultReadme(markdown) {
+            const container = document.getElementById('readmeContent');
+            if (!container) return;
+            if (currentReadmeRenderMode === 'preview') {
+                displayMarkdown(markdown, 'readmeContent');
+            } else {
+                const escaped = escapeHtmlSafe(markdown || '');
+                container.innerHTML = `<pre class="result-markdown-source">${escaped}</pre>`;
+            }
+            renderReadmeToc(markdown);
+        }
+
+        function setReadmeRenderMode(mode) {
+            currentReadmeRenderMode = mode === 'preview' ? 'preview' : 'markdown';
+            document.getElementById('readmeModeMarkdown')?.classList.toggle('active', currentReadmeRenderMode === 'markdown');
+            document.getElementById('readmeModePreview')?.classList.toggle('active', currentReadmeRenderMode === 'preview');
+            if (currentMarkdown) {
+                renderResultReadme(currentMarkdown);
+            }
+        }
+
+        function compareCurrentResult() {
+            if (regeneratedRubric || regeneratedTextStats || document.getElementById('regenContent')?.textContent?.trim()) {
+                showTab('regen', document.querySelector('.result-tabs .tab[onclick*="regen"]'));
+                return;
+            }
+            showTab('metrics', document.querySelector('.result-tabs .tab[onclick*="metrics"]'));
+        }
+
+        function openRegenerationFromMetrics() {
+            fillCommentsFromFailedCriteria();
+            showTab('regen', document.querySelector('.result-tabs .tab[onclick*="regen"]'));
+            document.getElementById('regenerationComments')?.focus();
+        }
+
+        function runStageFromPhase(phase, methodology = null) {
+            const checkpointStage = methodology?.checkpoint?.stage || methodology?.checkpoint?.id || '';
+            const raw = String(phase || checkpointStage || '').trim();
+            const normalized = {
+                initialization: 'context',
+                context: 'context',
+                task_planning: 'planning',
+                title: 'skeleton',
+                title_annotation: 'skeleton',
+                skeleton: 'skeleton',
+                intro_rules: 'skeleton',
+                structural_preflight: 'skeleton',
+                theory: 'theory',
+                definitions: 'theory',
+                theory_checks: 'theory',
+                practice: 'practice',
+                dataset_generation: 'practice',
+                quality: 'quality',
+                global_quality: 'quality',
+                antiplagiarism: 'antiplagiarism',
+                plagiarism: 'antiplagiarism',
+                validation: 'evaluation',
+                evaluation: 'evaluation',
+                readme_check: 'evaluation',
+                translate: 'translation',
+                translation: 'translation',
+                finalize: 'assembly',
+                completion: 'assembly',
+                final: 'assembly'
+            };
+            return normalized[raw] || 'context';
+        }
+
+        function runStageToChangeTarget(stage) {
+            if (stage === 'theory') return 'theory';
+            if (stage === 'practice') return 'practice';
+            if (stage === 'skeleton') return 'skeleton';
+            if (stage === 'context' || stage === 'planning') return 'structure';
+            return 'final';
+        }
+
+        function showGenerationRunView(seed = currentSeed || {}, options = {}) {
+            const runView = document.getElementById('generationRunView');
+            if (!runView) return;
+            document.body.classList.add('generation-running');
+            document.body.classList.remove('generation-completed', 'generation-metrics-view');
+            setGeneratorBrand('03.2', 'ПРОГРЕСС ПАЙПЛАЙНА', `${Math.max(1, Math.min(GENERATION_RUN_STAGES.length, 1 + GENERATION_RUN_STAGES.findIndex(stage => stage.id === runStageFromPhase(options.phase || lastKnownGenerationPhase || 'initialization'))))}/${GENERATION_RUN_STAGES.length} + ЧАТ МЕТОДОЛОГА`);
+            setGeneratorSubbar({
+                backText: '← Главное меню',
+                backHref: '/app',
+                title: 'Генерация README',
+                statusText: '● ВЫПОЛНЯЕТСЯ',
+                statusClass: 'info',
+                rightHtml: '<button class="btn btn-secondary btn-sm" type="button" onclick="cancelGeneration()">▪ Аварийная остановка</button>'
+            });
+            renderGenerationRunSnapshot(seed);
+            runView.style.display = 'block';
+            const noResults = document.getElementById('noResults');
+            const resultsArea = document.getElementById('resultsArea');
+            const reviewWorkspace = document.getElementById('methodologyReviewWorkspace');
+            if (noResults) noResults.style.display = 'none';
+            if (resultsArea) resultsArea.style.display = 'none';
+            if (options.status === 'needs_review') {
+                document.body.classList.add('generation-stage-review');
+                runView.style.display = 'none';
+                if (reviewWorkspace) reviewWorkspace.style.display = 'block';
+                setGeneratorBrand('03.2', 'РЕЗУЛЬТАТ ЭТАПА', `${Math.max(1, Math.min(GENERATION_RUN_STAGES.length, 1 + GENERATION_RUN_STAGES.findIndex(stage => stage.id === runStageFromPhase(options.phase || lastKnownGenerationPhase || 'methodology_review', options.methodology || null))))}/${GENERATION_RUN_STAGES.length} + ЧАТ МЕТОДОЛОГА`);
+                setGeneratorSubbar({
+                    backText: '← Главное меню',
+                    backHref: '/app',
+                    title: 'Проверка результата этапа',
+                    statusText: '● ОЖИДАЕТ МЕТОДОЛОГА',
+                    statusClass: 'warn',
+                    rightHtml: '<button class="btn btn-secondary btn-sm" type="button" onclick="cancelGeneration()">▪ Аварийная остановка</button>'
+                });
+            } else {
+                document.body.classList.remove('generation-stage-review');
+                runView.style.display = 'block';
+                if (reviewWorkspace) reviewWorkspace.style.display = 'none';
+            }
+            updateGenerationRunProgress(options.phase || lastKnownGenerationPhase || 'initialization', options.status || currentGenerationStatus || 'in_progress', options);
+            showMethodologyAssistantChat(options.status || currentGenerationStatus || 'in_progress');
+        }
+
+        function finishGenerationRun(status, message = '') {
+            document.body.classList.remove('generation-running', 'generation-stage-review');
+            const runView = document.getElementById('generationRunView');
+            if (runView) {
+                runView.style.display = 'none';
+            }
+            if (status === 'completed') {
+                appendAssistantChatMessage('assistant', message || 'Генерация завершена. Итоговый README открыт в главном окне; можно продолжить обсуждение здесь.');
+            } else if (status === 'failed') {
+                appendAssistantChatMessage('assistant', message || 'Генерация остановилась с ошибкой. Проверьте лог и входные параметры.');
+            } else if (status === 'cancelled') {
+                appendAssistantChatMessage('assistant', message || 'Генерация остановлена. Комментарии в этом чате останутся до очистки страницы.');
+            }
+        }
+
+        function updateGenerationRunProgress(phase, status = 'in_progress', options = {}) {
+            const runView = document.getElementById('generationRunView');
+            if (!runView) return;
+
+            const stageId = runStageFromPhase(phase, options.methodology || null);
+            const stageIndex = Math.max(0, GENERATION_RUN_STAGES.findIndex(stage => stage.id === stageId));
+            const activeStage = GENERATION_RUN_STAGES[stageIndex] || GENERATION_RUN_STAGES[0];
+            const isPaused = status === 'needs_review';
+            const isCompleted = status === 'completed';
+            const progress = isCompleted
+                ? 100
+                : Math.max(Number(options.progress || 0), lastKnownGenerationProgress || 0, calculateProgressFromPhase(phase) || Math.round((stageIndex / (GENERATION_RUN_STAGES.length - 1)) * 100));
+            const clampedProgress = Math.max(0, Math.min(100, progress));
+
+            const ring = document.getElementById('generationRunRing');
+            if (ring) ring.style.setProperty('--run-progress', `${clampedProgress}%`);
+            setTextContent('generationRunPercent', `${clampedProgress}%`);
+            setTextContent('generationRunStageIndex', String(stageIndex + 1).padStart(2, '0'));
+            setTextContent('generationRunStageTotal', String(GENERATION_RUN_STAGES.length));
+            setTextContent('generationRunTitle', isPaused ? `Ожидание методолога: ${activeStage.title}` : activeStage.title);
+            setTextContent('generationRunSubtitle', options.message || activeStage.subtitle);
+            setTextContent('generationRunRemaining', isPaused ? 'ожидает решения' : 'осталось ~ 6–15 мин');
+
+            const translationHint = document.getElementById('generationRunTranslationHint');
+            if (translationHint) {
+                const language = currentSeed?.language || getValueOrFallback('language', 'ru');
+                translationHint.textContent = language === 'ru'
+                    ? 'пропускается — целевой язык RU'
+                    : `будет выполнен для языка ${String(language).toUpperCase()}`;
+            }
+
+            document.querySelectorAll('#generationRunTimeline .generation-pipeline-step').forEach((row, index) => {
+                const rowStage = row.getAttribute('data-run-stage');
+                row.classList.remove('done', 'now', 'pending', 'paused', 'skipped');
+                const statusNode = row.querySelector('em');
+                const language = currentSeed?.language || getValueOrFallback('language', 'ru');
+                const skipTranslation = rowStage === 'translation' && language === 'ru';
+                if (skipTranslation && index < stageIndex) {
+                    row.classList.add('skipped');
+                    if (statusNode) statusNode.textContent = 'пропущено';
+                } else if (isCompleted || index < stageIndex) {
+                    row.classList.add('done');
+                    if (statusNode) statusNode.textContent = 'готово';
+                } else if (index === stageIndex) {
+                    row.classList.add(isPaused ? 'paused' : 'now');
+                    if (statusNode) statusNode.textContent = isPaused ? 'пауза' : 'в работе';
+                } else {
+                    row.classList.add('pending');
+                    if (statusNode) statusNode.textContent = 'ожидает';
+                }
+            });
+
+            const checkpoint = document.getElementById('generationRunCheckpoint');
+            const checkpointText = document.getElementById('generationRunCheckpointText');
+            if (checkpoint) {
+                checkpoint.style.display = isPaused ? 'grid' : 'none';
+            }
+            if (checkpointText) {
+                checkpointText.textContent = options.message || 'Пайплайн ожидает решения методолога. Комментарий можно отправить через чат.';
+            }
+
+            setTextContent('generationRunLogContent', options.agent || lastKnownGenerationAgent || activeStage.title);
+            updateAssistantChatStatus(status, stageId);
+        }
+
+        function showMethodologyAssistantChat(status = currentGenerationStatus) {
+            const chat = document.getElementById('methodologyAssistantChat');
+            if (!chat) return;
+            chat.style.display = 'grid';
+            updateAssistantChatStatus(status, runStageFromPhase(lastKnownGenerationPhase));
+        }
+
+        function hideMethodologyAssistantChat() {
+            const chat = document.getElementById('methodologyAssistantChat');
+            if (chat) {
+                chat.style.display = 'none';
+            }
+        }
+
+        function updateAssistantChatStatus(status = currentGenerationStatus, stageId = runStageFromPhase(lastKnownGenerationPhase)) {
+            const statusNode = document.getElementById('assistantChatStatus');
+            const stageNode = document.getElementById('assistantChatStage');
+            if (statusNode) {
+                const labels = {
+                    pending: 'запуск ожидает',
+                    in_progress: 'генерация активна',
+                    needs_review: 'контрольная точка',
+                    completed: 'результат готов',
+                    failed: 'ошибка генерации',
+                    cancelled: 'остановлено'
+                };
+                statusNode.textContent = labels[status] || 'готов к комментариям';
+            }
+            if (stageNode) {
+                stageNode.textContent = String(stageId || 'pipeline').toUpperCase();
+            }
+        }
+
+        function appendAssistantChatMessage(role, text) {
+            const messages = document.getElementById('assistantChatMessages');
+            if (!messages || !text) return;
+            const node = document.createElement('div');
+            node.className = `assistant-message ${role === 'user' ? 'user' : 'assistant'}`;
+            const avatar = role === 'user'
+                ? (document.getElementById('generatorUserInitials')?.textContent || 'Вы')
+                : 'М';
+            node.innerHTML = `<span>${escapeHtmlSafe(avatar)}</span><div>${escapeHtmlSafe(text)}</div>`;
+            messages.appendChild(node);
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        async function sendAssistantChatMessage(rawText = '') {
+            const input = document.getElementById('assistantChatInput');
+            const text = (rawText || input?.value || '').trim();
+            if (!text) return;
+            if (input) input.value = '';
+            showMethodologyAssistantChat(currentGenerationStatus);
+            appendAssistantChatMessage('user', text);
+
+            if (currentGenerationStatus === 'needs_review' && currentRequestId) {
+                const stageId = runStageFromPhase(lastKnownGenerationPhase);
+                const payload = {
+                    target_stage: runStageToChangeTarget(stageId),
+                    target_selector: stageId,
+                    scope: stageId === 'practice' ? 'task_only' : 'local_section_only',
+                    instruction: text,
+                    issue_codes: [],
+                    forbidden_changes: [],
+                    expected_outcome: ''
+                };
+                try {
+                    const response = await fetch(`${API_URL}/generate/review/${currentRequestId}/request-changes`, {
+                        method: 'POST',
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) {
+                        const detail = await response.json().catch(() => ({}));
+                        throw new Error(detail.detail || detail.message || `Ошибка ${response.status}`);
+                    }
+                    appendAssistantChatMessage('assistant', 'Правка сохранена в методологической паузе. После продолжения пайплайн применит её в нужном блоке.');
+                    showMethodologyReviewActions(currentRequestId, 'Правка из чата сохранена. Проверьте список правок и продолжайте генерацию, когда будете готовы.');
+                } catch (error) {
+                    appendAssistantChatMessage('assistant', `Не удалось отправить правку автоматически: ${error.message}. Текст остался в чате, его можно перенести в форму правок.`);
+                }
+                return;
+            }
+
+            appendAssistantChatMessage('assistant', 'Зафиксировал комментарий в чате. Сейчас пайплайн продолжает работу; на контрольной точке этот текст можно отправить как правку методолога.');
+        }
+
+        function initializeMethodologyAssistantChat() {
+            document.getElementById('assistantChatSend')?.addEventListener('click', () => sendAssistantChatMessage());
+            document.getElementById('assistantChatClose')?.addEventListener('click', hideMethodologyAssistantChat);
+            document.getElementById('assistantChatInput')?.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' && !event.shiftKey) {
+                    event.preventDefault();
+                    sendAssistantChatMessage();
+                }
+            });
+            document.querySelectorAll('[data-assistant-suggestion]').forEach((button) => {
+                button.addEventListener('click', () => {
+                    const input = document.getElementById('assistantChatInput');
+                    if (!input) return;
+                    input.value = button.getAttribute('data-assistant-suggestion') || '';
+                    input.focus();
+                });
+            });
         }
 
         // Функция для получения текущего агента из логов
@@ -1948,11 +2760,17 @@
                     if (agentElement) {
                         agentElement.textContent = currentAgent;
                     }
+                    updateGenerationTimeline(currentPhase || lastKnownGenerationPhase, options.status || 'in_progress');
                     
                     // Обновляем прогресс-бар
                     if (window.loading && window.currentProgressBarId && progress > 0) {
                         window.loading.updateProgress(window.currentProgressBarId, progress);
                     }
+                    updateGenerationRunProgress(currentPhase || lastKnownGenerationPhase || 'initialization', options.status || currentGenerationStatus || 'in_progress', {
+                        progress,
+                        agent: currentAgent,
+                        methodology: options.methodology || null
+                    });
                 }
             } catch (error) {
                 // Игнорируем ошибки при получении логов
@@ -1985,7 +2803,7 @@
             if (cancelBtn) {
                 cancelBtn.style.display = 'none';
                 cancelBtn.disabled = false;
-                cancelBtn.textContent = '🛑 Аварийная остановка генерации';
+                cancelBtn.textContent = 'Аварийная остановка генерации';
             }
         }
         
@@ -2010,9 +2828,8 @@
             cancelBtn.style.setProperty('visibility', 'visible', 'important');
             cancelBtn.style.setProperty('opacity', '1', 'important');
             cancelBtn.style.setProperty('width', '100%', 'important');
-            cancelBtn.style.setProperty('margin-top', '0.5rem', 'important');
             cancelBtn.disabled = false;
-            cancelBtn.textContent = '🛑 Аварийная остановка генерации';
+            cancelBtn.textContent = 'Аварийная остановка генерации';
             
             // Проверяем сразу
             const rect = cancelBtn.getBoundingClientRect();
@@ -2100,7 +2917,7 @@
                             const btn = document.getElementById('generateBtn');
                             if (btn) {
                                 btn.disabled = false;
-                                btn.textContent = '🚀 Сгенерировать';
+                                btn.textContent = 'Сгенерировать';
                             }
                             return;
                         }
@@ -2122,7 +2939,7 @@
                             if (window.sanitize) {
                                 window.sanitize.safeSetErrorMessage(logContent, `Ошибка сервера: ${errorText}`);
                             } else {
-                                logContent.textContent = `❌ Ошибка сервера: ${errorText}`;
+                                logContent.textContent = `Ошибка сервера: ${errorText}`;
                             }
                         }
                         return;
@@ -2154,7 +2971,7 @@
                             if (window.sanitize) {
                                 window.sanitize.safeSetErrorMessage(logContent, 'Ошибка парсинга ответа сервера. Проверьте консоль браузера.');
                             } else {
-                                logContent.textContent = '❌ Ошибка парсинга ответа сервера. Проверьте консоль браузера.';
+                                logContent.textContent = 'Ошибка парсинга ответа сервера. Проверьте консоль браузера.';
                             }
                         }
                         return;
@@ -2179,6 +2996,7 @@
                         console.error('❌ Отсутствует поле status в ответе:', data);
                         return;
                     }
+                    currentGenerationStatus = status;
                     
                     // Логируем для отладки
                     console.debug('Polling status:', { status, hasResult: !!data.result, requestId });
@@ -2195,6 +3013,13 @@
                     
                     // Убеждаемся, что кнопка остановки видна при активной генерации
                     if (status === 'pending' || status === 'in_progress') {
+                        showGenerationRunView(currentSeed || {}, {
+                            phase: lastKnownGenerationPhase || 'initialization',
+                            status,
+                            progress: Math.max(lastKnownGenerationProgress || 0, 1),
+                            agent: lastKnownGenerationAgent || 'Генерация проекта'
+                        });
+                        setGenerationStatusActive(true);
                         const cancelBtn = document.getElementById('cancelGenerationBtn');
                         if (cancelBtn) {
                             cancelBtn.style.setProperty('display', 'block', 'important');
@@ -2213,20 +3038,22 @@
                         const logContent = document.getElementById('logContent');
                         if (logContent) {
                             if (window.sanitize) {
-                                logContent.innerHTML = '<div class="warning-msg">🛑 Генерация остановлена пользователем</div>';
+                                logContent.innerHTML = '<div class="warning-msg">Генерация остановлена пользователем</div>';
                             } else {
-                                logContent.textContent = '🛑 Генерация остановлена пользователем';
+                                logContent.textContent = 'Генерация остановлена пользователем';
                             }
                         }
+                        setGenerationStatusActive(false);
                         
                         const btn = document.getElementById('generateBtn');
                         if (btn) {
                             btn.disabled = false;
-                            btn.textContent = '🚀 Сгенерировать';
+                            btn.textContent = 'Сгенерировать';
                         }
                         
                         hideCancelButton();
                         hideMethodologyReviewActions();
+                        finishGenerationRun('cancelled');
                         
                         return;
                     } else if (status === 'needs_review') {
@@ -2237,28 +3064,38 @@
                         }
 
                         hideCancelButton();
+                        setGenerationStatusActive(false);
                         const errorMsg = data.error || 'Требуется ручная методологическая проверка';
                         const logContent = document.getElementById('logContent');
                         if (logContent) {
-                            const text = `⚠️ ${errorMsg}`;
+                            const text = errorMsg;
                             logContent.innerHTML = `<div class="warning-msg">${window.sanitize ? window.sanitize.escapeHtml(text) : text}</div>`;
                         }
                         if (data.methodology) {
                             renderMethodologyPanel(data.methodology, 'methodologyLiveStatus', { compact: true });
                         }
+                        showGenerationRunView(currentSeed || {}, {
+                            phase: data.methodology?.checkpoint?.stage || lastKnownGenerationPhase || 'methodology_review',
+                            status,
+                            methodology: data.methodology || null,
+                            progress: Math.max(lastKnownGenerationProgress || 0, progressFromCheckpointStage(data.methodology?.checkpoint?.stage), 1),
+                            message: errorMsg,
+                            agent: 'Ожидание методолога'
+                        });
+                        appendAssistantChatMessage('assistant', 'Пайплайн остановлен на контрольной точке. Напишите правку в чат, и я отправлю её как запрос методолога.');
                         showMethodologyReviewActions(requestId, errorMsg);
                         const noResults = document.getElementById('noResults');
                         if (noResults) {
                             noResults.style.display = 'none';
                         }
-                        document.getElementById('methodologyReviewWorkspace')?.scrollIntoView({
+                        document.getElementById('generationRunView')?.scrollIntoView({
                             behavior: 'smooth',
                             block: 'start'
                         });
                         const btn = document.getElementById('generateBtn');
                         if (btn) {
                             btn.disabled = false;
-                            btn.textContent = '🚀 Сгенерировать';
+                            btn.textContent = 'Сгенерировать';
                         }
                         return;
                     } else if (status === 'completed') {
@@ -2298,7 +3135,7 @@
                             const btn = document.getElementById('generateBtn');
                             if (btn) {
                                 btn.disabled = false;
-                                btn.textContent = '🚀 Сгенерировать';
+                                btn.textContent = 'Сгенерировать';
                             }
                             return;
                         }
@@ -2317,7 +3154,7 @@
                             const btn = document.getElementById('generateBtn');
                             if (btn) {
                                 btn.disabled = false;
-                                btn.textContent = '🚀 Сгенерировать';
+                                btn.textContent = 'Сгенерировать';
                             }
                             return;
                         }
@@ -2368,6 +3205,8 @@
                         if (generationLogs) {
                             generationLogs.style.display = 'none';
                         }
+                        setGenerationStatusActive(false);
+                        finishGenerationRun('completed');
                         
                         // Показываем toast об успешной генерации
                         if (window.toast) {
@@ -2389,29 +3228,32 @@
                                 if (window.sanitize) {
                                     window.sanitize.safeSetErrorMessage(logContent, `Ошибка отображения результатов: ${displayError.message}. Проверьте консоль браузера (F12).`);
                                 } else {
-                                    logContent.textContent = `❌ Ошибка отображения результатов: ${displayError.message}. Проверьте консоль браузера (F12).`;
+                                    logContent.textContent = `Ошибка отображения результатов: ${displayError.message}. Проверьте консоль браузера (F12).`;
                                 }
                             }
                             // Показываем generationLogs обратно, чтобы пользователь увидел ошибку
                             if (generationLogs) {
                                 generationLogs.style.display = 'block';
                             }
+                            setGenerationStatusActive(false);
                         }
                         
                         // Восстанавливаем кнопку
                         const btn = document.getElementById('generateBtn');
                         if (btn) {
                             if (window.loading) {
-                                window.loading.setButtonLoading(btn, false, '🚀 Сгенерировать');
+                                window.loading.setButtonLoading(btn, false, 'Сгенерировать');
                             } else {
                                 btn.disabled = false;
-                                btn.textContent = '🚀 Сгенерировать';
+                                btn.textContent = 'Сгенерировать';
                             }
                         }
                         
                     } else if (status === 'failed') {
                         // Генерация завершилась с ошибкой
                         stopGenerationTracking();
+                        setGenerationStatusActive(false);
+                        finishGenerationRun('failed', data.error ? `Генерация остановилась с ошибкой: ${data.error}` : '');
                         
                         // Скрываем кнопку остановки
                         const cancelBtn = document.getElementById('cancelGenerationBtn');
@@ -2429,7 +3271,7 @@
                             if (window.sanitize) {
                                 window.sanitize.safeSetErrorMessage(logContent, `Ошибка генерации: ${errorMsg}`);
                             } else {
-                                logContent.textContent = `❌ Ошибка генерации: ${errorMsg}`;
+                                logContent.textContent = `Ошибка генерации: ${errorMsg}`;
                             }
                         }
                         
@@ -2437,7 +3279,7 @@
                         const btn = document.getElementById('generateBtn');
                         if (btn) {
                             btn.disabled = false;
-                            btn.textContent = '🚀 Сгенерировать';
+                            btn.textContent = 'Сгенерировать';
                         }
                     }
                     // Если status === 'pending' или 'in_progress', продолжаем polling
@@ -2462,10 +3304,10 @@
             
             // Используем loading manager для кнопки
             if (window.loading) {
-                window.loading.setButtonLoading(btn, true, '🚀 Сгенерировать');
+                window.loading.setButtonLoading(btn, true, 'Сгенерировать');
             } else {
                 btn.disabled = true;
-                btn.textContent = '⏳ Генерация...';
+                btn.textContent = 'Генерация...';
             }
             
             // Показываем кнопку остановки СРАЗУ при нажатии на "Сгенерировать" - ПРЯМО ЗДЕСЬ
@@ -2508,6 +3350,7 @@
             lastKnownGenerationPhase = null;
             lastKnownGenerationProgress = 0;
             lastKnownGenerationAgent = 'Инициализация...';
+            currentGenerationStatus = 'in_progress';
             
             // Запускаем таймер
             generationStartTime = Date.now();
@@ -2521,6 +3364,8 @@
             const logContent = document.getElementById('logContent');
             if (generationLogs && logContent) {
                 generationLogs.style.display = 'block';
+                setGenerationStatusActive(true);
+                updateGenerationTimeline('initialization', 'in_progress');
                 const methodologyLiveStatus = document.getElementById('methodologyLiveStatus');
                 if (methodologyLiveStatus) {
                     methodologyLiveStatus.style.display = 'none';
@@ -2573,7 +3418,47 @@
                     skills: document.getElementById('skills').value.split('\n').map(s => s.trim()).filter(s => s),
                     sjm: document.getElementById('storytelling')?.value.trim() || null,
                     methodology_human_review: getChecked('methodologyHumanReview'),
+                    include_formulas: getChecked('includeFormulas'),
+                    include_tables: getChecked('includeTables'),
+                    include_diagrams: getChecked('includeDiagrams'),
                 };
+
+                const tasksCountValue = parseInt(document.getElementById('tasksCount')?.value || '', 10);
+                if (!Number.isNaN(tasksCountValue)) {
+                    seed.tasks_count = tasksCountValue;
+                }
+
+                const taskComplexityValue = document.getElementById('taskComplexity')?.value || '';
+                if (taskComplexityValue) {
+                    seed.task_complexity = taskComplexityValue;
+                }
+
+                const programmingValue = document.getElementById('isProgrammingProject')?.value || '';
+                if (programmingValue === 'true') {
+                    seed.is_programming_project = true;
+                } else if (programmingValue === 'false') {
+                    seed.is_programming_project = false;
+                }
+
+                const targetLanguagesValue = document.getElementById('targetLanguages')?.value.trim() || '';
+                if (targetLanguagesValue) {
+                    seed.target_languages = targetLanguagesValue.split(',').map(s => s.trim()).filter(Boolean);
+                }
+
+                const zunValue = document.getElementById('zun')?.value.trim() || '';
+                if (zunValue) {
+                    seed.zun = zunValue;
+                }
+
+                const referenceProjectHint = document.getElementById('referenceProjectHint')?.value.trim() || '';
+                if (referenceProjectHint) {
+                    seed.reference_project_hint = referenceProjectHint;
+                }
+
+                const referencePracticeHint = document.getElementById('referencePracticeHint')?.value.trim() || '';
+                if (referencePracticeHint) {
+                    seed.reference_practice_hint = referencePracticeHint;
+                }
                 
                 // === НОВЫЕ ПОЛЯ ИЗ УП ===
                 
@@ -2611,15 +3496,17 @@
                             }
                             
                             // Трудоемкость
-                            if (projectData.workload_hours) {
+                            if (projectData.workload_hours !== undefined && projectData.workload_hours !== null) {
                                 seed.workload_hours = projectData.workload_hours;
                             }
-                            if (projectData.workload_days) {
+                            if (projectData.workload_days !== undefined && projectData.workload_days !== null) {
                                 seed.workload_days = projectData.workload_days;
                             }
                             
                             // XP
-                            if (projectData.xp) {
+                            if (projectData.xp_reward !== undefined && projectData.xp_reward !== null) {
+                                seed.xp_reward = projectData.xp_reward;
+                            } else if (projectData.xp !== undefined && projectData.xp !== null) {
                                 seed.xp_reward = projectData.xp;
                             }
                             
@@ -2632,6 +3519,12 @@
                             if (projectData.expert_notes) {
                                 seed.expert_notes = projectData.expert_notes;
                             }
+                            if (projectData.context_track_dir) {
+                                seed.context_track_dir = projectData.context_track_dir;
+                            }
+                            if (projectData.order !== undefined && projectData.order !== null) {
+                                seed.last_known_order = projectData.order;
+                            }
 
                             // Сторителлинг из УП, если поле формы не заполнено вручную
                             if (!seed.sjm && projectData.sjm) {
@@ -2642,6 +3535,41 @@
                         }
                     }
                 }
+
+                const applyOptionalTextSeedField = (fieldId, seedKey) => {
+                    const element = document.getElementById(fieldId);
+                    if (!element) return;
+                    const value = element.value.trim();
+                    if (value) {
+                        seed[seedKey] = value;
+                    } else {
+                        delete seed[seedKey];
+                    }
+                };
+
+                const applyOptionalNumberSeedField = (fieldId, seedKey, parser) => {
+                    const element = document.getElementById(fieldId);
+                    if (!element) return;
+                    const rawValue = element.value.trim();
+                    if (!rawValue) {
+                        delete seed[seedKey];
+                        return;
+                    }
+                    const value = parser(rawValue);
+                    if (!Number.isNaN(value)) {
+                        seed[seedKey] = value;
+                    }
+                };
+
+                applyOptionalTextSeedField('platformName', 'platform_name');
+                applyOptionalTextSeedField('gitlabLink', 'gitlab_link');
+                applyOptionalTextSeedField('contextTrackDir', 'context_track_dir');
+                applyOptionalTextSeedField('additionalMaterials', 'additional_materials');
+                applyOptionalTextSeedField('expertNotes', 'expert_notes');
+                applyOptionalNumberSeedField('workloadHours', 'workload_hours', parseFloat);
+                applyOptionalNumberSeedField('workloadDays', 'workload_days', parseFloat);
+                applyOptionalNumberSeedField('xpReward', 'xp_reward', (value) => parseInt(value, 10));
+                applyOptionalNumberSeedField('lastKnownOrder', 'last_known_order', (value) => parseInt(value, 10));
                 
                 if (seed.project_type === 'group') {
                     seed.group_size = parseInt(document.getElementById('groupSize').value);
@@ -2663,6 +3591,14 @@
                 } else {
                     seed.bonus_wish = null; // Если чекбокс не включен, устанавливаем null
                 }
+
+                currentSeed = seed;
+                showGenerationRunView(seed, {
+                    phase: 'initialization',
+                    status: 'in_progress',
+                    progress: 1,
+                    agent: 'Инициализация пайплайна'
+                });
                 
                 // Загружаем файлы трека
                 const trackFilesInput = document.getElementById('trackFiles');
@@ -2708,6 +3644,7 @@
                 const data = await response.json();
                 currentRequestId = data.request_id;
                 currentSeed = seed; // Сохраняем данные формы
+                currentGenerationStatus = 'in_progress';
                 
                 // Сохраняем исходное время старта, чтобы таймер не прыгал после ответа API.
                 if (!generationStartTime) {
@@ -2727,6 +3664,8 @@
             } catch (error) {
                 // Останавливаем таймер при ошибке
                 stopGenerationTracking();
+                currentGenerationStatus = 'failed';
+                finishGenerationRun('failed', `Генерация не стартовала: ${error.message}`);
                 
                 if (statusPollInterval) {
                     clearInterval(statusPollInterval);
@@ -2737,7 +3676,7 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(logContent, `Ошибка: ${error.message}`);
                     } else {
-                        logContent.textContent = `❌ Ошибка: ${error.message}`;
+                        logContent.textContent = `Ошибка: ${error.message}`;
                     }
                 }
                 
@@ -2745,10 +3684,10 @@
                 const btn = document.getElementById('generateBtn');
                 if (btn) {
                     if (window.loading) {
-                        window.loading.setButtonLoading(btn, false, '🚀 Сгенерировать');
+                        window.loading.setButtonLoading(btn, false, 'Сгенерировать');
                     } else {
                         btn.disabled = false;
-                        btn.textContent = '🚀 Сгенерировать';
+                        btn.textContent = 'Сгенерировать';
                     }
                 }
                 hideCancelButton();
@@ -2789,7 +3728,7 @@
             const cancelBtn = document.getElementById('cancelGenerationBtn');
             if (cancelBtn) {
                 cancelBtn.disabled = true;
-                cancelBtn.textContent = '⏳ Остановка...';
+                cancelBtn.textContent = 'Остановка...';
             }
             
             try {
@@ -2819,13 +3758,16 @@
                     // Обновляем UI
                     const logContent = document.getElementById('logContent');
                     if (logContent) {
-                        logContent.innerHTML = '<div class="warning-msg">🛑 Генерация остановлена пользователем</div>';
+                        logContent.innerHTML = '<div class="warning-msg">Генерация остановлена пользователем</div>';
                     }
+                    setGenerationStatusActive(false);
+                    currentGenerationStatus = 'cancelled';
+                    finishGenerationRun('cancelled');
                     
                     const btn = document.getElementById('generateBtn');
                     if (btn) {
                         btn.disabled = false;
-                        btn.textContent = '🚀 Сгенерировать';
+                        btn.textContent = 'Сгенерировать';
                     }
                     
                     hideCancelButton();
@@ -2844,7 +3786,7 @@
                 
                 if (cancelBtn) {
                     cancelBtn.disabled = false;
-                    cancelBtn.textContent = '🛑 Аварийная остановка генерации';
+                    cancelBtn.textContent = 'Аварийная остановка генерации';
                 }
             }
         }
@@ -2860,7 +3802,16 @@
                 return;
             }
             if (label) {
-                label.textContent = `Выбран файл: ${file.name}`;
+                const sizeKb = file.size ? `${Math.max(1, Math.round(file.size / 1024))} КБ` : 'размер не определён';
+                label.textContent = `${sizeKb} · загружен`;
+            }
+            const title = document.getElementById('checkerReadmeUploadTitle');
+            if (title) {
+                title.textContent = file.name;
+            }
+            const checkerRight = document.getElementById('checkerSubbarRight');
+            if (checkerRight) {
+                checkerRight.textContent = `Файл выбран: ${file.name}`;
             }
         }
 
@@ -2886,7 +3837,7 @@
                 // Показываем индикатор загрузки
                 if (checkBtn) {
                     checkBtn.disabled = true;
-                    const spinnerHtml = '<span style="display: inline-block; width: 16px; height: 16px; margin-right: 8px; vertical-align: middle; border: 2px solid rgba(118, 75, 162, 0.3); border-top: 2px solid #64ffda; border-radius: 50%; animation: spin 1s linear infinite;"></span>';
+                    const spinnerHtml = '<span class="s21-button-spinner"></span>';
                     checkBtn.innerHTML = spinnerHtml + ' Проверка...';
                 }
                 
@@ -2904,9 +3855,9 @@
                     noResults.className = 'info-box';
                     // Устанавливаем содержимое с индикатором загрузки
                     noResults.innerHTML = `
-                        <div style="text-align: center; padding: 2rem; color: #64ffda;">
-                            <div class="spinner" style="border: 4px solid rgba(118, 75, 162, 0.3); border-top: 4px solid #64ffda; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; margin: 0 auto 1rem;"></div>
-                            <p style="margin-top: 1rem; font-size: 1.1rem; color: #64ffda;">🔄 Проверка критериев...</p>
+                        <div class="s21-loading-state">
+                            <div class="spinner"></div>
+                            <p>Проверка критериев...</p>
                         </div>
                     `;
                     // Принудительно обновляем отображение
@@ -2955,7 +3906,7 @@
                 // Скрываем индикатор загрузки и показываем результаты
                 if (checkBtn) {
                     checkBtn.disabled = false;
-                    checkBtn.innerHTML = '✅ Проверить README';
+                    checkBtn.innerHTML = 'Проверить README';
                 }
                 
                 // Скрываем индикатор загрузки
@@ -2971,9 +3922,9 @@
                 const warningsArea = document.getElementById('warningsArea');
                 if (warningsArea) {
                     if (window.sanitize) {
-                        warningsArea.innerHTML = '<div class="success-msg">✅ Проверка выполнена успешно</div>';
+                        warningsArea.innerHTML = '<div class="success-msg">Проверка выполнена успешно</div>';
                     } else {
-                        warningsArea.textContent = '✅ Проверка выполнена успешно';
+                        warningsArea.textContent = 'Проверка выполнена успешно';
                     }
                 }
 
@@ -3046,7 +3997,7 @@
                 // Восстанавливаем кнопку при ошибке
                 if (checkBtn) {
                     checkBtn.disabled = false;
-                    checkBtn.innerHTML = '✅ Проверить README';
+                    checkBtn.innerHTML = 'Проверить README';
                 }
                 if (noResults) {
                     noResults.style.display = 'block';
@@ -3069,7 +4020,150 @@
             window.methodologyPanel?.hideActions();
         }
 
+        function formatCompactNumber(value) {
+            const num = Number(value || 0);
+            if (!Number.isFinite(num) || num <= 0) return '—';
+            return new Intl.NumberFormat('ru-RU').format(Math.round(num));
+        }
+
+        function countMarkdownWords(markdown) {
+            if (typeof markdown !== 'string' || !markdown.trim()) return 0;
+            return markdown
+                .replace(/```[\s\S]*?```/g, ' ')
+                .replace(/`[^`]*`/g, ' ')
+                .replace(/[#[\]()*_>|-]/g, ' ')
+                .split(/\s+/)
+                .filter(Boolean).length;
+        }
+
+        function getRubricSummary(rubric) {
+            const items = Array.isArray(rubric?.items) ? rubric.items : [];
+            const max = Number(rubric?.max_score || (items.length || 0));
+            const total = Number(rubric?.total || items.reduce((sum, item) => sum + Number(item?.score || 0), 0));
+            const failed = items.filter((item) => Number(item?.score || 0) !== 1).length;
+            const passed = items.length - failed;
+            const percent = max > 0 ? Math.round((total / max) * 100) : 0;
+            return { total, max, percent, passed, failed, count: items.length };
+        }
+
+        function setText(id, value) {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value;
+        }
+
+        function setScoreRing(id, percent) {
+            const ring = document.getElementById(id);
+            if (ring) ring.style.setProperty('--score', String(Math.max(0, Math.min(100, Number(percent) || 0))));
+        }
+
+        function countResultAssets(result) {
+            const files = result?.assets?.files;
+            if (Array.isArray(files)) return files.length;
+            if (files && typeof files === 'object') return Object.keys(files).length;
+            const generated = result?.generated_files || result?.files;
+            if (Array.isArray(generated)) return generated.length;
+            if (generated && typeof generated === 'object') return Object.keys(generated).length;
+            return 0;
+        }
+
+        function updateGenerationResultSummary(data) {
+            const result = data?.result || {};
+            const rubric = result.rubric || result.report_json?.rubric || null;
+            const summary = getRubricSummary(rubric);
+            const markdown = typeof result.markdown === 'string' ? result.markdown : '';
+            const stats = result.text_stats || result.report_json?.text_stats || {};
+            const words = Number(stats.words || stats.word_count || countMarkdownWords(markdown));
+            const tasks = Number(result.task_plan?.tasks_count || result.practice_plan?.tasks_count || 0);
+            const assets = countResultAssets(result);
+            const scoreText = summary.max > 0 ? `${summary.total} / ${summary.max}` : '—';
+            const scoreMeta = summary.max > 0
+                ? (summary.percent >= 70 ? 'Порог качества пройден' : 'Ниже порога 70%')
+                : 'Метрики появятся после проверки';
+
+            setText('generationScoreValue', scoreText);
+            setText('generationScorePercent', summary.max > 0 ? `${summary.percent}%` : '—');
+            setText('generationScoreMeta', scoreMeta);
+            setScoreRing('generationScoreRing', summary.percent);
+            setText('generationWordsValue', formatCompactNumber(words));
+            setText('generationTasksValue', tasks > 0 ? `${tasks}${result.task_plan?.bonus ? ' + 1' : ''}` : '—');
+            setText('generationTasksMeta', tasks > 0 ? 'Практические задания' : 'План практики не найден');
+            setText('generationAssetsValue', assets > 0 ? String(assets) : '—');
+        }
+
+        function updateCheckerScorePanel(rubric) {
+            const panel = document.getElementById('checkerScorePanel');
+            if (!panel) return;
+            const summary = getRubricSummary(rubric);
+            const scoreText = summary.max > 0 ? `${summary.total} / ${summary.max}` : '—';
+            const isCheckerPage = document.body.classList.contains('page-checker');
+            const statusText = summary.max > 0
+                ? (summary.percent >= 70 ? 'Порог 70% пройден. README можно принимать.' : 'Ниже порога 70%. Рекомендуется улучшить README.')
+                : 'Нет данных критериев';
+
+            setText('checkerScoreValue', isCheckerPage && summary.max > 0 ? `${summary.percent} %` : scoreText);
+            setText('checkerScorePercent', summary.max > 0 ? `${summary.percent}%` : '—');
+            setText('checkerScoreStatus', isCheckerPage && summary.max > 0
+                ? `Пройдено ${summary.total} из ${summary.max} критериев. ${summary.percent >= 70 ? 'Документ выше порога качества.' : 'Рекомендуется улучшить документ — система может извлечь данные и сгенерировать улучшенную версию.'}`
+                : statusText);
+            setScoreRing('checkerScoreRing', summary.percent);
+
+            if (isCheckerPage) {
+                const brandBadge = document.getElementById('checkerBrandBadge');
+                const brandMark = document.getElementById('checkerBrandMark');
+                const brandSub = document.getElementById('checkerBrandSub');
+                const subbarStatus = document.getElementById('checkerSubbarStatus');
+                const thresholdBadge = document.getElementById('checkerThresholdBadge');
+                const ok = summary.percent >= 70;
+                if (brandBadge) brandBadge.setAttribute('data-step', '04.1');
+                if (brandMark) brandMark.textContent = 'ПРОВЕРКА';
+                if (brandSub) brandSub.textContent = `${summary.percent} % · ${ok ? 'ПОРОГ ПРОЙДЕН' : 'НИЖЕ ПОРОГА'}`;
+                if (subbarStatus) {
+                    subbarStatus.style.display = 'inline-flex';
+                    subbarStatus.className = `badge ${ok ? 'success' : 'warn'}`;
+                    subbarStatus.textContent = ok ? `✓ ${summary.total} из ${summary.max}` : `⚠ ${summary.percent}%`;
+                }
+                if (thresholdBadge) {
+                    thresholdBadge.textContent = ok ? 'ПОРОГ 70 % ПРОЙДЕН' : '⚠ НИЖЕ ПОРОГА 70 %';
+                    thresholdBadge.classList.toggle('warn', !ok);
+                    thresholdBadge.classList.toggle('success', ok);
+                }
+            }
+
+            const chips = document.getElementById('checkerScoreChips');
+            if (chips) {
+                chips.innerHTML = `
+                    <span class="chip">Все<span class="count">${summary.count}</span></span>
+                    <span class="chip ${summary.failed > 0 ? 'on' : ''}">Не пройдено<span class="count">${summary.failed}</span></span>
+                    <span class="chip">Пройдено<span class="count">${summary.passed}</span></span>
+                `;
+            }
+        }
+
+        function updateTranslationSummary(kind = 'document', statusText = 'Готово') {
+            const langSelect = document.getElementById('translationLanguage');
+            const language = (langSelect && langSelect.value ? langSelect.value.toUpperCase() : 'EN');
+            setText('translationSummaryMode', kind === 'video' ? 'Видео' : 'Документ');
+            setText('translationSummaryLanguage', `RU → ${language}`);
+            setText('translationSummaryStatus', statusText);
+            const brandBadge = document.getElementById('translationBrandBadge');
+            const brandMark = document.getElementById('translationBrandMark');
+            const subbarTitle = document.getElementById('translationSubbarTitle');
+            if (brandBadge) brandBadge.setAttribute('data-step', kind === 'video' ? '05.2' : '05.1');
+            if (brandMark) {
+                brandMark.textContent = kind === 'video'
+                    ? `ПЕРЕВОД ВИДЕО · ${statusText || 'В РАБОТЕ'}`
+                    : `ПЕРЕВОД ДОКУМЕНТА · RU → ${language}`;
+            }
+            if (subbarTitle) subbarTitle.textContent = kind === 'video' ? 'Перевод · Видео' : 'Перевод';
+        }
+
         function displayResults(data) {
+            setGenerationStatusActive(false);
+            document.body.classList.remove('generation-running', 'generation-stage-review');
+            const runView = document.getElementById('generationRunView');
+            if (runView) {
+                runView.style.display = 'none';
+            }
             // Проверяем наличие результата
             if (!data || !data.result) {
                 console.error('❌ displayResults: отсутствует результат', data);
@@ -3111,8 +4205,18 @@
                 return;
             }
             
+            currentResult = data.result;
+            currentMarkdown = data.result.markdown;
+            if (!originalMarkdown) {
+                originalMarkdown = currentMarkdown;
+            }
+            if (data.seed) {
+                currentSeed = data.seed;
+            }
+
             document.getElementById('noResults').style.display = 'none';
             document.getElementById('resultsArea').style.display = 'block';
+            updateGenerationResultSummary(data);
             
             // Предупреждения
             const warningsArea = document.getElementById('warningsArea');
@@ -3125,7 +4229,7 @@
                 }).join('');
                 const warningsHtml = `
                     <div class="warnings">
-                        <strong>⚠️ Предупреждения:</strong>
+                        <strong>Предупреждения:</strong>
                         <ul>
                             ${escapedWarnings}
                         </ul>
@@ -3138,9 +4242,9 @@
                 }
             } else {
                 if (window.sanitize) {
-                    warningsArea.innerHTML = '<div class="success-msg">✅ Генерация завершена успешно!</div>';
+                    warningsArea.innerHTML = '<div class="success-msg">Генерация завершена успешно</div>';
                 } else {
-                    warningsArea.textContent = '✅ Генерация завершена успешно!';
+                    warningsArea.textContent = 'Генерация завершена успешно';
                 }
             }
 
@@ -3152,7 +4256,7 @@
                     hard: 'повышенный уровень'
                 };
                 const complexityText = complexityCopy[plan.complexity] || plan.complexity || 'автоматически подобранный уровень';
-                const planText = `📊 План практики подготовлен: ${plan.tasks_count} задач, ${complexityText}. Подробности во вкладке «Практика».`;
+                const planText = `План практики подготовлен: ${plan.tasks_count} задач, ${complexityText}. Подробности во вкладке «Практика».`;
                 const escapedPlanText = window.sanitize ? window.sanitize.escapeHtml(planText) : planText;
                 const planHtml = `<div class="info-box">${escapedPlanText}</div>`;
                 if (window.sanitize) {
@@ -3171,11 +4275,11 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(readmeContainer, 'Ошибка: markdown отсутствует в результате генерации');
                     } else {
-                        readmeContainer.textContent = '❌ Ошибка: markdown отсутствует в результате генерации';
+                        readmeContainer.textContent = 'Ошибка: markdown отсутствует в результате генерации';
                     }
                 }
             } else {
-                displayMarkdown(markdown, 'readmeContent');
+                renderResultReadme(markdown);
             }
             
             // Переведенный README - проверяем наличие translated_markdown
@@ -3213,6 +4317,8 @@
                     metricsContainer.innerHTML = '<div class="info-box">Метрики будут доступны после завершения генерации</div>';
                 }
             }
+
+            setCompletedChrome('readme');
             
             // Отчет - проверяем разные возможные пути к данным
             const textStats = data.result?.text_stats || data.result?.report_json?.text_stats || {};
@@ -3242,7 +4348,10 @@
             }
             
             // Обновляем кнопку скачивания
-            document.getElementById('downloadBtn').onclick = () => downloadResults();
+            const downloadButton = document.getElementById('downloadBtn');
+            if (downloadButton) {
+                downloadButton.onclick = () => downloadResults();
+            }
             
             // Вкладка Практика: подробный вывод плана и CriticAgent
             renderPracticeTab(data.result);
@@ -3261,7 +4370,7 @@
         }
 
         function activateResultTab(tabName) {
-            const tabButton = [...document.querySelectorAll('#resultsArea > .tabs .tab')]
+            const tabButton = [...document.querySelectorAll('#resultsArea .result-tabs .tab, #resultsArea > .tabs .tab')]
                 .find(tab => {
                     const handler = tab.getAttribute('onclick') || '';
                     return handler.includes(`'${tabName}'`) || handler.includes(`"${tabName}"`);
@@ -3497,7 +4606,7 @@
                 if (window.sanitize) {
                     window.sanitize.safeSetErrorMessage(container, 'Ошибка: библиотека marked.js не загружена');
                 } else {
-                    container.textContent = '❌ Ошибка: библиотека marked.js не загружена';
+                    container.textContent = 'Ошибка: библиотека marked.js не загружена';
                 }
                 return;
             }
@@ -3995,6 +5104,216 @@
                     normalizeMathBlocks(root);
                 });
         }
+
+        function normalizeMetricStatus(item) {
+            const rawStatus = String(item?.status || item?.result || '').toLowerCase();
+            const score = Number(item?.score ?? item?.value ?? 0);
+            const comments = Array.isArray(item?.comments) ? item.comments.join(' ') : String(item?.comments || item?.comment || '');
+            const hasWarning = /warn|предуп|warning/i.test(rawStatus) || /предуп|warning/i.test(comments);
+            if (hasWarning && score !== 0) return 'warning';
+            if (rawStatus.includes('pass') || rawStatus.includes('пройден')) return 'passed';
+            if (rawStatus.includes('fail') || rawStatus.includes('не пройден')) return 'failed';
+            if (score >= 1) return 'passed';
+            if (score > 0) return 'warning';
+            return 'failed';
+        }
+
+        function normalizeMetricComment(item, status) {
+            const comments = Array.isArray(item?.comments)
+                ? item.comments.filter(Boolean)
+                : [item?.comments || item?.comment || item?.message || ''].filter(Boolean);
+            if (comments.length) return comments.join(' ');
+            if (status === 'passed') return item?.description || 'Критерий выполнен.';
+            if (status === 'warning') return item?.description || 'Нужна ручная проверка формулировки.';
+            return item?.description || 'Критерий требует доработки.';
+        }
+
+        function getMetricGroupLabel(item) {
+            const category = item?.section || item?.category || item?.group || '';
+            if (category) return String(category);
+            const id = String(item?.id || '').toUpperCase();
+            if (id.startsWith('S')) return 'Структура';
+            if (id.startsWith('R')) return 'Требования';
+            if (id.startsWith('T')) return 'Сторителлинг и тон';
+            if (id.startsWith('P')) return 'Практика';
+            if (id.startsWith('D')) return 'Данные и артефакты';
+            if (id.startsWith('Q')) return 'Качество';
+            return 'Общие критерии';
+        }
+
+        function normalizeMetricItems(rubric) {
+            const rawItems = Array.isArray(rubric?.items) ? rubric.items : [];
+            return rawItems.map((item, index) => {
+                const status = normalizeMetricStatus(item);
+                return {
+                    id: String(item?.id || item?.code || index + 1),
+                    title: String(item?.title || item?.name || `Критерий ${index + 1}`),
+                    description: String(item?.description || ''),
+                    comment: normalizeMetricComment(item, status),
+                    status,
+                    group: getMetricGroupLabel(item)
+                };
+            });
+        }
+
+        function metricStatusLabel(status) {
+            if (status === 'passed') return 'ПРОЙДЕН';
+            if (status === 'warning') return 'ПРЕДУПР.';
+            return 'НЕ ПРОЙДЕН';
+        }
+
+        function metricStatusIcon(status) {
+            if (status === 'passed') return '✓';
+            if (status === 'warning') return '⚠';
+            return '×';
+        }
+
+        function renderS21MetricsView(rubric, container, containerId = '') {
+            if (!container) return false;
+            const items = normalizeMetricItems(rubric);
+            const activeFilter = window.currentFilter || currentFilter || 'all';
+            const passed = items.filter((item) => item.status === 'passed').length;
+            const failed = items.filter((item) => item.status === 'failed').length;
+            const warnings = items.filter((item) => item.status === 'warning').length;
+            const visibleItems = items.filter((item) => {
+                if (activeFilter === 'passed') return item.status === 'passed';
+                if (activeFilter === 'failed') return item.status === 'failed';
+                if (activeFilter === 'warning') return item.status === 'warning';
+                return true;
+            });
+
+            const grouped = visibleItems.reduce((acc, item) => {
+                if (!acc[item.group]) acc[item.group] = [];
+                acc[item.group].push(item);
+                return acc;
+            }, {});
+
+            const summary = getRubricSummary(rubric);
+            const totalCount = items.length || summary.count || 0;
+            const scoreText = summary.max > 0 ? `${summary.total} из ${summary.max}` : `${passed} из ${totalCount}`;
+
+            const filterButton = (filter, label, count) => `
+                <button type="button" class="s21-metric-filter metrics-filter-btn ${activeFilter === filter ? 'active' : ''}" data-filter="${filter}">
+                    ${label}<span>${count}</span>
+                </button>
+            `;
+
+            const groupsHtml = Object.entries(grouped).map(([group, groupItems]) => {
+                const rows = groupItems.map((item) => `
+                    <div class="s21-metric-row ${item.status}">
+                        <div class="s21-metric-icon" aria-hidden="true">${metricStatusIcon(item.status)}</div>
+                        <div class="s21-metric-code">${escapeHtmlSafe(item.id)}</div>
+                        <div class="s21-metric-main">
+                            <strong>${escapeHtmlSafe(item.title)}</strong>
+                            <p>${escapeHtmlSafe(item.comment || item.description)}</p>
+                        </div>
+                        <span class="s21-metric-status ${item.status}">${metricStatusLabel(item.status)}</span>
+                    </div>
+                `).join('');
+                return `
+                    <section class="s21-metric-group-card">
+                        <div class="s21-metric-group-head"><strong>${escapeHtmlSafe(group)}</strong><span>${groupItems.length} критериев</span></div>
+                        ${rows}
+                    </section>
+                `;
+            }).join('');
+
+            const html = `
+                <div class="s21-metrics-view" data-container="${escapeHtmlSafe(containerId)}">
+                    <div class="s21-metric-toolbar">
+                        <div class="s21-metric-filters">
+                            ${filterButton('all', 'Все', totalCount)}
+                            ${filterButton('passed', 'Пройдены', passed)}
+                            ${filterButton('failed', 'Не пройдены', failed)}
+                            ${filterButton('warning', 'Предупреждения', warnings)}
+                        </div>
+                        <div class="s21-metric-grouping">
+                            <span>Группировка:</span>
+                            <strong>по разделу</strong>
+                            <small>${escapeHtmlSafe(scoreText)}</small>
+                        </div>
+                    </div>
+                    ${groupsHtml || '<div class="s21-metric-empty">Нет критериев для выбранного фильтра.</div>'}
+                </div>
+            `;
+
+            if (window.sanitize?.safeSetHTML) {
+                window.sanitize.safeSetHTML(container, html);
+            } else {
+                container.innerHTML = html;
+            }
+            return true;
+        }
+
+        function renderCheckerMetricsReview(rubric, container, containerId = '') {
+            if (!container) return false;
+            const items = normalizeMetricItems(rubric);
+            const activeFilter = window.currentFilter || currentFilter || 'all';
+            const counts = {
+                all: items.length,
+                passed: items.filter((item) => item.status === 'passed').length,
+                failed: items.filter((item) => item.status === 'failed').length,
+                warning: items.filter((item) => item.status === 'warning').length
+            };
+            const visibleItems = items.filter((item) => {
+                if (activeFilter === 'passed') return item.status === 'passed';
+                if (activeFilter === 'failed') return item.status === 'failed';
+                if (activeFilter === 'warning') return item.status === 'warning';
+                return true;
+            });
+            const summary = getRubricSummary(rubric);
+            const priorityFor = (item) => {
+                if (item.status === 'failed') return 'Высокий';
+                if (item.status === 'warning') return 'Средний';
+                return 'Низкий';
+            };
+            const filterButton = (filter, label, count) => `
+                <button type="button" class="checker-filter-pill metrics-filter-btn ${activeFilter === filter ? 'active' : ''}" data-filter="${filter}">
+                    ${label}<span>${count}</span>
+                </button>
+            `;
+            const rows = visibleItems.map((item) => {
+                const priority = priorityFor(item);
+                return `
+                    <div class="checker-criterion-row ${item.status}">
+                        <div class="checker-criterion-icon">${metricStatusIcon(item.status)}</div>
+                        <div class="checker-criterion-code">${escapeHtmlSafe(item.id)}</div>
+                        <div class="checker-criterion-main">
+                            <strong>${escapeHtmlSafe(item.title)}</strong>
+                            <p>${escapeHtmlSafe(item.comment || item.description)}</p>
+                        </div>
+                        <span class="checker-criterion-tag">${escapeHtmlSafe(item.group).toUpperCase()}</span>
+                        <span class="checker-criterion-priority ${priority === 'Высокий' ? 'high' : priority === 'Средний' ? 'medium' : 'low'}">${priority.toUpperCase()}</span>
+                    </div>
+                `;
+            }).join('');
+            const html = `
+                <div class="checker-metrics-view" data-container="${escapeHtmlSafe(containerId)}">
+                    <div class="checker-metrics-toolbar">
+                        <div class="checker-filter-row">
+                            ${filterButton('all', 'Все', counts.all)}
+                            ${filterButton('failed', 'Не пройдено', counts.failed)}
+                            ${filterButton('warning', 'Предупреждения', counts.warning)}
+                            ${filterButton('passed', 'Пройдено', counts.passed)}
+                        </div>
+                        <div class="checker-filter-row secondary">
+                            <button type="button" class="checker-filter-pill muted">Раздел: Структура</button>
+                            <button type="button" class="checker-filter-pill muted">Приоритет: Высокий</button>
+                        </div>
+                    </div>
+                    <div class="checker-criteria-list">
+                        ${rows || '<div class="s21-metric-empty">Нет критериев для выбранного фильтра.</div>'}
+                    </div>
+                    <div class="checker-metrics-summary">${summary.max > 0 ? `Пройдено ${summary.total} из ${summary.max} критериев.` : ''}</div>
+                </div>
+            `;
+            if (window.sanitize?.safeSetHTML) {
+                window.sanitize.safeSetHTML(container, html);
+            } else {
+                container.innerHTML = html;
+            }
+            return true;
+        }
         
         function displayMetrics(rubric, containerId = null) {
             // Определяем контейнер: если не указан, используем текущую активную версию
@@ -4011,6 +5330,23 @@
             }
             if (!container) {
                 console.error('Контейнер не найден для displayMetrics:', containerId);
+                return;
+            }
+
+            if (
+                document.body.classList.contains('page-checker') &&
+                (containerId === 'checkerMetricsOriginal' || containerId === 'checkerMetricsImproved' || containerId === 'checkerMetrics')
+            ) {
+                if (renderCheckerMetricsReview(rubric, container, containerId || 'checkerMetrics')) {
+                    updateCheckerScorePanel(rubric);
+                    return;
+                }
+            }
+
+            if (renderS21MetricsView(rubric, container, containerId || 'metrics')) {
+                if (containerId === 'checkerMetricsOriginal' || containerId === 'checkerMetricsImproved') {
+                    updateCheckerScorePanel(rubric);
+                }
                 return;
             }
             
@@ -4044,6 +5380,10 @@
                 isArray: Array.isArray(rubric?.items),
                 rubricKeys: rubric ? Object.keys(rubric) : null
             });
+
+            if (containerId === 'checkerMetricsOriginal' || containerId === 'checkerMetricsImproved') {
+                updateCheckerScorePanel(rubric);
+            }
             
             let html = '';
             
@@ -4065,11 +5405,11 @@
             
             if (hasItems) {
                 const filterHtml = `
-                    <div id="${filterId}" style="margin: 1.5rem 0; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
-                        <label style="color: #b8c5d6; font-weight: 600;">Фильтр:</label>
-                        <button type="button" class="btn metrics-filter-btn" data-filter="all" style="cursor: pointer; width: auto; padding: 0.5rem 1rem; ${activeFilter === 'all' ? 'opacity: 1; font-weight: 600;' : 'opacity: 0.6;'}">Все</button>
-                        <button type="button" class="btn metrics-filter-btn" data-filter="passed" style="cursor: pointer; width: auto; padding: 0.5rem 1rem; ${activeFilter === 'passed' ? 'opacity: 1; font-weight: 600;' : 'opacity: 0.6;'}">✅ Пройдено</button>
-                        <button type="button" class="btn metrics-filter-btn" data-filter="failed" style="cursor: pointer; width: auto; padding: 0.5rem 1rem; ${activeFilter === 'failed' ? 'opacity: 1; font-weight: 600;' : 'opacity: 0.6;'}">❌ Не пройдено</button>
+                    <div id="${filterId}" class="metrics-filter-bar">
+                        <label class="metrics-filter-label">Фильтр:</label>
+                        <button type="button" class="btn metrics-filter-btn ${activeFilter === 'all' ? 'is-active' : ''}" data-filter="all">Все</button>
+                        <button type="button" class="btn metrics-filter-btn ${activeFilter === 'passed' ? 'is-active' : ''}" data-filter="passed">Пройдено</button>
+                        <button type="button" class="btn metrics-filter-btn ${activeFilter === 'failed' ? 'is-active' : ''}" data-filter="failed">Не пройдено</button>
                     </div>
                 `;
                 html += filterHtml;
@@ -4094,31 +5434,31 @@
                 filteredItems = filteredItems.filter(byFilter);
                 
                 html += '<div class="table-container">';
-                html += '<div style="margin-bottom: 0.5rem; display: flex; justify-content: flex-end;">';
-                html += '<label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; font-size: 0.9rem; color: #b8c5d6;">';
-                html += '<input type="checkbox" id="toggleDescription" style="cursor: pointer;">';
+                html += '<div class="metrics-description-toggle-row">';
+                html += '<label class="metrics-description-toggle">';
+                html += '<input type="checkbox" id="toggleDescription">';
                 html += '<span>Показать описание</span>';
                 html += '</label>';
                 html += '</div>';
                 html += '<table><thead><tr><th>№</th><th>Критерий</th><th class="description-column" style="display: none;">Описание</th><th>Оценка</th><th>Комментарии</th></tr></thead><tbody>';
                 
                 if (filteredItems.length === 0) {
-                    html += '<tr><td colspan="5" style="text-align: center; padding: 2rem; color: #b8c5d6;">Нет критериев для отображения</td></tr>';
+                    html += '<tr><td colspan="5" class="metrics-empty-cell">Нет критериев для отображения</td></tr>';
                 } else {
                     filteredItems.forEach((item, idx) => {
-                        const score = item.score === 1 ? '✅' : '❌';
+                        const score = item.score === 1 ? 'Пройдено' : 'Не пройдено';
                         
                         // Форматируем комментарии: для непройденных критериев используем список
-                        let comments = '✅ Нет замечаний';
+                        let comments = 'Нет замечаний';
                         if (item.comments && item.comments.length > 0) {
                             if (item.score !== 1) {
                                 // Для непройденных критериев - список с переносами строк
                                 // Экранируем комментарии перед вставкой
                                 const escapedComments = item.comments.map(c => {
                                     const escaped = window.sanitize ? window.sanitize.escapeHtml(c) : c;
-                                    return `<li style="margin: 0.25rem 0;">${escaped}</li>`;
+                                    return `<li class="metrics-comment-item">${escaped}</li>`;
                                 }).join('');
-                                comments = '<ul style="margin: 0; padding-left: 1.5rem; text-align: left;">' + escapedComments + '</ul>';
+                                comments = '<ul class="metrics-comment-list">' + escapedComments + '</ul>';
                             } else {
                                 // Для пройденных - просто через разделитель
                                 // Экранируем комментарии
@@ -4231,7 +5571,7 @@
             // Пытаемся получить статистику из разных мест
             const stats = result.text_stats || result.report_json?.text_stats || {};
             
-            let html = '<h3>📝 Статистика по тексту</h3><div class="metrics-grid">';
+            let html = '<h3>Статистика по тексту</h3><div class="metrics-grid">';
             html += `<div class="metric-card"><div class="metric-value">${(stats.chars_total || stats.chars || 0).toLocaleString()}</div><div class="metric-label">Символов</div></div>`;
             html += `<div class="metric-card"><div class="metric-value">${(stats.words || 0).toLocaleString()}</div><div class="metric-label">Слов</div></div>`;
             html += `<div class="metric-card"><div class="metric-value">${(stats.sentences || 0).toLocaleString()}</div><div class="metric-label">Предложений</div></div>`;
@@ -4241,7 +5581,7 @@
             
             // Дополнительная статистика, если есть
             if (stats.readability_index) {
-                html += `<div class="metric-card" style="margin-top: 1rem;"><div class="metric-value">${stats.readability_index.toFixed(1)}</div><div class="metric-label">Индекс читаемости</div></div>`;
+                html += `<div class="metric-card s21-metric-extra"><div class="metric-value">${stats.readability_index.toFixed(1)}</div><div class="metric-label">Индекс читаемости</div></div>`;
             }
             
             // Используем санитизацию для HTML контента
@@ -4287,7 +5627,7 @@
                 }
                 
                 if (!rubric || !rubric.items || rubric.items.length === 0) {
-                    alert('⚠️ Нет данных критериев для заполнения. Сначала сгенерируйте контент.');
+                    alert('Нет данных критериев для заполнения. Сначала сгенерируйте контент.');
                     return;
                 }
                 
@@ -4315,7 +5655,7 @@
                 // Заполняем поле комментариев (только комментарии, без нумерации)
                 const commentsField = ensureRegenerationTemplate();
                 if (!commentsField) {
-                    alert('⚠️ Поле комментариев не найдено. Убедитесь, что вы находитесь на странице генерации.');
+                    alert('Поле комментариев не найдено. Убедитесь, что вы находитесь на странице генерации.');
                     return;
                 }
                 const numbered = comments.map((comment, idx) => `${idx + 1}. ${comment}`).join('\n');
@@ -4329,7 +5669,7 @@
                 alert(`✅ Заполнено ${comments.length} замечаний из непройденных критериев`);
             } catch (error) {
                 console.error('Ошибка при заполнении комментариев:', error);
-                alert('⚠️ Ошибка при заполнении комментариев: ' + error.message);
+                alert('Ошибка при заполнении комментариев: ' + error.message);
             }
         }
         
@@ -4419,7 +5759,10 @@
             }
             if (noResults) {
                 noResults.style.display = 'block';
-                noResults.innerHTML = '<p>Загрузите README и нажмите «Проверить», чтобы увидеть результаты.</p>';
+                noResults.className = document.body.classList.contains('page-checker') ? 'checker-empty-state' : 'info-box';
+                noResults.innerHTML = document.body.classList.contains('page-checker')
+                    ? '<div class="generator-empty-orbit"><span></span></div><h3>Результаты появятся здесь</h3><p>Загрузите README слева и запустите проверку. После проверки можно улучшить документ.</p>'
+                    : '<p>Загрузите README и нажмите «Проверить», чтобы увидеть результаты.</p>';
             }
             
             // Скрываем кнопку очистки
@@ -4430,11 +5773,23 @@
             
             // Очищаем контейнеры
             const checkerMetrics = document.getElementById('checkerMetrics');
+            const checkerMetricsOriginal = document.getElementById('checkerMetricsOriginal');
+            const checkerMetricsImproved = document.getElementById('checkerMetricsImproved');
             const checkerReport = document.getElementById('checkerReport');
             const readmePreview = document.getElementById('readmePreview');
             if (checkerMetrics) checkerMetrics.innerHTML = '';
+            if (checkerMetricsOriginal) checkerMetricsOriginal.innerHTML = '';
+            if (checkerMetricsImproved) checkerMetricsImproved.innerHTML = '';
             if (checkerReport) checkerReport.innerHTML = '';
             if (readmePreview) readmePreview.innerHTML = '';
+            const improvedTab = document.getElementById('improvedReadmeTab');
+            if (improvedTab) improvedTab.style.display = 'none';
+            const brandMark = document.getElementById('checkerBrandMark');
+            const brandSub = document.getElementById('checkerBrandSub');
+            const status = document.getElementById('checkerSubbarStatus');
+            if (brandMark) brandMark.textContent = 'ПРОВЕРКА';
+            if (brandSub) brandSub.textContent = '39 критериев · v 2.4';
+            if (status) status.style.display = 'none';
         }
         
         function restoreCheckerResults() {
@@ -4484,9 +5839,9 @@
                 const warningsArea = document.getElementById('warningsArea');
                 if (warningsArea) {
                     if (window.sanitize) {
-                        warningsArea.innerHTML = '<div class="success-msg">✅ Результаты восстановлены из предыдущей проверки</div>';
+                        warningsArea.innerHTML = '<div class="success-msg">Результаты восстановлены из предыдущей проверки</div>';
                     } else {
-                        warningsArea.textContent = '✅ Результаты восстановлены из предыдущей проверки';
+                        warningsArea.textContent = 'Результаты восстановлены из предыдущей проверки';
                     }
                 }
             } catch (error) {
@@ -4505,7 +5860,7 @@
                 return;
             }
             
-            let html = '<h3>🔍 Анализ контекста</h3>';
+            let html = '<h3>Анализ контекста</h3>';
             
             // Статистика
             const metrics = contextAnalysis.metrics || {};
@@ -4617,19 +5972,19 @@
         async function regenerateContent() {
             const comments = document.getElementById('regenerationComments').value.trim();
             if (!comments) {
-                alert('⚠️ Пожалуйста, введите комментарии по изменению README.');
+                alert('Пожалуйста, введите комментарии по изменению README.');
                 return;
             }
             
             if (!currentMarkdown) {
-                alert('⚠️ Сначала сгенерируйте контент.');
+                alert('Сначала сгенерируйте контент.');
                 return;
             }
             
             // Проверяем наличие токена перед запросом
             const token = localStorage.getItem('auth_token');
             if (!token) {
-                alert('⚠️ Требуется авторизация. Перенаправление на страницу входа...');
+                alert('Требуется авторизация. Перенаправление на страницу входа...');
                 // Очищаем sessionStorage при редиректе на авторизацию
                 sessionStorage.removeItem('generation_state');
                 window.location.href = '/';
@@ -4644,10 +5999,10 @@
                 
                 // Создаем spinner через loading manager
                 if (window.loading) {
-                    const spinnerId = window.loading.showSpinner('logContent', '🔄 Перегенерация контента...');
+                    const spinnerId = window.loading.showSpinner('logContent', 'Перегенерация контента...');
                     window.currentRegenSpinnerId = spinnerId;
                 } else {
-                    logContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>🔄 Перегенерация контента...</p></div>';
+                    logContent.innerHTML = '<div class="loading"><div class="spinner"></div><p>Перегенерация контента...</p></div>';
                 }
             }
             
@@ -4662,7 +6017,8 @@
                         original_request_id: currentRequestId,
                         original_md: currentMarkdown,
                         comments: comments,
-                        language: document.getElementById('language').value
+                        language: document.getElementById('language').value,
+                        project_seed: currentSeed || null
                     })
                 });
                 
@@ -4752,8 +6108,8 @@
                 if (data.changes && data.changes.length > 0) {
                     const changesList = document.getElementById('regenerationChangesList');
                     const changesContainer = document.getElementById('regenerationChanges');
-                    changesList.innerHTML = '<ul style="margin: 0; padding-left: 1.5rem;">' + 
-                        data.changes.map(change => `<li style="margin-bottom: 0.5rem;">${change}</li>`).join('') + 
+                    changesList.innerHTML = '<ul class="s21-plain-list">' +
+                        data.changes.map(change => `<li>${change}</li>`).join('') +
                         '</ul>';
                     changesContainer.style.display = 'block';
                 } else {
@@ -4865,7 +6221,7 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(logContent, `Ошибка перегенерации: ${error.message}`);
                     } else {
-                        logContent.textContent = `❌ Ошибка перегенерации: ${error.message}`;
+                        logContent.textContent = `Ошибка перегенерации: ${error.message}`;
                     }
                 }
                 
@@ -4954,6 +6310,29 @@
         let translationJobType = 'readme';
         let translationRenderAsMarkdown = false;
 
+        function countTranslationWords(text) {
+            return String(text || '')
+                .trim()
+                .split(/\s+/)
+                .filter(Boolean).length;
+        }
+
+        function formatTranslationBytes(bytes) {
+            const value = Number(bytes || 0);
+            if (!value) return '0 КБ';
+            if (value >= 1024 * 1024) return `${Math.round(value / 1024 / 1024)} МБ`;
+            return `${Math.max(1, Math.round(value / 1024))} КБ`;
+        }
+
+        function updateTranslationTextMeta(kind, text, bytes) {
+            const words = countTranslationWords(text);
+            const suffix = bytes ? ` · ${formatTranslationBytes(bytes)}` : '';
+            const value = `${words.toLocaleString('ru-RU')} слов${suffix}`;
+            const targetId = kind === 'translated' ? 'translationTranslatedMeta' : 'translationOriginalMeta';
+            setText(targetId, value);
+            return value;
+        }
+
         function displayPlainText(text, containerId) {
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -5001,6 +6380,15 @@
             if (translatedContainer) {
                 translatedContainer.innerHTML = '';
             }
+            setText('translationSourceFileTitle', 'Загрузить README.md');
+            setText('translationFileName', 'Markdown-файл для перевода');
+            setText('translationOriginalMeta', '0 слов');
+            setText('translationTranslatedMeta', '0 слов');
+            const brandBadge = document.getElementById('translationBrandBadge');
+            const brandMark = document.getElementById('translationBrandMark');
+            if (brandBadge) brandBadge.setAttribute('data-step', '05.1');
+            if (brandMark) brandMark.textContent = 'ПЕРЕВОД ДОКУМЕНТА · RU → EN';
+            updateTranslationSummary('document', 'Ожидает запуска');
         }
 
         function handleTranslationFileSelect(event) {
@@ -5010,16 +6398,18 @@
 
             if (!file) {
                 if (fileNameLabel) {
-                    fileNameLabel.textContent = '';
+                    fileNameLabel.textContent = 'Markdown-файл для перевода';
                 }
+                setText('translationSourceFileTitle', 'Загрузить README.md');
                 return;
             }
 
-            if (fileNameLabel) {
-                fileNameLabel.textContent = `Выбран файл: ${file.name}`;
-            }
+            const sourceTitle = document.getElementById('translationSourceFileTitle');
+            if (sourceTitle) sourceTitle.textContent = file.name;
+            if (fileNameLabel) fileNameLabel.textContent = `${formatTranslationBytes(file.size)} · загружен`;
 
-            translationRenderAsMarkdown = (file.name || '').toLowerCase().endsWith('.md');
+            const lowerFileName = (file.name || '').toLowerCase();
+            translationRenderAsMarkdown = lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown');
 
             const reader = new FileReader();
             reader.onload = function (e) {
@@ -5044,6 +6434,9 @@
                 } else {
                     displayPlainText(translationOriginalMarkdown, 'translationOriginalContent');
                 }
+                updateTranslationTextMeta('original', translationOriginalMarkdown, file.size);
+                setText('translationTranslatedMeta', 'Ожидает перевода');
+                updateTranslationSummary('document', 'Предпросмотр');
             };
             reader.onerror = function (e) {
                 console.error('Ошибка чтения файла для перевода:', e);
@@ -5073,6 +6466,7 @@
             container.style.display = 'block';
             labelEl.textContent = 'Загрузка видео: ' + pct + '%';
             barEl.style.width = pct + '%';
+            setText('translationVideoProgressPct', pct + ' %');
         }
 
         function updateTranslationProgress(phase, status) {
@@ -5080,7 +6474,8 @@
             const phaseEl = document.getElementById('translationProgressPhase');
             const barEl = document.getElementById('translationProgressBar');
             if (!container || !phaseEl || !barEl) return;
-            container.style.setProperty('display', 'block', 'important');
+            const videoModeActive = translationJobType === 'video' || !!document.getElementById('translationSourceVideo')?.checked;
+            container.style.setProperty('display', videoModeActive ? 'none' : 'block', 'important');
             const phaseLabels = {
                 translate: 'Перевод...',
                 refine: 'Улучшение читаемости...',
@@ -5100,6 +6495,8 @@
                 queued: 'В очереди...'
             };
             phaseEl.textContent = phaseLabels[phase] || 'Выполняется...';
+            setText('translationVideoProgressLabel', phaseEl.textContent.replace(/\.\.\.$/, ''));
+            updateTranslationSummary(translationJobType === 'video' ? 'video' : 'document', status === 'completed' ? 'Готово' : phaseEl.textContent.replace(/\.\.\.$/, ''));
             let pct = 30;
             const progressArg = arguments[2];
             if (typeof progressArg === 'number' && progressArg >= 0 && progressArg <= 100) {
@@ -5121,6 +6518,7 @@
             else if (phase === 'queued') pct = 0;
             else if (phase === 'build_srt') pct = 90;
             barEl.style.width = pct + '%';
+            setText('translationVideoProgressPct', pct + ' %');
         }
 
         function stopTranslationPolling() {
@@ -5172,13 +6570,13 @@
 
             try {
                 if (status) {
-                    status.innerHTML = '<div class="info-box">⏳ Запуск перевода...</div>';
+                    status.innerHTML = '<div class="info-box">Запуск перевода...</div>';
                 }
                 const progressContainer = document.getElementById('translationProgressContainer');
                 const progressPhase = document.getElementById('translationProgressPhase');
                 const progressBar = document.getElementById('translationProgressBar');
                 if (progressContainer && progressPhase && progressBar) {
-                    progressContainer.style.setProperty('display', 'block', 'important');
+                    progressContainer.style.setProperty('display', isVideoMode ? 'none' : 'block', 'important');
                     progressPhase.textContent = isVideoMode ? 'Загрузка видео...' : 'Запуск...';
                     progressBar.style.width = '0%';
                 }
@@ -5222,7 +6620,8 @@
                 translationCurrentRequestId = requestId;
                 translationJobType = isVideoMode ? 'video' : 'readme';
 
-                if (status) status.innerHTML = '<div class="info-box">⏳ ' + (isVideoMode ? 'Обработка видео (распознавание и перевод)...' : 'Перевод выполняется (это может занять несколько минут)...') + '</div>';
+                if (status) status.innerHTML = '<div class="info-box">' + (isVideoMode ? 'Обработка видео: распознавание и перевод' : 'Перевод выполняется. Это может занять несколько минут.') + '</div>';
+                updateTranslationSummary(isVideoMode ? 'video' : 'document', 'В работе');
                 updateTranslationProgress(isVideoMode ? 'extract_audio' : 'translate', 'in_progress');
 
                 translationPollInterval = setInterval(async () => {
@@ -5239,8 +6638,10 @@
                             stopTranslationPolling();
                             const isVideoResult = job.job_type === 'video';
                             translationJobType = isVideoResult ? 'video' : 'readme';
+                            updateTranslationSummary(isVideoResult ? 'video' : 'document', 'Готово');
                             translationOriginalMarkdown = isVideoResult ? (job.original_transcript || '') : (job.original_markdown || sourceMarkdown);
                             translationTranslatedMarkdown = isVideoResult ? (job.translated_subtitles || '') : (job.translated_markdown || sourceMarkdown);
+                            window.translationTranslatedMarkdown = translationTranslatedMarkdown;
                             const noResults = document.getElementById('translationNoResults');
                             const resultsArea = document.getElementById('translationResultsArea');
                             if (noResults && resultsArea) {
@@ -5271,18 +6672,24 @@
                                 const transText = translationTranslatedMarkdown || (job.result_links ? 'Видео и субтитры готовы. Скачайте файлы ниже.' : '');
                                 displayPlainText(origText, 'translationOriginalContent');
                                 displayPlainText(transText, 'translationTranslatedContent');
+                                updateTranslationTextMeta('original', origText);
+                                updateTranslationTextMeta('translated', transText);
                             } else if (translationRenderAsMarkdown) {
                                 displayMarkdown(translationOriginalMarkdown, 'translationOriginalContent');
                                 displayMarkdown(translationTranslatedMarkdown, 'translationTranslatedContent');
+                                updateTranslationTextMeta('original', translationOriginalMarkdown);
+                                updateTranslationTextMeta('translated', translationTranslatedMarkdown);
                             } else {
                                 displayPlainText(translationOriginalMarkdown, 'translationOriginalContent');
                                 displayPlainText(translationTranslatedMarkdown, 'translationTranslatedContent');
+                                updateTranslationTextMeta('original', translationOriginalMarkdown);
+                                updateTranslationTextMeta('translated', translationTranslatedMarkdown);
                             }
                             if (status) {
                                 if (window.sanitize) {
-                                    window.sanitize.safeSetHTML(status, '<div class="success-msg">✅ ' + (isVideoResult ? 'Субтитры готовы' : 'Перевод завершён') + '</div>');
+                                    window.sanitize.safeSetHTML(status, '<div class="success-msg">' + (isVideoResult ? 'Субтитры готовы' : 'Перевод завершён') + '</div>');
                                 } else {
-                                    status.innerHTML = '<div class="success-msg">✅ ' + (isVideoResult ? 'Субтитры готовы' : 'Перевод завершён') + '</div>';
+                                    status.innerHTML = '<div class="success-msg">' + (isVideoResult ? 'Субтитры готовы' : 'Перевод завершён') + '</div>';
                                 }
                             }
                             if (window.toast) window.toast.success(isVideoResult ? 'Субтитры успешно сгенерированы' : 'Перевод успешно выполнен');
@@ -5296,7 +6703,7 @@
                                 if (window.sanitize) {
                                     window.sanitize.safeSetErrorMessage(status, `Ошибка перевода: ${errMsg}`);
                                 } else {
-                                    status.innerHTML = `<div class="error-msg">❌ Ошибка перевода: ${errMsg}</div>`;
+                                    status.innerHTML = `<div class="error-msg">Ошибка перевода: ${errMsg}</div>`;
                                 }
                             }
                             if (window.toast) window.toast.error(errMsg);
@@ -5313,7 +6720,7 @@
                     if (window.sanitize) {
                         window.sanitize.safeSetErrorMessage(status, `Ошибка перевода: ${error.message}`);
                     } else {
-                        status.innerHTML = `<div class="error-msg">❌ Ошибка перевода: ${error.message}</div>`;
+                        status.innerHTML = `<div class="error-msg">Ошибка перевода: ${error.message}</div>`;
                     }
                 }
                 if (window.toast) {
@@ -5630,6 +7037,13 @@
                         }
                     }
                 }
+
+                if (document.body.classList.contains('generation-completed')) {
+                    setCompletedChrome(tabName);
+                    if (tabName === 'readme' && currentMarkdown) {
+                        renderResultReadme(currentMarkdown);
+                    }
+                }
                 
                 // Дополнительная проверка: убеждаемся, что все остальные скрыты
                 document.querySelectorAll('.tab-content').forEach(content => {
@@ -5690,6 +7104,9 @@
             window.renderMarkdownPreview = renderMarkdownPreview;
             window.normalizeMarkdownForDisplay = normalizeMarkdownForDisplay;
             window.renderMermaidDiagrams = renderMermaidDiagrams;
+            window.setReadmeRenderMode = setReadmeRenderMode;
+            window.compareCurrentResult = compareCurrentResult;
+            window.openRegenerationFromMetrics = openRegenerationFromMetrics;
             
             // Curriculum (УП) functions
             window.handleCurriculumUpload = handleCurriculumUpload;
@@ -5709,6 +7126,15 @@
                 const hasGeneratorUI = Boolean(document.getElementById('generateBtn'));
                 const hasCheckerUI = Boolean(document.getElementById('checkBtn'));
                 if (hasGeneratorUI) {
+                    initializeMethodologyAssistantChat();
+                    const displayName = localStorage.getItem('username') || localStorage.getItem('email') || 'Пользователь';
+                    const generatorUserName = document.getElementById('generatorUserName');
+                    const generatorUserInitials = document.getElementById('generatorUserInitials');
+                    if (generatorUserName) generatorUserName.textContent = displayName;
+                    if (generatorUserInitials) {
+                        const shortName = displayName.replace(/@.*$/, '').split(/[.\s_-]+/).filter(Boolean);
+                        generatorUserInitials.textContent = (shortName.length >= 2 ? `${shortName[0][0]}${shortName[1][0]}` : displayName.slice(0, 2)).toUpperCase();
+                    }
                     loadThematicBlocks();
                     updateThematicBlockSelect();
                     await loadGenerationState();
@@ -5815,7 +7241,7 @@
                     if (fileNameEl) {
                         fileNameEl.textContent = `✅ ${file.name} (${(file.size / 1024).toFixed(2)} KB)`;
                         fileNameEl.style.display = 'block';
-                        fileNameEl.style.color = '#4caf50';
+                        fileNameEl.classList.add('s21-upload-success');
                         console.log('✅ Имя файла обновлено');
                     } else {
                         console.warn('⚠️ Элемент readmeFileNameForExtraction не найден');
@@ -5823,15 +7249,14 @@
                     
                     if (uploadText) {
                         uploadText.textContent = '📄 Файл загружен';
-                        uploadText.style.color = '#4caf50';
+                        uploadText.classList.add('s21-upload-success');
                         console.log('✅ Текст загрузки обновлен');
                     } else {
                         console.warn('⚠️ Элемент readmeFileUploadText не найден');
                     }
                     
                     if (uploadArea) {
-                        uploadArea.style.borderColor = 'rgba(76, 175, 80, 0.5)';
-                        uploadArea.style.background = 'rgba(76, 175, 80, 0.1)';
+                        uploadArea.classList.add('s21-upload-area-success');
                         console.log('✅ Стили области загрузки обновлены');
                     } else {
                         console.warn('⚠️ Элемент readmeFileUploadArea не найден');
@@ -5891,7 +7316,7 @@
             
             // Блокируем кнопку и показываем загрузку
             extractBtn.disabled = true;
-            extractBtn.textContent = '⏳ Извлечение...';
+            extractBtn.textContent = 'Извлечение...';
             statusDiv.style.display = 'none';
             loadingDiv.style.display = 'block';
             downloadBtn.style.display = 'none';
@@ -5972,31 +7397,31 @@
                 statusDiv.style.display = 'block';
                 
                 // Отображаем результаты
-                let statusHtml = '<div style="padding: 1rem;">';
-                statusHtml += '<h3 style="color: #4caf50; margin-bottom: 1rem;">✅ Извлечение завершено</h3>';
+                let statusHtml = '<div class="s21-extraction-status">';
+                statusHtml += '<h3 class="s21-extraction-title">Извлечение завершено</h3>';
                 
                 if (result.metadata.warnings && result.metadata.warnings.length > 0) {
-                    statusHtml += '<div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(255, 193, 7, 0.15); border-radius: 8px; border-left: 4px solid #ffc107;">';
-                    statusHtml += '<strong>⚠️ Предупреждения:</strong><ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">';
+                    statusHtml += '<div class="s21-extraction-alert warn">';
+                    statusHtml += '<strong>Предупреждения:</strong><ul class="s21-plain-list compact">';
                     result.metadata.warnings.forEach(w => {
-                        statusHtml += `<li style="margin: 0.25rem 0;">${w}</li>`;
+                        statusHtml += `<li>${w}</li>`;
                     });
                     statusHtml += '</ul></div>';
                 }
                 
                 if (result.metadata.errors && result.metadata.errors.length > 0) {
-                    statusHtml += '<div style="margin-bottom: 1rem; padding: 0.75rem; background: rgba(244, 67, 54, 0.15); border-radius: 8px; border-left: 4px solid #f44336;">';
-                    statusHtml += '<strong>❌ Ошибки:</strong><ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">';
+                    statusHtml += '<div class="s21-extraction-alert danger">';
+                    statusHtml += '<strong>Ошибки:</strong><ul class="s21-plain-list compact">';
                     result.metadata.errors.forEach(e => {
-                        statusHtml += `<li style="margin: 0.25rem 0;">${e}</li>`;
+                        statusHtml += `<li>${e}</li>`;
                     });
                     statusHtml += '</ul></div>';
                 }
                 
                 const extracted = result.metadata.extracted_fields || {};
                 if (extracted.final_mapping) {
-                    statusHtml += '<div style="margin-top: 1rem;"><strong>📊 Извлеченные данные:</strong>';
-                    statusHtml += '<ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">';
+                    statusHtml += '<div class="s21-extraction-section"><strong>Извлеченные данные:</strong>';
+                    statusHtml += '<ul class="s21-plain-list compact">';
                     if (extracted.final_mapping.title_seed) {
                         statusHtml += `<li><strong>Название:</strong> ${extracted.final_mapping.title_seed}</li>`;
                     }
@@ -6029,8 +7454,8 @@
                 loadingDiv.style.display = 'none';
                 statusDiv.style.display = 'block';
                 statusContent.innerHTML = `
-                    <div style="padding: 1rem; background: rgba(244, 67, 54, 0.15); border-radius: 8px; border-left: 4px solid #f44336;">
-                        <strong>❌ Ошибка:</strong> ${error.message}
+                    <div class="s21-extraction-alert danger">
+                        <strong>Ошибка:</strong> ${error.message}
                     </div>
                 `;
             } finally {
@@ -6078,6 +7503,334 @@
                 alert(`Ошибка при скачивании: ${error.message}`);
             }
         }
+
+        const uiSmokeMarkdown = `# Когортный анализ для Sales Funnel
+
+Этот README демонстрирует итоговую генерацию: теория, практика, таблицы, диаграммы и артефакты данных.
+
+## Содержание
+
+- [Глава 1. Введение и инструкция](#глава-1-введение-и-инструкция)
+- [Глава 2. Теоретический блок](#глава-2-теоретический-блок)
+- [Глава 3. Практический блок](#глава-3-практический-блок)
+
+## Глава 1. Введение и инструкция
+
+Ты работаешь как аналитик продукта и проверяешь, где пользователи выпадают из воронки.
+
+## Глава 2. Теоретический блок
+
+### 2.1. Retention и когорты
+
+Retention показывает, какая доля пользователей возвращается через выбранный период.
+
+| Метрика | Что показывает | Где нужна |
+| --- | --- | --- |
+| Retention | Возврат пользователей | Продуктовая аналитика |
+| Churn | Отток | Поиск проблемных сегментов |
+
+*Таблица 1. Базовые метрики когортного анализа.*
+
+\`\`\`mermaid
+flowchart TD
+    A[Собрать события] --> B[Сформировать когорты]
+    B --> C[Посчитать retention]
+    C --> D{Есть провал?}
+    D -- Да --> E[Найти сегмент и гипотезу]
+    D -- Нет --> F[Зафиксировать baseline]
+\`\`\`
+
+*Диаграмма 1. Логика анализа retention.*
+
+## Глава 3. Практический блок
+
+### Задание 1. Подготовить данные
+
+Что нужно сделать: собери таблицу событий и проверь пропуски.
+
+Что должно получиться: файл \`materials/task_01/events_clean.csv\` и короткий вывод в README.
+
+## Финальное завершение проекта
+
+Собери выводы, приложи артефакты и подготовь результат к peer-to-peer проверке.`;
+
+        function buildUiSmokeRubric(kind = 'pass') {
+            const passed = kind === 'pass';
+            if (passed) {
+                const seedItems = [
+                    ['S-01', 'Заголовок и метаданные присутствуют', 'Структура', 1, 'Заголовок, проект, направление, тип — все на месте.'],
+                    ['S-02', 'Содержание автогенерируется по h2', 'Структура', 1, 'Навигация построена по разделам README.'],
+                    ['S-03', 'Раздел «Цель» соответствует ЗУНам', 'Структура', 1, 'Формулировки связаны с образовательными результатами.'],
+                    ['S-04', 'Раздел «Критерии» — таблица с весами', 'Структура', 1, 'Предупреждение: веса критериев нужно перепроверить вручную.'],
+                    ['R-12', 'Каждая задача имеет вход / выход', 'Требования', 1, 'Артефакты сдачи указаны.'],
+                    ['R-18', 'Шаги задачи нумерованы и атомарны', 'Требования', 0, 'В задаче 3 шаги 4 и 5 объединены — нужно разделить.'],
+                    ['R-22', 'Указаны все обязательные инструменты', 'Требования', 1, 'Инструменты из учебного плана сохранены.'],
+                    ['T-04', 'Единый сторителлинг через все задачи', 'Сторителлинг и тон', 1, 'Связка задач читается последовательно.'],
+                    ['T-06', 'Обращение «ты» — последовательное', 'Сторителлинг и тон', 0, 'В разделе «Бонус» встречается переход на «вы».'],
+                    ['T-08', 'Нет англицизмов без объяснения', 'Сторителлинг и тон', 0, '«Funnel» и «retention» стоит объяснить в скобках.']
+                ];
+                const items = seedItems.map(([id, title, group, score, comment]) => ({
+                    id,
+                    title,
+                    section: group,
+                    description: comment,
+                    score,
+                    comments: [comment]
+                }));
+                for (let index = items.length + 1; index <= 39; index += 1) {
+                    items.push({
+                        id: `Q-${String(index).padStart(2, '0')}`,
+                        title: `Критерий качества ${index}`,
+                        section: index % 2 === 0 ? 'Практика' : 'Качество',
+                        description: 'Автоматическая проверка пройдена.',
+                        score: 1,
+                        comments: ['Автоматическая проверка пройдена.']
+                    });
+                }
+                return { total: 36, max_score: 39, items };
+            }
+            return {
+                total: 26,
+                max_score: 39,
+                items: [
+                    {
+                        id: 'S-01',
+                        title: 'README содержит главы 1-3',
+                        description: 'Публичная структура соответствует канону.',
+                        score: 1,
+                        comments: ['Главы найдены.']
+                    },
+                    {
+                        id: 'P-04',
+                        title: 'Практика p2p-проверяема',
+                        description: 'Есть наблюдаемые результаты и формат сдачи.',
+                        score: passed ? 1 : 0,
+                        comments: passed ? ['Формат сдачи понятен.'] : ['Добавьте конкретные файлы и ожидаемые значения.']
+                    },
+                    {
+                        id: 'T-02',
+                        title: 'Тон обращения единый',
+                        description: 'Документ обращается к студенту в одном стиле.',
+                        score: passed ? 1 : 0,
+                        comments: passed ? ['Тон выдержан.'] : ['Встречаются смешанные обращения "ты" и "вы".']
+                    }
+                ]
+            };
+        }
+
+        function buildUiSmokeGenerationResult() {
+            return {
+                warnings: [],
+                result: {
+                    markdown: uiSmokeMarkdown,
+                    task_plan: { tasks_count: 3, complexity: 'medium' },
+                    rubric: buildUiSmokeRubric('pass'),
+                    text_stats: { words: 4218, headings: 12, tables: 1, diagrams: 1 },
+                    assets: {
+                        files: [
+                            {
+                                path: 'materials/task_01/events_clean.csv',
+                                data: btoa(unescape(encodeURIComponent('user_id,event_at,event_name\n1,2026-01-01,signup\n1,2026-01-08,login\n')))
+                            },
+                            {
+                                path: 'materials/task_02/retention_summary.json',
+                                data: btoa(unescape(encodeURIComponent('{"week_1":0.62,"week_2":0.48}')))
+                            }
+                        ]
+                    }
+                }
+            };
+        }
+
+        function applyGenerationErrorFixture() {
+            const noResults = document.getElementById('noResults');
+            const resultsArea = document.getElementById('resultsArea');
+            const generationLogs = document.getElementById('generationLogs');
+            const logContent = document.getElementById('logContent');
+            resetGeneratorChrome();
+            if (resultsArea) resultsArea.style.display = 'none';
+            if (noResults) {
+                noResults.style.display = 'block';
+                noResults.innerHTML = '<div class="error-msg">Ошибка генерации: не удалось пройти проверку структуры README. Проверьте входные данные и повторите запуск.</div>';
+            }
+            if (generationLogs) generationLogs.style.display = 'block';
+            setGenerationStatusActive(false);
+            if (logContent) {
+                logContent.innerHTML = '<div class="generation-activity"><span class="generation-activity-dot"></span><span>Остановка на ошибке валидации</span></div>';
+            }
+            const agent = document.getElementById('currentAgent');
+            if (agent) agent.textContent = 'Ошибка генерации';
+        }
+
+        function applyGenerationRunningFixture() {
+            currentSeed = {
+                language: 'ru',
+                project_type: 'individual',
+                direction: 'BSA',
+                thematic_block: 'Аналитические продукты',
+                audience_level: 'Beginner+',
+                title_seed: 'Когортный анализ для Sales Funnel',
+                tasks_count: 5,
+                bonus_wish: '',
+                methodology_human_review: true,
+                platform_name: 'S21-DA-04'
+            };
+            currentGenerationStatus = 'in_progress';
+            generationStartTime = Date.now() - 222000;
+            lastKnownGenerationPhase = 'practice';
+            lastKnownGenerationProgress = 55;
+            lastKnownGenerationAgent = 'Практический агент';
+            showGenerationRunView(currentSeed, {
+                phase: 'practice',
+                status: 'in_progress',
+                progress: 55,
+                agent: 'Генерация практики',
+                message: 'Создаём задачи №3 и №4 · CriticAgent параллельно проверяет №1, №2'
+            });
+            updateTimer();
+        }
+
+        function applyMethodologyPauseFixture() {
+            const noResults = document.getElementById('noResults');
+            const workspace = document.getElementById('methodologyReviewWorkspace');
+            applyGenerationRunningFixture();
+            currentGenerationStatus = 'needs_review';
+            showGenerationRunView(currentSeed, {
+                phase: 'practice',
+                status: 'needs_review',
+                progress: 55,
+                message: 'Практика готова. Методолог может отправить правки через чат.',
+                agent: 'Ожидание методолога'
+            });
+            if (noResults) noResults.style.display = 'none';
+            if (!workspace) return;
+            workspace.style.display = 'block';
+            workspace.classList.add('is-active');
+            workspace.innerHTML = `
+                <div class="methodology-review-header">
+                    <div>
+                        <div class="methodology-review-title">Результат этапа и решение методолога</div>
+                        <div class="methodology-stage-meta">Генерация остановлена на контрольной точке. Проверьте артефакт и отправьте правки через чат.</div>
+                    </div>
+                    <span class="methodology-review-status">needs_review</span>
+                </div>
+                <div class="methodology-review-layout">
+                    <section class="methodology-review-main">
+                        <div class="methodology-checkpoint-card">
+                            <div class="methodology-stage-header">
+                                <span>Проверка финальной оценки</span>
+                                <span>final</span>
+                            </div>
+                            <div class="methodology-stage-meta">Валидаторы завершили проверку. Методолог может подтвердить экспорт или запросить точечные правки.</div>
+                            <div class="methodology-generated-block">
+                                <div class="methodology-artifact-title">Фрагмент README</div>
+                                <div class="methodology-markdown-preview markdown-preview" id="uiSmokeMethodologyMarkdown"></div>
+                            </div>
+                        </div>
+                    </section>
+                    <section class="methodology-review-toolbar">
+                        <div class="btn-group methodology-primary-actions">
+                            <button class="btn" type="button">Продолжить генерацию</button>
+                            <button class="btn" type="button">Изменить правки</button>
+                            <button class="btn btn-danger" type="button">Остановить</button>
+                        </div>
+                    </section>
+                </div>
+            `;
+            displayMarkdown(uiSmokeMarkdown, 'uiSmokeMethodologyMarkdown');
+        }
+
+        function applyCheckerFixture(kind = 'pass') {
+            const noResults = document.getElementById('noResults');
+            const resultsArea = document.getElementById('resultsArea');
+            const improveSection = document.getElementById('improveReadmeSection');
+            const improveWarning = document.getElementById('improveReadmeWarning');
+            if (noResults) noResults.style.display = 'none';
+            if (resultsArea) resultsArea.style.display = 'block';
+            window.originalReadmeForImprovement = uiSmokeMarkdown;
+            window.checkerRubric = buildUiSmokeRubric(kind);
+            displayMetrics(window.checkerRubric, 'checkerMetricsOriginal');
+            displayReport({ text_stats: { words: kind === 'pass' ? 4218 : 980, headings: 12, tables: 1, diagrams: 1 } }, 'checkerReport');
+            displayMarkdown(uiSmokeMarkdown, 'readmePreview');
+            if (improveSection) improveSection.style.display = 'block';
+            if (improveWarning) improveWarning.style.display = kind === 'fail' ? 'block' : 'none';
+        }
+
+        function applyTranslationFixture(kind = 'completed') {
+            const noResults = document.getElementById('translationNoResults');
+            const resultsArea = document.getElementById('translationResultsArea');
+            const status = document.getElementById('translationStatus');
+            if (noResults) noResults.style.display = 'none';
+            if (resultsArea) resultsArea.style.display = 'block';
+            if (kind === 'video_progress') {
+                const videoRadio = document.getElementById('translationSourceVideo');
+                if (videoRadio) videoRadio.checked = true;
+                if (typeof window.toggleTranslationSourceMode === 'function') {
+                    window.toggleTranslationSourceMode();
+                }
+                updateTranslationUploadProgress(72);
+                updateTranslationProgress('transcribe', 'in_progress', 35);
+                updateTranslationSummary('video', 'Транскрипция');
+                if (status) status.innerHTML = '<div class="info-box">Видео обрабатывается: распознавание речи и подготовка субтитров.</div>';
+                return;
+            }
+            const translated = uiSmokeMarkdown.replace('Когортный анализ', 'Cohort Analysis').replaceAll('Глава', 'Chapter');
+            window.translationTranslatedMarkdown = translated;
+            setText('translationSourceFileTitle', 'methodology-handbook.md');
+            setText('translationFileName', 'RU · 4 218 слов');
+            updateTranslationTextMeta('original', uiSmokeMarkdown, 25 * 1024);
+            updateTranslationTextMeta('translated', translated);
+            displayMarkdown(uiSmokeMarkdown, 'translationOriginalContent');
+            displayMarkdown(translated, 'translationTranslatedContent');
+            updateTranslationSummary('document', 'Готово');
+            if (status) status.innerHTML = '<div class="success-msg">Перевод завершён</div>';
+        }
+
+        function applyUiStateFixture(name) {
+            const fixture = String(name || '').trim();
+            if (!fixture) return;
+            if (fixture === 'generation_success' || fixture === 'completed_result') {
+                displayResults(buildUiSmokeGenerationResult());
+                return;
+            }
+            if (fixture === 'generation_error') {
+                applyGenerationErrorFixture();
+                return;
+            }
+            if (fixture === 'generation_running') {
+                applyGenerationRunningFixture();
+                return;
+            }
+            if (fixture === 'methodology_pause') {
+                applyMethodologyPauseFixture();
+                return;
+            }
+            if (fixture === 'checker_pass') {
+                applyCheckerFixture('pass');
+                return;
+            }
+            if (fixture === 'checker_fail') {
+                applyCheckerFixture('fail');
+                return;
+            }
+            if (fixture === 'translator_completed') {
+                applyTranslationFixture('completed');
+                return;
+            }
+            if (fixture === 'translator_video_progress') {
+                applyTranslationFixture('video_progress');
+            }
+        }
+
+        window.applyUiStateFixture = applyUiStateFixture;
+        setTimeout(() => {
+            try {
+                const fixture = new URLSearchParams(window.location.search).get('ui_state');
+                if (fixture) applyUiStateFixture(fixture);
+            } catch (error) {
+                console.debug('UI fixture не применён:', error);
+            }
+        }, 0);
         
         // Экспортируем функции для использования в HTML (дублируем для надежности)
         window.handleReadmeFileSelectForExtraction = handleReadmeFileSelectForExtraction;

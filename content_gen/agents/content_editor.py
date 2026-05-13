@@ -15,6 +15,7 @@ import re
 
 from ..config.loader import get_agent_config
 from ..llm.client import LLMClient
+from ..models.readme_document import ReadmeDocument, ReadmeSection
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.markdown_block_contract import MarkdownBlockContract
 from ..utils.markdown_display_normalizer import normalize_markdown_display_blocks
@@ -285,6 +286,110 @@ class ContentEditorAgent:
             Улучшенный Markdown с мостиками между главами
         """
         return self.improve_chapter_coherence(md, seed)
+
+    def ensure_global_coherence_document(
+        self,
+        document: ReadmeDocument,
+        seed: ProjectSeed,
+    ) -> ReadmeDocument:
+        """Improve chapter bridges on a typed README document."""
+        return self.improve_chapter_coherence_document(document, seed)
+
+    def improve_chapter_coherence_document(
+        self,
+        document: ReadmeDocument,
+        seed: ProjectSeed,
+    ) -> ReadmeDocument:
+        """Add chapter bridges using typed chapter sections instead of regex slices."""
+        result = document.model_copy(deep=True)
+        chapters = {
+            1: result.chapter_section(1, language=seed.language),
+            2: result.chapter_section(2, language=seed.language),
+            3: result.chapter_section(3, language=seed.language),
+        }
+        if not all(chapters.values()):
+            safe_print("  ⚠️ Не удалось извлечь все главы для улучшения связности", flush=True)
+            return document
+
+        names = self._chapter_names(seed.language)
+        transitions = ((1, 2, names["ch1"], names["ch2"]), (2, 3, names["ch2"], names["ch3"]))
+        for previous_number, current_number, previous_name, current_name in transitions:
+            previous_section = chapters[previous_number]
+            current_section = chapters[current_number]
+            if previous_section is None or current_section is None:
+                continue
+            previous_content = self._section_content(previous_section)
+            current_content = self._section_content(current_section)
+            safe_print(f"  🔗 Улучшение связности: {previous_name} → {current_name}", flush=True)
+            improved_body = self._add_chapter_bridge(
+                previous_chapter=previous_name,
+                previous_content=previous_content[-800:] if len(previous_content) > 800 else previous_content,
+                current_chapter=current_name,
+                current_content=current_content,
+                seed=seed,
+            )
+            if not improved_body:
+                continue
+            improved_body = self._strip_leading_markdown_heading(improved_body)
+            improved_body = normalize_markdown_display_blocks(improved_body)
+            result, replaced = result.with_replaced_chapter_body(
+                current_number,
+                improved_body,
+                language=seed.language,
+            )
+            if replaced:
+                chapters[current_number] = result.chapter_section(current_number, language=seed.language)
+        return result
+
+    @staticmethod
+    def _chapter_names(language: str) -> dict[str, str]:
+        """Return localized chapter names used in bridge prompts."""
+        chapter_names = {
+            "ru": {
+                "ch1": "Глава 1. Введение и инструкция",
+                "ch2": "Глава 2. Теория",
+                "ch3": "Глава 3. Практика",
+            },
+            "en": {
+                "ch1": "Chapter 1. Introduction & Guidelines",
+                "ch2": "Chapter 2. Theory",
+                "ch3": "Chapter 3. Practice",
+            },
+            "kg": {
+                "ch1": "1-Бөлүм. Киришүү жана эрежелер",
+                "ch2": "2-Бөлүм. Теория",
+                "ch3": "3-Бөлүм. Практика",
+            },
+            "ky": {
+                "ch1": "1-Бөлүм. Киришүү жана эрежелер",
+                "ch2": "2-Бөлүм. Теория",
+                "ch3": "3-Бөлүм. Практика",
+            },
+        }
+        return chapter_names.get((language or "ru").casefold(), chapter_names["ru"])
+
+    @staticmethod
+    def _section_content(section: ReadmeSection) -> str:
+        """Render a section body and descendants without the section heading."""
+        blocks: list[str] = []
+        body = (section.body or "").strip()
+        if body:
+            blocks.append(body)
+        for child in section.children:
+            rendered = child.to_markdown().strip()
+            if rendered:
+                blocks.append(rendered)
+        return "\n\n".join(blocks).strip()
+
+    @staticmethod
+    def _strip_leading_markdown_heading(text: str) -> str:
+        """Drop an accidental leading heading from model output before replacing chapter body."""
+        cleaned = (text or "").lstrip()
+        if cleaned.startswith("##"):
+            lines = cleaned.split("\n")
+            if lines and lines[0].startswith("##"):
+                return "\n".join(lines[1:]).lstrip()
+        return cleaned
 
     def improve_chapter_coherence(self, md: str, seed: ProjectSeed) -> str:
         """

@@ -173,3 +173,25 @@ def get_report_by_request_id(request_id: str) -> dict[str, Any] | None:
         return None
     finally:
         db.close()
+
+
+def list_recent_generation_results_for_user(user_id: str, limit: int = 8) -> list[GenerationResult]:
+    """Возвращает последние сохраненные результаты генерации конкретного пользователя."""
+    safe_limit = max(1, min(limit, 50))
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(GenerationResult)
+            .options(joinedload(GenerationResult.rubric), joinedload(GenerationResult.report))
+            .filter(GenerationResult.user_id == user_id)
+            .order_by(GenerationResult.created_at.desc())
+            .limit(safe_limit)
+            .all()
+        )
+        for row in rows:
+            # Force-load relationship payloads before the session is closed.
+            _ = row.rubric.rubric_data if row.rubric else None
+            _ = row.report.report_data if row.report else None
+        return rows
+    finally:
+        db.close()

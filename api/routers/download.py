@@ -12,7 +12,11 @@ from api.db.generation_results_db import (
     get_report_by_request_id,
 )
 from api.dependencies import get_current_user
-from api.services.archive_builder import add_assets_to_zip, build_readme_filename, merge_assets
+from api.services.archive_builder import (
+    add_assets_to_zip,
+    build_readme_filename,
+    merge_assets,
+)
 from api.utils.logger import get_logger
 from api.utils.result_cache import get_result
 from content_gen.utils.markdown_display_normalizer import normalize_markdown_display_blocks

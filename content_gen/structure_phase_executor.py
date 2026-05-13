@@ -4,10 +4,10 @@ import logging
 
 from .generation_runtime import GenerationRuntimeContainer
 from .models.flow_state import ProjectBlueprint
+from .models.phase_results import SkeletonPhaseResult, StructurePhaseResult, TitleAnnotationPhaseResult
 from .models.schemas import Annotation, IntroSection, ProjectContextMeta, ProjectSeed
-from .validators.structural_preflight import StructuralPreflightResult
 
-logger = logging.getLogger("content_gen.orchestrator.phases.phase_1")
+logger = logging.getLogger("content_gen.structure_phase_executor")
 
 
 def _execute_skeleton_phase(
@@ -15,42 +15,49 @@ def _execute_skeleton_phase(
     seed: ProjectSeed,
     context_meta: ProjectContextMeta,
     generate_bonus: bool
-) -> tuple[str, StructuralPreflightResult, str, Annotation, IntroSection, ProjectBlueprint]:
+) -> SkeletonPhaseResult:
     """
     Phase 1: Каркас с StructuralPreflight.
     
     Args:
-        orchestrator: Экземпляр OrchestratorPhases
+        orchestrator: Runtime-like object with structure agents and validators
         seed: Проектный seed
         context_meta: Метаданные curriculum context
         generate_bonus: Генерировать ли бонусные задания
         
     Returns:
-        (md, preflight_result, title, annotation, intro_section, blueprint)
+        Typed skeleton phase result with markdown, review metadata, and blueprint.
     """
-    title, annotation = _generate_title_annotation(orchestrator, seed, context_meta)
-    md, preflight_result, intro_section, blueprint = _build_structure(
+    title_annotation = _generate_title_annotation(orchestrator, seed, context_meta)
+    structure = _build_structure(
         orchestrator,
         seed,
         context_meta,
         generate_bonus,
-        title,
-        annotation,
+        title_annotation.title,
+        title_annotation.annotation,
     )
 
-    return md, preflight_result, title, annotation, intro_section, blueprint
+    return SkeletonPhaseResult(
+        markdown=structure.markdown,
+        preflight_result=structure.preflight_result,
+        intro_section=structure.intro_section,
+        blueprint=structure.blueprint,
+        title=title_annotation.title,
+        annotation=title_annotation.annotation,
+    )
 
 
 def _generate_title_annotation(
     orchestrator,
     seed: ProjectSeed,
     context_meta: ProjectContextMeta,
-) -> tuple[str, Annotation]:
+) -> TitleAnnotationPhaseResult:
     """Generate the project title and annotation as a separately reviewable artifact."""
     logger.info("🔄 Phase 1 | TitleAnnotation")
     ta = orchestrator.title_annot.generate(seed, context_meta)
     annotation = Annotation(text=ta.annotation.text, chars=len(ta.annotation.text))
-    return ta.title, annotation
+    return TitleAnnotationPhaseResult(title=ta.title, annotation=annotation)
 
 
 def _build_structure(
@@ -60,7 +67,7 @@ def _build_structure(
     generate_bonus: bool,
     title: str,
     annotation: Annotation | dict,
-) -> tuple[str, StructuralPreflightResult, IntroSection, ProjectBlueprint]:
+) -> StructurePhaseResult:
     """Build the README skeleton and intro using an already approved title/annotation."""
     logger.info("🔄 Phase 1 | Skeleton")
     annotation_text = _annotation_text(annotation)
@@ -113,7 +120,12 @@ def _build_structure(
                 except Exception as e:
                     logger.warning(f"⚠️ Regeneration не удался: {e}")
 
-    return md, preflight_result, intro_section, blueprint
+    return StructurePhaseResult(
+        markdown=md,
+        preflight_result=preflight_result,
+        intro_section=intro_section,
+        blueprint=blueprint,
+    )
 
 
 def _annotation_text(annotation: Annotation | dict) -> str:
@@ -134,14 +146,14 @@ class StructurePhaseExecutor:
         seed: ProjectSeed,
         context_meta: ProjectContextMeta,
         generate_bonus: bool,
-    ) -> tuple[str, StructuralPreflightResult, str, Annotation, IntroSection, ProjectBlueprint]:
+    ) -> SkeletonPhaseResult:
         return _execute_skeleton_phase(self.runtime, seed, context_meta, generate_bonus)
 
     def generate_title_annotation(
         self,
         seed: ProjectSeed,
         context_meta: ProjectContextMeta,
-    ) -> tuple[str, Annotation]:
+    ) -> TitleAnnotationPhaseResult:
         return _generate_title_annotation(self.runtime, seed, context_meta)
 
     def build_structure(
@@ -151,5 +163,5 @@ class StructurePhaseExecutor:
         generate_bonus: bool,
         title: str,
         annotation: Annotation | dict,
-    ) -> tuple[str, StructuralPreflightResult, IntroSection, ProjectBlueprint]:
+    ) -> StructurePhaseResult:
         return _build_structure(self.runtime, seed, context_meta, generate_bonus, title, annotation)

@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from content_gen.agents.flow import FlowExecutionStep
+from content_gen.observability import CompatibilityEvent
 
 _TYPE_KEY = "__paused_type__"
 _DATA_KEY = "data"
@@ -45,27 +46,77 @@ def serialize_value(value: Any) -> Any:
 
 def hydrate_value(value: Any) -> Any:
     """Hydrate JSON-compatible paused state back into allowed runtime objects."""
+    return _hydrate_value(value, [])
+
+
+def _hydrate_value(value: Any, events: list[CompatibilityEvent]) -> Any:
+    """Hydrate a value while collecting legacy compatibility fallbacks."""
     if isinstance(value, list):
-        return [hydrate_value(item) for item in value]
+        return [_hydrate_value(item, events) for item in value]
     if not isinstance(value, dict):
         return value
 
     type_name = value.get(_TYPE_KEY)
     if not type_name:
-        return {key: hydrate_value(item) for key, item in value.items()}
+        return {key: _hydrate_value(item, events) for key, item in value.items()}
 
-    data = hydrate_value(value.get(_DATA_KEY))
+    data = _hydrate_value(value.get(_DATA_KEY), events)
     if type_name == "builtins:bytes":
-        return base64.b64decode(str(value.get(_DATA_KEY) or ""))
+        try:
+            return base64.b64decode(str(value.get(_DATA_KEY) or ""))
+        except Exception as exc:
+            events.append(
+                CompatibilityEvent(
+                    source="paused_generation_codec",
+                    compatibility_type="bytes_decode_failed",
+                    reason=str(exc),
+                    risk="medium",
+                    metadata={"type_name": type_name},
+                )
+            )
+            return b""
     if type_name == "content_gen.agents.flow:FlowExecutionStep":
         payload = dict(data)
         payload.pop("step_index", None)
-        return FlowExecutionStep(**payload)
+        try:
+            return FlowExecutionStep(**payload)
+        except Exception as exc:
+            events.append(
+                CompatibilityEvent(
+                    source="paused_generation_codec",
+                    compatibility_type="flow_step_hydration_failed",
+                    reason=str(exc),
+                    risk="medium",
+                    metadata={"type_name": type_name},
+                )
+            )
+            return payload
 
     model_cls = _resolve_pydantic_model(type_name)
     if model_cls is None:
+        events.append(
+            CompatibilityEvent(
+                source="paused_generation_codec",
+                compatibility_type="unknown_paused_type",
+                reason=f"unsupported stored type: {type_name}",
+                risk="medium",
+                metadata={"type_name": type_name},
+            )
+        )
         return data
-    return model_cls.model_validate(data)
+    try:
+        return model_cls.model_validate(data)
+    except Exception as exc:
+        events.append(
+            CompatibilityEvent(
+                source="paused_generation_codec",
+                compatibility_type="pydantic_model_validation_failed",
+                reason=str(exc),
+                risk="medium",
+                metadata={"type_name": type_name},
+            )
+        )
+        return data
 
 
 def serialize_context(context: dict[str, Any]) -> dict[str, Any]:
@@ -75,7 +126,12 @@ def serialize_context(context: dict[str, Any]) -> dict[str, Any]:
 
 def hydrate_context(payload: dict[str, Any]) -> dict[str, Any]:
     """Hydrate a mutable flow context and restore its state pointer."""
-    context = hydrate_value(payload)
+    events: list[CompatibilityEvent] = []
+    context = _hydrate_value(payload, events)
+    if isinstance(context, dict):
+        context.setdefault("compatibility_events", []).extend(
+            event.model_dump(mode="json") for event in events
+        )
     state = context.get("state") if isinstance(context, dict) else None
     if hasattr(state, "sync_from_context"):
         state.sync_from_context(context)

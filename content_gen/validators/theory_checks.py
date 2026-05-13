@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from ..config.thresholds import THRESHOLDS
 from ..models.schemas import TheoryPart
 from ..utils.text_analysis import count_words, has_term_definitions, readability_index
+from .messages import theory_section_label
 
 
 @dataclass
@@ -66,7 +67,7 @@ class TheoryChecks:
                 part_title="",
                 criterion_id="2.4.1",
                 severity="hard",
-                message=f"Количество частей теории: {len(parts)} (ожидается {lo}-{hi})",
+                message=f"Количество теоретических разделов: {len(parts)} (ожидается {lo}-{hi})",
                 fixable=True
             ))
 
@@ -82,7 +83,7 @@ class TheoryChecks:
                     part_title=part.title,
                     criterion_id="2.4.3",
                     severity="hard",
-                    message=f"Часть {idx} '{part.title[:50]}': длина {words} слов (ожидается {lo_words}-{hi_words})",
+                    message=f"{theory_section_label(idx, part.title)}: длина {words} слов (ожидается {lo_words}-{hi_words})",
                     fixable=True
                 ))
 
@@ -99,7 +100,10 @@ class TheoryChecks:
                         part_title=part.title,
                         criterion_id="2.4.4",
                         severity="soft",
-                        message=f"Часть {idx} '{part.title[:50]}': найдено {len(patterns_no_bold)} определение(й), но термины не выделены жирным (**термин**).",
+                        message=(
+                            f"{theory_section_label(idx, part.title)}: найдено {len(patterns_no_bold)} "
+                            "определение(й), но термины не выделены жирным (**термин**)."
+                        ),
                         fixable=True
                     ))
                 else:
@@ -108,7 +112,7 @@ class TheoryChecks:
                         part_title=part.title,
                         criterion_id="2.4.4",
                         severity="soft",
-                        message=f"Часть {idx} '{part.title[:50]}': не найдено явных определений терминов.",
+                        message=f"{theory_section_label(idx, part.title)}: не найдено явных определений терминов.",
                         fixable=True
                     ))
 
@@ -119,7 +123,7 @@ class TheoryChecks:
                     part_title=part.title,
                     criterion_id="2.4.6",
                     severity="hard",
-                    message=f"Часть {idx} '{part.title[:50]}': отсутствует или слишком короткий пример",
+                    message=f"{theory_section_label(idx, part.title)}: отсутствует или слишком короткий пример",
                     fixable=True
                 ))
 
@@ -129,7 +133,7 @@ class TheoryChecks:
                     part_title=part.title,
                     criterion_id="2.4.6",
                     severity="hard",
-                    message=f"Часть {idx} '{part.title[:50]}': отсутствуют вопросы к практике",
+                    message=f"{theory_section_label(idx, part.title)}: отсутствуют вопросы к практике",
                     fixable=True
                 ))
 
@@ -141,7 +145,7 @@ class TheoryChecks:
                     part_title=part.title,
                     criterion_id="2.4.7",
                     severity="soft",
-                    message=f"Часть {idx} '{part.title[:50]}': читабельность {readability:.1f} (рекомендуется 10-25)",
+                    message=f"{theory_section_label(idx, part.title)}: читабельность {readability:.1f} (рекомендуется 10-25)",
                     fixable=True
                 ))
 

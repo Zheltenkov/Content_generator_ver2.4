@@ -59,14 +59,9 @@ class TheoryEnhancementAgent:
 
         # Фаза 2: Применение улучшений
         safe_print("  🔧 Применение улучшений...", flush=True)
-        if hasattr(self.manager, 'enhance_parts_with_plan'):
-            enhanced_parts, execution_logs = self.manager.enhance_parts_with_plan(
-                parts, seed, enhancement_plan
-            )
-        else:
-            # Fallback на старый метод
-            enhanced_parts = self.manager.enhance_parts(parts, seed)
-            execution_logs = []
+        enhanced_parts, execution_logs = self.manager.enhance_parts_with_plan(
+            parts, seed, enhancement_plan
+        )
 
         # Фаза 3: Проверка качества (опционально)
         if execution_logs:

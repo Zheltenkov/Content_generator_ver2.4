@@ -34,6 +34,7 @@ def test_theory_checks_treats_missing_definitions_as_soft_issue():
     assert result.passed is True
     assert not result.hard_issues
     assert any(issue.criterion_id == "2.4.4" and issue.severity == "soft" for issue in result.soft_issues)
+    assert any(issue.message.startswith("Раздел 2.1 'Платные сервисы") for issue in result.soft_issues)
 
 
 def test_theory_checks_accepts_single_unbold_definition_without_hard_fail():

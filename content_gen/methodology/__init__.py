@@ -11,6 +11,12 @@ from .decision import MethodologyGateDecision, MethodologyGateInterrupt, Methodo
 from .gate import MethodologyGate
 from .models import StageRepairResult, StageReviewIssue, StageReviewResult
 from .scoped_revision import ScopedResumePlan, ScopedRevisionExecutor, ScopedRevisionResult
+from .state_machine import (
+    MethodologyRuntimeAction,
+    MethodologyRuntimeState,
+    MethodologyStateMachine,
+    MethodologyStateTransitionError,
+)
 from .target_registry import SectionTarget, SectionTargetRegistry, build_section_target_registry
 from .trace import MethodologyTraceRecorder
 
@@ -23,6 +29,10 @@ __all__ = [
     "MethodologyGateInterrupt",
     "MethodologyGatePolicy",
     "MethodologistChangeRequest",
+    "MethodologyRuntimeAction",
+    "MethodologyRuntimeState",
+    "MethodologyStateMachine",
+    "MethodologyStateTransitionError",
     "MethodologyTraceRecorder",
     "ScopedRevisionExecutor",
     "ScopedRevisionResult",

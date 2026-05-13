@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.db.user_runs_db import upsert_user_run
 from api.db.logging_db import write_log_async
 from api.dependencies import get_current_user
 from api.utils.logger import get_logger
@@ -37,6 +38,22 @@ def calculate_text_stats(text: str) -> dict[str, Any]:
     }
 
 
+def _readme_title(markdown: str) -> str:
+    """Extract a compact title for dashboard history without running a parser."""
+    for line in (markdown or "").splitlines():
+        clean = line.strip()
+        if clean.startswith("# "):
+            return clean.lstrip("#").strip()[:160] or "Проверка README"
+    return "Проверка README"
+
+
+def _rubric_score(rubric: dict[str, Any]) -> dict[str, Any]:
+    total = rubric.get("total")
+    maximum = rubric.get("max_score") or rubric.get("max")
+    label = f"{total}/{maximum}" if total is not None and maximum is not None else "—"
+    return {"total": total, "max": maximum, "label": label}
+
+
 class CheckReadmeRequest(BaseModel):
     """Запрос на проверку пользовательского README."""
 
@@ -51,6 +68,7 @@ class CheckReadmeRequest(BaseModel):
 class CheckReadmeResponse(BaseModel):
     """Ответ с результатами проверки README."""
 
+    request_id: str | None = None
     rubric: dict[str, Any]
     text_stats: dict[str, Any]
 
@@ -92,7 +110,7 @@ async def check_readme(
     try:
         # LLM клиент передается в RubricScorer для AI‑критериев
         try:
-            llm_client = LLMClient(provider="openai")
+            llm_client = LLMClient()
             logger.info("✅ LLM клиент создан успешно")
         except Exception as e:
             logger.error(f"❌ Ошибка создания LLM клиента: {e}", exc_info=True)
@@ -109,6 +127,16 @@ async def check_readme(
         )
         rubric_json = criteria_to_json(rubric_report)
         text_stats = calculate_text_stats(request.markdown)
+        await asyncio.to_thread(
+            upsert_user_run,
+            request_id=request_id,
+            user_id=user_id,
+            kind="checker",
+            status="completed",
+            title=_readme_title(request.markdown),
+            score=_rubric_score(rubric_json),
+            metadata={"language": request.language, "markdown_length": len(request.markdown or "")},
+        )
 
         await write_log_async(
             request_id=request_id,
@@ -122,10 +150,19 @@ async def check_readme(
             },
         )
 
-        return CheckReadmeResponse(rubric=rubric_json, text_stats=text_stats)
+        return CheckReadmeResponse(request_id=request_id, rubric=rubric_json, text_stats=text_stats)
 
     except Exception as e:
         logger.error("❌ Ошибка проверки README: %s", e, exc_info=True)
+        await asyncio.to_thread(
+            upsert_user_run,
+            request_id=request_id,
+            user_id=user_id,
+            kind="checker",
+            status="failed",
+            title=_readme_title(request.markdown),
+            metadata={"error": str(e), "language": request.language},
+        )
         await write_log_async(
             request_id=request_id,
             level="ERROR",

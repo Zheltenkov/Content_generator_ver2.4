@@ -3,7 +3,11 @@ import io
 import logging
 import zipfile
 
-from api.services.archive_builder import add_assets_to_zip, build_readme_filename, merge_assets
+from api.services.archive_builder import (
+    add_assets_to_zip,
+    build_readme_filename,
+    merge_assets,
+)
 
 
 def test_build_readme_filename_uses_context_metadata() -> None:

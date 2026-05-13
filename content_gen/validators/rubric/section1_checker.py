@@ -3,7 +3,9 @@
 import re
 
 from ...models.criteria_models import CheckMethod, CriteriaItem
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
+from .document_utils import chapter_content, section_content, toc_section
 
 
 class Section1Checker:
@@ -268,4 +270,121 @@ class Section1Checker:
         safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 1.6: {items[-1].title}", flush=True)
 
         return items
+
+    def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
+        """Проверяет раздел 1 по typed README document tree."""
+        items: list[CriteriaItem] = []
+
+        if document.title.strip():
+            items.append(CriteriaItem(
+                id="1.1",
+                title="Проверка наличия блока с названием",
+                description="Есть текст с отметкой заголовка первого уровня в первой строке документа: #",
+                check_method=CheckMethod.SCRIPT,
+                score=1,
+                comments=[],
+                parent_id="1",
+            ))
+        else:
+            items.append(CriteriaItem(
+                id="1.1",
+                title="Проверка наличия блока с названием",
+                description="Есть текст с отметкой заголовка первого уровня в первой строке документа: #",
+                check_method=CheckMethod.SCRIPT,
+                score=0,
+                comments=["Нет H1 в первой строке документа"],
+                parent_id="1",
+            ))
+        safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 1.1: {items[-1].title}", flush=True)
+
+        annotation = document.annotation.strip()
+        has_headers = bool(re.search(r"^##", annotation, re.M))
+        has_list_markers = bool(re.search(r"^[\s]*[-*+]", annotation, re.M))
+        items.append(CriteriaItem(
+            id="1.2",
+            title="Проверка наличия блока с аннотацией",
+            description="Текст сразу после H1 без заголовков и маркеров списков",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if annotation and not has_headers and not has_list_markers else 0,
+            comments=[] if annotation and not has_headers and not has_list_markers else [
+                "Аннотация не найдена или содержит заголовки/маркеры списков"
+            ],
+            parent_id="1",
+        ))
+        safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 1.2: {items[-1].title}", flush=True)
+
+        toc = toc_section(document)
+        toc_lines = [line.strip() for line in section_content(toc).splitlines() if line.strip()]
+        items.append(CriteriaItem(
+            id="1.3",
+            title="Проверка наличия блока с оглавлением",
+            description="Есть блок с заголовком второго уровня, содержащий не менее 3 строк",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if toc and len(toc_lines) >= 3 else 0,
+            comments=[] if toc and len(toc_lines) >= 3 else [
+                f"Оглавление содержит только {len(toc_lines)} строк(и), требуется минимум 3"
+                if toc else "Нет раздела «Содержание/Оглавление»"
+            ],
+            parent_id="1",
+        ))
+        safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 1.3: {items[-1].title}", flush=True)
+
+        self._append_chapter_presence_item(
+            items,
+            item_id="1.4",
+            title="Проверка наличия блока с введением и инструкцией",
+            description="Есть не пустой блок ## Глава 1. Введение и инструкция",
+            content=chapter_content(document, 1),
+            missing_comment="Нет блока «Глава 1. Введение и инструкция»",
+            short_comment="Блок Главы 1 пуст или слишком короткий",
+        )
+        self._append_chapter_presence_item(
+            items,
+            item_id="1.5",
+            title="Проверка наличия теоретического блока",
+            description="Есть не пустой блок ## Глава 2. Теоретический блок",
+            content=chapter_content(document, 2),
+            missing_comment="Нет блока «Глава 2. Теоретический блок»",
+            short_comment="Блок Главы 2 пуст или слишком короткий",
+        )
+        self._append_chapter_presence_item(
+            items,
+            item_id="1.6",
+            title="Проверка наличия практического блока",
+            description="Есть не пустой блок ## Глава 3. Практический блок",
+            content=chapter_content(document, 3),
+            missing_comment="Нет блока «Глава 3. Практический блок»",
+            short_comment="Блок Главы 3 пуст или слишком короткий",
+        )
+
+        return items
+
+    @staticmethod
+    def _append_chapter_presence_item(
+        items: list[CriteriaItem],
+        *,
+        item_id: str,
+        title: str,
+        description: str,
+        content: str,
+        missing_comment: str,
+        short_comment: str,
+    ) -> None:
+        """Append one typed chapter-presence criterion."""
+        if content and len(content) > 50:
+            score = 1
+            comments: list[str] = []
+        else:
+            score = 0
+            comments = [short_comment if content else missing_comment]
+        items.append(CriteriaItem(
+            id=item_id,
+            title=title,
+            description=description,
+            check_method=CheckMethod.SCRIPT,
+            score=score,
+            comments=comments,
+            parent_id="1",
+        ))
+        safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} {item_id}: {items[-1].title}", flush=True)
 

@@ -405,21 +405,6 @@ class IntroRulesAgent:
         except Exception:
             self.didactics_context, self.didactics_trace = "", {}
 
-    def run(self, input_data: dict[str, object]) -> dict[str, object]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        seed = input_data["seed"]
-        context_meta = input_data["context"]
-        annotation_text = input_data.get("annotation_text", "")
-        if annotation_text:
-            result = self.generate(seed, context_meta, annotation_text=annotation_text)
-        else:
-            result = self.generate(seed, context_meta)
-        return {
-            "result": result,
-            "intro_text": result.intro_text,
-            "instruction_text": result.instruction_text,
-        }
-
     @staticmethod
     def _normalize_heading(text: str) -> str:
         """Normalize heading text for loose matching."""

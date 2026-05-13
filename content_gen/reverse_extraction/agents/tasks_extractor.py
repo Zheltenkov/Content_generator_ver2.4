@@ -157,15 +157,8 @@ class TasksExtractor:
                 confidence="low"
             )
 
-        # Паттерны для поиска задач
         task_patterns = [
-            # Явная нумерация: "Задача 1", "Task 1", "Задание 1"
             r'(?:Задача|Task|Задание)\s+(\d+)',
-            # Заголовки: "## Задача 1", "### Задача 1"
-            r'##+\s+(?:Задача|Task|Задание)\s+(\d+)',
-            # Маркированные списки с номерами
-            r'[-*+]\s+(?:Задача|Task|Задание)\s+(\d+)',
-            # Просто номера в начале строки
             r'^\s*(\d+)\.\s+(?:Задача|Task|Задание)',
         ]
 
@@ -189,28 +182,6 @@ class TasksExtractor:
                 confidence="medium"
             )
 
-        # Если не нашли номера, считаем по разделителям
-        # Ищем явные разделители между задачами
-        separators = [
-            r'---+\s*\n',
-            r'\*\*\*+\s*\n',
-            r'^##+\s+Задача',
-            r'^###+\s+Задача',
-        ]
-
-        separator_count = 0
-        for pattern in separators:
-            matches = re.findall(pattern, practice_text, re.IGNORECASE | re.MULTILINE)
-            separator_count = max(separator_count, len(matches))
-
-        if separator_count > 0:
-            logger.info(f"Fallback: найдено {separator_count} разделителей задач")
-            return TasksExtractionResult(
-                tasks_count=separator_count,
-                confidence="low"
-            )
-
-        # Если ничего не нашли, используем initial_count или 0
         final_count = initial_count or 0
         logger.warning(f"Fallback: не удалось определить количество задач, используем {final_count}")
         return TasksExtractionResult(

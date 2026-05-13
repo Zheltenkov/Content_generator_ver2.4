@@ -5,12 +5,22 @@ import re
 from typing import Any
 
 from .generation_runtime import GenerationRuntimeContainer
+from .models.phase_results import PracticePhaseResult
+from .models.readme_document import ReadmeDocument, ReadmeSection
 from .models.schemas import PracticeTask, ProjectSeed
+from .observability import record_runtime_fallback_traces
+from .recovery import ModelOutputNormalizer
+from .readme_document_pipeline import (
+    replace_readme_chapter_body,
+    replace_readme_chapter_children_document,
+    update_readme_bonus_section_children_document,
+    update_readme_bonus_section_document,
+)
 from .utils.text_analysis import extract_defined_terms
-from .utils.markdown_helpers import extract_chapter_content, replace_chapter_content
+from .utils.markdown_helpers import extract_chapter_content
 from .validators.practice_checks import PracticeChecks
 
-logger = logging.getLogger("content_gen.orchestrator.phases.phase_3")
+logger = logging.getLogger("content_gen.practice_phase_executor")
 
 
 def _apply_critic_suggestions(tasks: list[Any], critic_issues: list[Any]) -> None:
@@ -130,10 +140,15 @@ def _transition_text(task: Any, next_task: Any | None, *, bonus: bool = False) -
     )
 
 
-def _render_public_task(task: Any, index: int, next_task: Any | None, *, bonus: bool = False) -> str:
-    """Render one practice task using the public source/PDF template."""
+def _public_task_title(task: Any, index: int, *, bonus: bool = False) -> str:
+    """Build the public task heading title without Markdown syntax."""
     title_prefix = "Бонусное задание" if bonus else "Задание"
     title_suffix = "*" if bonus else ""
+    return f"{title_prefix} {index}{title_suffix}. {task.title}"
+
+
+def _public_task_body(task: Any, next_task: Any | None, *, bonus: bool = False) -> str:
+    """Build the public task body using the source/PDF template."""
     approach_items = [
         _format_approach_bullet(item)
         for item in (getattr(task, "approach_bullets", []) or [])
@@ -158,8 +173,6 @@ def _render_public_task(task: Any, index: int, next_task: Any | None, *, bonus: 
     action_lines.extend(["Подход:", approach])
 
     chunks = [
-        f"### {title_prefix} {index}{title_suffix}. {task.title}",
-        "",
         "**Что нужно сделать**",
         "",
         "\n\n".join(action_lines).strip(),
@@ -187,17 +200,41 @@ def _render_public_task(task: Any, index: int, next_task: Any | None, *, bonus: 
     return "\n".join(part for part in chunks if part != "").strip() + "\n"
 
 
+def _render_public_task_section(task: Any, index: int, next_task: Any | None, *, bonus: bool = False) -> ReadmeSection:
+    """Render one practice task as a typed README section."""
+    return ReadmeSection(
+        title=_public_task_title(task, index, bonus=bonus),
+        level=3,
+        body=_public_task_body(task, next_task, bonus=bonus).strip(),
+    )
+
+
+def _render_public_task(task: Any, index: int, next_task: Any | None, *, bonus: bool = False) -> str:
+    """Legacy Markdown wrapper for one public practice task."""
+    return _render_public_task_section(task, index, next_task, bonus=bonus).to_markdown() + "\n"
+
+
+def _render_practice_sections(tasks: list[Any]) -> list[ReadmeSection]:
+    """Render practice tasks into typed README sections."""
+    return [
+        _render_public_task_section(task, i, tasks[i] if i < len(tasks) else None)
+        for i, task in enumerate(tasks, 1)
+    ]
+
+
 def _render_practice_block(tasks: list[Any]) -> str:
     """Render practice tasks into the final markdown block."""
-    return "\n".join(
-        _render_public_task(task, i, tasks[i] if i < len(tasks) else None)
-        for i, task in enumerate(tasks, 1)
-    )
+    return "\n\n".join(section.to_markdown() for section in _render_practice_sections(tasks))
+
+
+def _render_bonus_sections(tasks: list[Any]) -> list[ReadmeSection]:
+    """Render optional bonus tasks as typed README sections."""
+    return [_render_public_task_section(task, i, None, bonus=True) for i, task in enumerate(tasks, 1)]
 
 
 def _render_bonus_block(tasks: list[Any]) -> str:
     """Render optional bonus tasks with the same contract blocks as practice tasks."""
-    return "\n".join(_render_public_task(task, i, None, bonus=True) for i, task in enumerate(tasks, 1))
+    return "\n\n".join(section.to_markdown() for section in _render_bonus_sections(tasks))
 
 
 def _replace_bonus_content(md: str, bonus_block: str, language: str) -> str:
@@ -254,8 +291,9 @@ def _build_theory_summary(orchestrator, md: str, language: str) -> tuple[str, in
             return "Глава 2 ещё не сгенерирована. Ориентируйся на описание и LO проекта.", 0, 0
 
         theory_text = theory_match.group(1).strip()
+        theory_text = ModelOutputNormalizer().normalize_theory_markdown(theory_text).markdown
         part_matches = re.findall(
-            r"###\s+(?:2\.\d+|Часть\s+\d+)\.\s+(.+?)\n(.*?)(?=^###\s+(?:2\.\d+|Часть\s+\d+)\.|\Z)",
+            r"###\s+2\.\d+\.\s+(.+?)\n(.*?)(?=^###\s+2\.\d+\.|\Z)",
             theory_text,
             re.M | re.S,
         )
@@ -278,26 +316,6 @@ def _build_theory_summary(orchestrator, md: str, language: str) -> tuple[str, in
     return "\n".join(summary_lines), len(titles), len(terms)
 
 
-def _execute_practice_phase(
-    orchestrator,
-    seed: ProjectSeed,
-    md: str,
-    generate_bonus: bool,
-    practice_plan_contract: Any | None = None,
-    artifact_chain_plan: Any | None = None,
-    section_context: dict[str, Any] | None = None,
-) -> tuple[str, list[PracticeTask], list[Any], list[str]]:
-    """Compatibility wrapper for the canonical practice phase executor."""
-    return PracticePhaseExecutor(orchestrator).execute(
-        seed,
-        md,
-        generate_bonus,
-        practice_plan_contract=practice_plan_contract,
-        artifact_chain_plan=artifact_chain_plan,
-        section_context=section_context,
-    )
-
-
 class PracticePhaseExecutor:
     """Execute Phase 3 practice generation, checks, critic repair, and datasets."""
 
@@ -312,7 +330,7 @@ class PracticePhaseExecutor:
         practice_plan_contract: Any | None = None,
         artifact_chain_plan: Any | None = None,
         section_context: dict[str, Any] | None = None,
-    ) -> tuple[str, list[PracticeTask], list[Any], list[str]]:
+    ) -> PracticePhaseResult:
         """Run practice generation through explicit, testable sub-steps."""
         instruction_text, theory_summary = self.extract_instruction_and_theory_summary(markdown, seed)
         practice_res, artifact_chain_plan = self.generate_tasks(
@@ -345,9 +363,34 @@ class PracticePhaseExecutor:
         )
         self.validate_practice(practice_res, seed, issues)
         bonus_tasks = self.generate_bonus_tasks(seed, generate_bonus, section_context, issues, warnings)
-        self.generate_dataset_files(practice_res, seed)
-        markdown = self.render_practice_markdown(markdown, practice_res.tasks, bonus_tasks, generate_bonus, seed)
-        return markdown, practice_res.tasks, issues, warnings
+        dataset_files = self.generate_dataset_files(practice_res, seed)
+        readme_document, changed = self.render_practice_document(
+            ReadmeDocument.from_markdown(markdown),
+            practice_res.tasks,
+            bonus_tasks,
+            generate_bonus,
+            seed,
+        )
+        if changed:
+            markdown = readme_document.to_markdown()
+        else:
+            markdown = self.render_practice_markdown(markdown, practice_res.tasks, bonus_tasks, generate_bonus, seed)
+            readme_document = ReadmeDocument.from_markdown(markdown)
+        return PracticePhaseResult(
+            markdown=markdown,
+            readme_document=readme_document,
+            practice_tasks=list(practice_res.tasks),
+            issues=issues,
+            warnings=warnings,
+            artifact_chain_plan=artifact_chain_plan,
+            evidence_specs=list(
+                getattr(artifact_chain_plan, "evidence_specs", [])
+                or getattr(self.runtime, "evidence_specs", [])
+                or []
+            ),
+            dataset_files=list(dataset_files or []),
+            practice_critic_issues=list(getattr(self.runtime, "practice_critic_issues", []) or []),
+        )
 
     def extract_instruction_and_theory_summary(self, markdown: str, seed: ProjectSeed) -> tuple[str, str]:
         """Extract Chapter 1 instruction and Chapter 2 theory summary for practice generation."""
@@ -382,23 +425,14 @@ class PracticePhaseExecutor:
         """Generate initial practice tasks and synchronize artifact-chain runtime state."""
         practice_plan_contract = practice_plan_contract or getattr(self.runtime, "practice_plan_contract", None)
         artifact_chain_plan = artifact_chain_plan or getattr(self.runtime, "artifact_chain_plan", None)
-        try:
-            practice_res = self.runtime.practice.generate(
-                seed,
-                instruction_text=instruction_text,
-                theory_summary=theory_summary,
-                practice_plan_contract=practice_plan_contract,
-                artifact_chain_plan=artifact_chain_plan,
-                section_context=section_context,
-            )
-        except TypeError as exc:
-            if "unexpected keyword" not in str(exc):
-                raise
-            practice_res = self.runtime.practice.generate(
-                seed,
-                instruction_text=instruction_text,
-                theory_summary=theory_summary,
-            )
+        practice_res = self.runtime.practice.generate(
+            seed,
+            instruction_text=instruction_text,
+            theory_summary=theory_summary,
+            practice_plan_contract=practice_plan_contract,
+            artifact_chain_plan=artifact_chain_plan,
+            section_context=section_context,
+        )
         self.runtime.practice_tasks = practice_res.tasks
         artifact_chain_plan = getattr(self.runtime.practice, "last_artifact_chain_plan", None)
         self.runtime.artifact_chain_plan = artifact_chain_plan
@@ -427,16 +461,24 @@ class PracticePhaseExecutor:
                 practice_markdown=practice_block,
                 theory_summary=theory_extract_text,
             )
+            self._record_fallback_traces(self.runtime.practice_critic.consume_fallback_traces())
             self.runtime.practice_critic_issues = [issue.as_dict() for issue in critic_issues]
             issues_for_regen = self._critic_issues_for_regeneration(critic_issues)
             if issues_for_regen:
                 self.regenerate_problem_tasks(practice_res, seed, theory_summary, issues_for_regen)
             _apply_critic_suggestions(practice_res.tasks, critic_issues)
         except Exception as critic_err:
+            consume = getattr(self.runtime.practice_critic, "consume_fallback_traces", None)
+            if callable(consume):
+                self._record_fallback_traces(consume())
             warnings.append(f"⚠️ PracticeCritic: {critic_err}")
             self.runtime.practice_critic_issues = []
             critic_issues = []
         return critic_issues, issues_for_regen, theory_extract_text
+
+    def _record_fallback_traces(self, events: list[dict[str, Any]]) -> None:
+        """Store fallback events on runtime when the container supports it."""
+        record_runtime_fallback_traces(self.runtime, events)
 
     @staticmethod
     def _critic_issues_for_regeneration(critic_issues: list[Any]) -> list[Any]:
@@ -566,7 +608,8 @@ SJM / кейс:
         theory_summary: str,
     ) -> bool:
         """Parse regenerated task markdown and update the task object in place."""
-        title_match = re.search(r"^###\s+(?:Задание|Задача)\s+\d+\.\s*(.+?)\s*$", regen_md, flags=re.M)
+        regen_md = ModelOutputNormalizer().normalize_practice_markdown(regen_md).markdown
+        title_match = re.search(r"^###\s+Задани(?:е|я)\s+\d+\.\s*(.+?)\s*$", regen_md, flags=re.M)
         new_title = title_match.group(1).strip() if title_match else ""
         new_situation = self._extract_regenerated_field("Ситуация", regen_md)
         new_constraints = self._extract_any_regenerated_field(
@@ -783,7 +826,7 @@ SJM / кейс:
                 issues.extend(bonus_checks.soft_issues)
         return bonus_tasks
 
-    def generate_dataset_files(self, practice_res: Any, seed: ProjectSeed) -> None:
+    def generate_dataset_files(self, practice_res: Any, seed: ProjectSeed) -> list[dict[str, Any]]:
         """Generate dataset/material files after finalizing practice tasks."""
         logger.info("🔄 Phase 3 | DatasetGeneratorAgent")
         try:
@@ -797,9 +840,36 @@ SJM / кейс:
                 logger.info(f"✅ Сгенерировано {len(dataset_files)} файлов данных")
             else:
                 logger.info("ℹ️ Файлы данных не требуются для этих задач")
+            return list(dataset_files or [])
         except Exception as dataset_err:
             logger.warning(f"⚠️ Ошибка генерации файлов данных: {dataset_err}")
             self.runtime.dataset_files = []
+            return []
+
+    @staticmethod
+    def render_practice_document(
+        readme_document: ReadmeDocument,
+        tasks: list[Any],
+        bonus_tasks: list[Any],
+        generate_bonus: bool,
+        seed: ProjectSeed,
+    ) -> tuple[ReadmeDocument, bool]:
+        """Render practice and optional bonus blocks into a typed README document."""
+        updated, changed = replace_readme_chapter_children_document(
+            readme_document,
+            3,
+            _render_practice_sections(tasks),
+            language=seed.language,
+        )
+        if not changed:
+            return readme_document, False
+        if generate_bonus:
+            updated = update_readme_bonus_section_children_document(
+                updated,
+                _render_bonus_sections(bonus_tasks),
+                language=seed.language,
+            )
+        return updated, True
 
     @staticmethod
     def render_practice_markdown(
@@ -811,7 +881,7 @@ SJM / кейс:
     ) -> str:
         """Render final practice and optional bonus blocks into markdown."""
         practice_block = _render_practice_block(tasks)
-        markdown = replace_chapter_content(markdown, 3, practice_block, seed.language)
+        markdown = replace_readme_chapter_body(markdown, 3, practice_block, language=seed.language)
         if generate_bonus:
             markdown = _replace_bonus_content(markdown, _render_bonus_block(bonus_tasks), seed.language)
         return markdown

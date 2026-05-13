@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .config.loader import get_loaded_agent_versions
+from .models.readme_document import ReadmeDocument
 from .models.result import OrchestratorResult
 from .models.schemas import Annotation, IntroSection, PracticeTask, ProjectSpec, TheoryPart
 from .utils.markdown_display_normalizer import normalize_markdown_display_blocks
@@ -30,6 +31,7 @@ class FinalizationResult:
     result: OrchestratorResult
     project_spec: ProjectSpec
     markdown: str
+    readme_document: ReadmeDocument
     translated_markdown: str | None
     assets_binary: dict[str, Any]
     step_warnings: list[str]
@@ -89,6 +91,8 @@ class ResultAssembler:
         self._attach_dataset_files(assets_binary, translated_assets_binary, dataset_files or [])
 
         md = normalize_markdown_display_blocks(self._convert_original_mermaid(md, assets_binary, warnings, step_warnings))
+        readme_document = self._readme_document_from_context(context, md)
+        context["readme_document"] = readme_document
         title, annotation = self._ensure_title_annotation(title, annotation, seed, context_meta)
         intro_section = self._ensure_intro_section(intro_section, md)
         if not theory_parts:
@@ -143,6 +147,11 @@ class ResultAssembler:
             methodology_revision_results=methodology_revision_results,
             methodology_resume_plan=methodology_resume_plan,
             agent_versions=agent_versions,
+            readme_document=readme_document,
+            node_traces=context.get("node_traces") or [],
+            llm_traces=context.get("llm_traces") or [],
+            fallback_traces=context.get("fallback_traces") or [],
+            compatibility_events=context.get("compatibility_events") or [],
         )
 
         encoded_assets = self._encode_assets(assets_binary)
@@ -169,6 +178,7 @@ class ResultAssembler:
             result=result,
             project_spec=spec,
             markdown=md,
+            readme_document=readme_document,
             translated_markdown=translated_md,
             assets_binary=assets_binary,
             step_warnings=step_warnings,
@@ -320,6 +330,11 @@ class ResultAssembler:
         methodology_revision_results: Any,
         methodology_resume_plan: Any,
         agent_versions: dict[str, str],
+        readme_document: ReadmeDocument,
+        node_traces: list[dict[str, Any]],
+        llm_traces: list[dict[str, Any]],
+        fallback_traces: list[dict[str, Any]],
+        compatibility_events: list[dict[str, Any]],
     ) -> dict[str, Any]:
         report = {
             "language": seed.language,
@@ -340,6 +355,11 @@ class ResultAssembler:
             "evidence_specs": self._serialize_report_value(evidence_specs),
             "methodology_revision_results": self._serialize_report_value(methodology_revision_results),
             "methodology_resume_plan": self._serialize_report_value(methodology_resume_plan),
+            "readme_document": readme_document.model_dump(mode="json"),
+            "node_traces": self._serialize_report_value(node_traces),
+            "llm_traces": self._serialize_report_value(llm_traces),
+            "fallback_traces": self._serialize_report_value(fallback_traces),
+            "compatibility_events": self._serialize_report_value(compatibility_events),
             "text_stats": self.calculate_text_stats(markdown, seed.language),
             "practice_critic_issues": practice_critic_issues,
             "agent_config_versions": agent_versions,
@@ -347,6 +367,24 @@ class ResultAssembler:
         if task_plan:
             report["task_plan"] = task_plan.as_dict()
         return report
+
+    @staticmethod
+    def _readme_document_from_context(context: dict[str, Any], markdown: str) -> ReadmeDocument:
+        """Use a matching upstream typed README document; reparse stale documents."""
+        document = ReadmeDocument.from_value(
+            context.get("readme_document"),
+            fallback_markdown=markdown,
+        )
+        if ResultAssembler._same_markdown_payload(document.to_markdown(), markdown):
+            return document
+        return ReadmeDocument.from_markdown(markdown)
+
+    @staticmethod
+    def _same_markdown_payload(left: str, right: str) -> bool:
+        """Compare Markdown payloads while ignoring renderer-only whitespace."""
+        left_normalized = re.sub(r"\s+", " ", left or "").strip()
+        right_normalized = re.sub(r"\s+", " ", right or "").strip()
+        return left_normalized == right_normalized
 
     @classmethod
     def _serialize_report_value(cls, value: Any) -> Any:

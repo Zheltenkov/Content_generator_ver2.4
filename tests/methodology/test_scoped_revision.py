@@ -67,11 +67,11 @@ def test_scoped_revision_can_target_nested_section_by_registry_id() -> None:
 
 ## Глава 2. Теоретический блок
 
-### Часть 1. Старый раздел
+### 2.1. Старый раздел
 
 Старый текст.
 
-### Часть 2. Другой раздел
+### 2.2. Другой раздел
 
 Старый текст, который нельзя менять.
 """
@@ -88,7 +88,7 @@ def test_scoped_revision_can_target_nested_section_by_registry_id() -> None:
 
     assert result.status == "applied"
     assert result.target_id == "chapter_2.part_1"
-    assert "### Часть 1. Старый раздел\n\nНовый текст." in context["markdown"]
+    assert "### 2.1. Старый раздел\n\nНовый текст." in context["markdown"]
     assert "Старый текст, который нельзя менять." in context["markdown"]
 
 
@@ -226,7 +226,7 @@ def test_pending_change_requests_are_applied_once_and_rejections_raise() -> None
     assert len(context["processed_methodology_change_ids"]) == 1
 
 
-def test_recommended_resume_index_moves_back_to_invalidated_stage() -> None:
+def test_resume_plan_moves_back_to_invalidated_stage() -> None:
     executor = ScopedRevisionExecutor(FakeLLM())
     result = executor.apply_change_request(
         {"markdown": "## Глава 2. Теоретический блок\n\nСтарый текст."},
@@ -239,11 +239,11 @@ def test_recommended_resume_index_moves_back_to_invalidated_stage() -> None:
         action_id="a1",
     )
 
-    start_index = executor.recommended_resume_index(
+    start_index = executor.build_resume_plan(
         5,
         ["context", "task_planning", "skeleton", "theory", "practice", "global_quality"],
         [result],
-    )
+    ).resume_from_index
 
     assert start_index == 4
 
@@ -336,11 +336,11 @@ def test_approved_preview_results_drive_resume_without_reapplying_old_changes() 
     context["methodology_review_actions"].append({"action": "approved"})
 
     accepted_results = executor.approved_preview_results_for_resume(context)
-    start_index = executor.recommended_resume_index(
+    start_index = executor.build_resume_plan(
         5,
         ["context", "skeleton", "theory", "practice", "global_quality"],
         accepted_results,
-    )
+    ).resume_from_index
 
     assert [item.action_id for item in accepted_results] == [action_id]
     assert start_index == 4
@@ -406,11 +406,11 @@ def test_approved_preview_results_are_cumulative_inside_one_review_cycle() -> No
     executor = ScopedRevisionExecutor(FakeLLM())
 
     accepted_results = executor.approved_preview_results_for_resume(context)
-    start_index = executor.recommended_resume_index(
+    start_index = executor.build_resume_plan(
         8,
         ["context", "task_planning", "title_annotation", "skeleton", "theory", "practice", "global_quality", "evaluation"],
         accepted_results,
-    )
+    ).resume_from_index
 
     assert {item.action_id for item in accepted_results} == {first_id, second_id}
     assert start_index == 5

@@ -3,7 +3,9 @@
 import concurrent.futures
 
 from ...models.criteria_models import CriteriaItem
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
+from .document_utils import chapter_content
 
 
 class Section2Checker:
@@ -128,6 +130,59 @@ class Section2Checker:
 
         return items
 
+    def check_document(
+        self,
+        document: ReadmeDocument,
+        learning_outcomes: list[str] | None = None,
+    ) -> list[CriteriaItem]:
+        """Проверяет раздел 2 по typed README document tree."""
+        items = []
+        md = document.to_markdown()
+        annotation = document.annotation.strip()
+        title = document.title.strip()
+        ch1_content = chapter_content(document, 1, language=self.lang)
+        ch2_content = chapter_content(document, 2, language=self.lang)
+        ch3_content = chapter_content(document, 3, language=self.lang)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_2_1 = executor.submit(self._check_annotation, annotation, title, ch2_content)
+            future_2_2 = executor.submit(self._check_toc_document, document, md)
+            future_2_3 = executor.submit(self._check_chapter1_document, document, ch1_content)
+            future_2_4 = executor.submit(self._check_chapter2_document, document, ch2_content, learning_outcomes)
+            future_2_5 = executor.submit(self._check_chapter3_document, document, ch3_content, ch2_content)
+
+            safe_print("    📝 2.1: Проверка аннотации...", flush=True)
+            annotation_items = future_2_1.result()
+            items.extend(annotation_items)
+            annotation_score = sum(item.score for item in annotation_items)
+            safe_print(f"      ✅ 2.1: {annotation_score}/{len(annotation_items)} подкритериев пройдено", flush=True)
+
+            safe_print("    📝 2.2: Проверка оглавления...", flush=True)
+            toc_items = future_2_2.result()
+            items.extend(toc_items)
+            toc_score = sum(item.score for item in toc_items)
+            safe_print(f"      ✅ 2.2: {toc_score}/{len(toc_items)} подкритериев пройдено", flush=True)
+
+            safe_print("    📝 2.3: Проверка Главы 1...", flush=True)
+            ch1_items = future_2_3.result()
+            items.extend(ch1_items)
+            ch1_score = sum(item.score for item in ch1_items)
+            safe_print(f"      ✅ 2.3: {ch1_score}/{len(ch1_items)} подкритериев пройдено", flush=True)
+
+            safe_print("    📝 2.4: Проверка Главы 2...", flush=True)
+            ch2_items = future_2_4.result()
+            items.extend(ch2_items)
+            ch2_score = sum(item.score for item in ch2_items)
+            safe_print(f"      ✅ 2.4: {ch2_score}/{len(ch2_items)} подкритериев пройдено", flush=True)
+
+            safe_print("    📝 2.5: Проверка Главы 3...", flush=True)
+            ch3_items = future_2_5.result()
+            items.extend(ch3_items)
+            ch3_score = sum(item.score for item in ch3_items)
+            safe_print(f"      ✅ 2.5: {ch3_score}/{len(ch3_items)} подкритериев пройдено", flush=True)
+
+        return items
+
     def _check_annotation(self, annotation: str, title: str, theory_text: str) -> list[CriteriaItem]:
         """2.1: Проверка аннотации (2.1.1-2.1.3)."""
         from .annotation_checker import AnnotationChecker
@@ -154,6 +209,24 @@ class Section2Checker:
         )
         return checker.check(md)
 
+    def _check_toc_document(self, document: ReadmeDocument, md: str) -> list[CriteriaItem]:
+        """2.2: Проверка оглавления через typed document при поддержке checker'а."""
+        from .toc_checker import TOCChecker
+        regex_patterns = {
+            "rx_h2": self.rx_h2,
+            "rx_h3": self.rx_h3,
+            "rx_toc": self.rx_toc,
+        }
+        checker = TOCChecker(
+            llm_client=self.llm,
+            embedding_function=self.embedding_function,
+            language=self.lang,
+            regex_patterns=regex_patterns,
+        )
+        if hasattr(checker, "check_document"):
+            return checker.check_document(document)
+        return checker.check(md)
+
     def _check_chapter1(self, ch1_content: str) -> list[CriteriaItem]:
         """2.3: Проверка Главы 1 (2.3.1-2.3.7)."""
         from .chapter1_checker import Chapter1Checker
@@ -166,6 +239,22 @@ class Section2Checker:
             language=self.lang,
             regex_patterns=regex_patterns
         )
+        return checker.check(ch1_content)
+
+    def _check_chapter1_document(self, document: ReadmeDocument, ch1_content: str) -> list[CriteriaItem]:
+        """2.3: Проверка Главы 1 через typed document при поддержке checker'а."""
+        from .chapter1_checker import Chapter1Checker
+        regex_patterns = {
+            "rx_h3": self.rx_h3,
+            "rx_directives": self.rx_directives,
+        }
+        checker = Chapter1Checker(
+            llm_client=self.llm,
+            language=self.lang,
+            regex_patterns=regex_patterns,
+        )
+        if hasattr(checker, "check_document"):
+            return checker.check_document(document)
         return checker.check(ch1_content)
 
     def _check_chapter2(self, ch2_content: str, learning_outcomes: list[str] | None = None) -> list[CriteriaItem]:
@@ -181,6 +270,26 @@ class Section2Checker:
         )
         return checker.check(ch2_content, learning_outcomes)
 
+    def _check_chapter2_document(
+        self,
+        document: ReadmeDocument,
+        ch2_content: str,
+        learning_outcomes: list[str] | None = None,
+    ) -> list[CriteriaItem]:
+        """2.4: Проверка Главы 2 через typed document при поддержке checker'а."""
+        from .chapter2_checker import Chapter2Checker
+        regex_patterns = {
+            "rx_theory_part": self.rx_theory_part,
+        }
+        checker = Chapter2Checker(
+            llm_client=self.llm,
+            language=self.lang,
+            regex_patterns=regex_patterns,
+        )
+        if hasattr(checker, "check_document"):
+            return checker.check_document(document, learning_outcomes)
+        return checker.check(ch2_content, learning_outcomes)
+
     def _check_chapter3(self, ch3_content: str, ch2_content: str) -> list[CriteriaItem]:
         """2.5: Проверка Главы 3 (2.5.1-2.5.7)."""
         from .chapter3_checker import Chapter3Checker
@@ -193,5 +302,26 @@ class Section2Checker:
             language=self.lang,
             regex_patterns=regex_patterns
         )
+        return checker.check(ch3_content, ch2_content)
+
+    def _check_chapter3_document(
+        self,
+        document: ReadmeDocument,
+        ch3_content: str,
+        ch2_content: str,
+    ) -> list[CriteriaItem]:
+        """2.5: Проверка Главы 3 через typed document при поддержке checker'а."""
+        from .chapter3_checker import Chapter3Checker
+        regex_patterns = {
+            "rx_task": self.rx_task,
+        }
+        checker = Chapter3Checker(
+            llm_client=self.llm,
+            embedding_function=self.embedding_function,
+            language=self.lang,
+            regex_patterns=regex_patterns,
+        )
+        if hasattr(checker, "check_document"):
+            return checker.check_document(document)
         return checker.check(ch3_content, ch2_content)
 

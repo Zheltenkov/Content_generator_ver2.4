@@ -1,6 +1,7 @@
 """Тесты для RubricScorer."""
 
-from content_gen.models.criteria_models import CriteriaReport
+from content_gen.models.criteria_models import CheckMethod, CriteriaItem, CriteriaReport
+from content_gen.models.readme_document import ReadmeDocument
 from content_gen.validators.rubric.scorer import RubricScorer
 
 
@@ -61,4 +62,50 @@ class TestRubricScorer:
         assert report.total >= 0
         assert report.max_score > 0
         assert report.total <= report.max_score
+
+    def test_score_document_uses_typed_readme_boundary(self, mock_llm_client, monkeypatch):
+        """Тест typed entrypoint для оценки README."""
+        scorer = RubricScorer(language="ru", llm_client=mock_llm_client)
+        captured = {"sections": []}
+
+        def item(item_id: str) -> CriteriaItem:
+            return CriteriaItem(
+                id=item_id,
+                title=item_id,
+                description=item_id,
+                check_method=CheckMethod.SCRIPT,
+                score=1,
+                comments=[],
+            )
+
+        def section1(document):
+            captured["sections"].append(("1", document.title))
+            return [item("1.1")]
+
+        def section2(document, learning_outcomes=None):
+            captured["sections"].append(("2", learning_outcomes))
+            return [item("2.1")]
+
+        def section3(document):
+            captured["sections"].append(("3", document.title))
+            return [item("3.1")]
+
+        def section4(document):
+            captured["sections"].append(("4", document.title))
+            return [item("4.1")]
+
+        monkeypatch.setattr(scorer.section1_checker, "check_document", section1)
+        monkeypatch.setattr(scorer.section2_checker, "check_document", section2)
+        monkeypatch.setattr(scorer.section3_checker, "check_document", section3)
+        monkeypatch.setattr(scorer.section4_checker, "check_document", section4)
+        document = ReadmeDocument.from_markdown("# Проект\n\n## Глава 2. Теория\n\nТекст.")
+
+        report = scorer.score_document(document, learning_outcomes=["LO"], use_cache=False)
+
+        assert isinstance(report, CriteriaReport)
+        assert report.max_score == 4
+        assert ("1", "Проект") in captured["sections"]
+        assert ("2", ["LO"]) in captured["sections"]
+        assert ("3", "Проект") in captured["sections"]
+        assert ("4", "Проект") in captured["sections"]
 

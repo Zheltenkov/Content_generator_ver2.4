@@ -52,7 +52,12 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Невалидный токен"
             )
-        return {"id": user_id, "username": payload.get("username", user_id)}
+        return {
+            "id": user_id,
+            "username": payload.get("username", user_id),
+            "email": payload.get("email"),
+            "role": payload.get("role"),
+        }
     except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

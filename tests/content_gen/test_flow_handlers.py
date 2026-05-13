@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 from content_gen.flow_handlers import GenerationFlowHandlers
 
 
@@ -12,7 +14,47 @@ class _Finalized:
 
 def test_generation_flow_handlers_registry_exposes_expected_nodes() -> None:
     handlers = GenerationFlowHandlers(
-        phases=object(),
+        task_planner=object(),
+        result_assembler=object(),
+        log_phase=lambda _phase, _message: None,
+    )
+
+    assert set(handlers.registry()) == {
+        "context",
+        "task_planning",
+        "title_annotation",
+        "skeleton",
+        "theory",
+        "practice",
+        "global_quality",
+        "evaluation",
+        "translate",
+        "finalize",
+    }
+
+
+def test_generation_flow_handlers_factory_uses_concrete_node_executors() -> None:
+    def noop(*_args, **_kwargs):
+        return None
+
+    structure = SimpleNamespace(
+        generate_title_annotation=noop,
+        build_skeleton=noop,
+        build_structure=noop,
+    )
+    node_executors = SimpleNamespace(
+        context=SimpleNamespace(execute=noop),
+        structure=structure,
+        theory=SimpleNamespace(execute=noop),
+        practice=SimpleNamespace(execute=noop),
+        quality=SimpleNamespace(execute=noop),
+        evaluation=SimpleNamespace(execute=noop),
+        translation=SimpleNamespace(execute=noop),
+        runtime=SimpleNamespace(),
+    )
+
+    handlers = GenerationFlowHandlers.from_node_executors(
+        node_executors=node_executors,
         task_planner=object(),
         result_assembler=object(),
         log_phase=lambda _phase, _message: None,
@@ -52,7 +94,6 @@ def test_finalize_uses_dataset_files_from_resumed_context() -> None:
             return _Finalized()
 
     handlers = GenerationFlowHandlers(
-        phases=object(),
         task_planner=object(),
         result_assembler=ResultAssembler(),
         log_phase=lambda _phase, _message: None,

@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from content_gen.models.schemas import TheoryPart
-from content_gen.orchestrator_phases_modules.phases.phase_3 import _build_theory_summary
+from content_gen.practice_phase_executor import _build_theory_summary
 
 
 def test_build_theory_summary_uses_structured_parts_and_extracts_terms():

@@ -187,41 +187,6 @@ class FormulaTableAgent:
     def __init__(self, llm: LLMClient):
         self.llm = llm
 
-    def _clean_mermaid_from_markdown(self, mermaid_str: str) -> str:
-        """
-        Очищает Mermaid код от markdown-блоков и лишних символов.
-        
-        Используется на этапе генерации для предварительной очистки
-        перед нормализацией. Удаляет:
-        - Markdown блоки (```mermaid, ```)
-        - Тройные кавычки (двойные и одинарные)
-        - Лишние пробелы
-        
-        Args:
-            mermaid_str: Строка с Mermaid кодом (может содержать markdown-блоки)
-        
-        Returns:
-            Очищенный Mermaid код (требует дальнейшей нормализации через _normalize_mermaid)
-        """
-        if not mermaid_str:
-            return mermaid_str
-
-        # Удаляем markdown-блоки ```mermaid и ```
-        mermaid_str = re.sub(r'```mermaid\s*', '', mermaid_str, flags=re.IGNORECASE)
-        mermaid_str = re.sub(r'```\s*$', '', mermaid_str, flags=re.MULTILINE)
-        mermaid_str = re.sub(r'^```\s*', '', mermaid_str, flags=re.MULTILINE)
-
-        # Удаляем тройные кавычки
-        mermaid_str = re.sub(r'"""', '', mermaid_str)
-        # Используем chr() для избежания проблем с парсингом
-        triple_single_quotes = chr(39) + chr(39) + chr(39)
-        mermaid_str = mermaid_str.replace(triple_single_quotes, "")
-
-        # Удаляем лишние пробелы в начале и конце
-        mermaid_str = mermaid_str.strip()
-
-        return mermaid_str
-
     def _safe_json_extract(self, text: str) -> dict[str, Any] | None:
         """
         Надежное извлечение JSON из текста с множественными попытками.
@@ -647,18 +612,6 @@ class FormulaTableAgent:
             try:
                 validated = GenerationResponse(**data)
 
-                # Очищаем Mermaid от markdown-блоков в visuals
-                for idx, visual in enumerate(validated.visuals):
-                    safe_print(f"  🔍 [DEBUG] Visual {idx+1} '{visual.label}' ДО очистки:", flush=True)
-                    safe_print(f"     Длина: {len(visual.mermaid)} символов", flush=True)
-                    safe_print(f"     Первые 150 символов: {repr(visual.mermaid[:150])}", flush=True)
-
-                    visual.mermaid = self._clean_mermaid_from_markdown(visual.mermaid)
-
-                    safe_print(f"  🔍 [DEBUG] Visual {idx+1} '{visual.label}' ПОСЛЕ очистки:", flush=True)
-                    safe_print(f"     Длина: {len(visual.mermaid)} символов", flush=True)
-                    safe_print(f"     Первые 150 символов: {repr(visual.mermaid[:150])}", flush=True)
-
                 # Конвертируем обратно в dict для совместимости
                 result = {
                     "formulas": [f.dict() for f in validated.formulas],
@@ -675,12 +628,6 @@ class FormulaTableAgent:
 
                 # Дополнительная очистка перед fallback
                 cleaned_data = self._clean_and_validate_data(data)
-
-                # Fallback: возвращаем очищенные данные без валидации, но с очисткой Mermaid
-                if "visuals" in cleaned_data:
-                    for visual in cleaned_data.get("visuals", []):
-                        if isinstance(visual, dict) and "mermaid" in visual:
-                            visual["mermaid"] = self._clean_mermaid_from_markdown(visual["mermaid"])
 
                 # Фильтруем только валидные словари
                 result = {
@@ -805,11 +752,9 @@ class FormulaTableAgent:
             Нормализованный код Mermaid, готовый к использованию
         """
         if not mermaid_code or not mermaid_code.strip():
-            safe_print("     [NORMALIZE] Пустой входной код", flush=True)
             return mermaid_code
 
         code = mermaid_code
-        safe_print(f"     [NORMALIZE] ШАГ 0: Исходная длина: {len(code)} символов", flush=True)
 
         # ШАГ 0: Подписи на стрелках --|"текст"| и -->|"текст"| — кириллица/кавычки ломают парсер (ожидается EDGE_TEXT, не STR)
         def _sanitize_edge_label(match: re.Match) -> str:
@@ -823,27 +768,18 @@ class FormulaTableAgent:
         code = re.sub(r'(--\|)"([^"]*)"(\|)', _sanitize_edge_label, code)
 
         # ШАГ 1: Обрабатываем экранированные переносы строк
-        before_replace = code
         code = code.replace("\\\\n", "\n")  # \\n -> \n
         code = code.replace("\\n", "\n")     # \n -> реальный перенос
-        if len(code) != len(before_replace):
-            safe_print(f"     [NORMALIZE] ШАГ 1: Заменены экранированные переносы (было {len(before_replace)}, стало {len(code)})", flush=True)
 
         # ШАГ 2: Удаляем markdown-блоки полностью
-        before_markdown = code
         code = re.sub(r'```mermaid\s*', '', code, flags=re.MULTILINE | re.IGNORECASE)
         code = re.sub(r'```\s*', '', code, flags=re.MULTILINE)
-        if len(code) != len(before_markdown):
-            safe_print(f"     [NORMALIZE] ШАГ 2: Удалены markdown-блоки (было {len(before_markdown)}, стало {len(code)})", flush=True)
 
         # ШАГ 3: Удаляем только тройные кавычки (Python строки), но сохраняем обычные кавычки
-        before_quotes = code
         code = re.sub(r'"""', '', code)
         # Используем chr() для избежания проблем с парсингом
         triple_single_quotes = chr(39) + chr(39) + chr(39)
         code = code.replace(triple_single_quotes, "")
-        if len(code) != len(before_quotes):
-            safe_print(f"     [NORMALIZE] ШАГ 3: Удалены тройные кавычки (было {len(before_quotes)}, стало {len(code)})", flush=True)
 
         # ШАГ 4: Исправляем переносы строк внутри меток узлов (КРИТИЧНО!)
         # В Mermaid метки узлов должны быть на одной строке
@@ -938,13 +874,9 @@ class FormulaTableAgent:
                 fixed_lines.append(line)
             code = '\n'.join(fixed_lines)
 
-            safe_print("     [NORMALIZE] ШАГ 4: Исправлены переносы строк в метках узлов и добавлены ID для узлов без ID", flush=True)
-
         # ШАГ 5: Гарантируем перенос строки между определением узла и следующей стрелкой
         # Исправляем случаи вида `}B --|Нет| ...` или `]B --|> ...` или `)B --> ...`
         if not code.startswith("sequenceDiagram") and not code.startswith("stateDiagram"):
-            before_edges_fix = code
-
             # Сначала исправляем случаи с --|> и --|
             code = re.sub(
                 r'([\}\]\)])\s*([A-Za-z0-9_]+)\s*(--\|>|--\|)',
@@ -960,9 +892,6 @@ class FormulaTableAgent:
                 code,
                 flags=re.MULTILINE,
             )
-
-            if code != before_edges_fix:
-                safe_print("     [NORMALIZE] ШАГ 5: Добавлены переводы строк между узлами и стрелками", flush=True)
 
         # ШАГ 4.5: Исправляем неправильно сформированные метки узлов
         # Ищем случаи, когда после закрывающей скобки метки идут символы без пробела
@@ -1005,11 +934,9 @@ class FormulaTableAgent:
                 )
                 fixed_lines.append(line)
             code = '\n'.join(fixed_lines)
-            safe_print("     [NORMALIZE] ШАГ 4.5: Исправлены неправильно сформированные метки узлов", flush=True)
 
         # ШАГ 5: Разбиваем на строки и очищаем каждую
         lines = code.split("\n")
-        safe_print(f"     [NORMALIZE] ШАГ 5: Разбито на {len(lines)} строк", flush=True)
         cleaned_lines = []
         for line in lines:
             cleaned_line = line.rstrip()  # Убираем пробелы в конце строки
@@ -1035,30 +962,21 @@ class FormulaTableAgent:
                 theme_json = _mermaid_theme_json()
                 init_block = f"%%{{init:{theme_json}}}%%\n"
                 code = init_block + code
-                safe_print("     [NORMALIZE] ШАГ 6: Добавлена темная тема с белыми элементами", flush=True)
-        safe_print(f"     [NORMALIZE] ШАГ 5: После очистки строк: {len(cleaned_lines)} строк", flush=True)
 
         # ШАГ 6: Удаляем пустые строки в начале и конце
-        before_strip = code
         code = code.strip()
-        if len(code) != len(before_strip):
-            safe_print(f"     [NORMALIZE] ШАГ 6: После strip() (было {len(before_strip)}, стало {len(code)})", flush=True)
 
         if not code:
-            safe_print("     [NORMALIZE] КРИТИЧНО: Код стал пустым после нормализации!", flush=True)
             return ""
 
         # ШАГ 7: Исправляем синтаксис направления
-        original_start = code[:30]
         # sequenceDiagram и stateDiagram не требуют направления
         if code.startswith("sequenceDiagram") or code.startswith("stateDiagram"):
-            safe_print(f"     [NORMALIZE] ШАГ 7: Обнаружен {code.split()[0]}, направление не требуется", flush=True)
             return code
 
         # Исправляем старый синтаксис graph без направления
         if code.startswith("graph ") and not any(code.startswith(f"graph {d}") for d in ["TD", "LR", "TB", "BT"]):
             code = code.replace("graph ", "flowchart TD ", 1)
-            safe_print("     [NORMALIZE] ШАГ 7: Исправлено 'graph ' -> 'flowchart TD '", flush=True)
 
         # Проверяем валидность начала
         valid_starts = ["flowchart TD", "flowchart LR", "flowchart TB", "flowchart BT",
@@ -1069,11 +987,9 @@ class FormulaTableAgent:
             # Исправляем flowchart без направления
             if code.startswith("flowchart") and not any(code.startswith(f"flowchart {d}") for d in ["TD", "LR", "TB", "BT"]):
                 code = code.replace("flowchart", "flowchart TD", 1)
-                safe_print("     [NORMALIZE] ШАГ 7: Исправлено 'flowchart' -> 'flowchart TD'", flush=True)
             # Исправляем graph без направления
             elif code.startswith("graph") and not any(code.startswith(f"graph {d}") for d in ["TD", "LR", "TB", "BT"]):
                 code = code.replace("graph", "flowchart TD", 1)
-                safe_print("     [NORMALIZE] ШАГ 7: Исправлено 'graph' -> 'flowchart TD'", flush=True)
 
         # ШАГ 8: Исправляем неправильные стрелки для flowchart/graph
         if not code.startswith("sequenceDiagram") and not code.startswith("stateDiagram"):
@@ -1091,7 +1007,6 @@ class FormulaTableAgent:
                     fixed_line = re.sub(r'(\w+)\s*->\s*(\w+)', r'\1 --> \2', line)
                     fixed_lines.append(fixed_line)
             code = '\n'.join(fixed_lines)
-            safe_print("     [NORMALIZE] ШАГ 8: Исправлены стрелки", flush=True)
 
         # ШАГ 8.5: Нормализуем стрелки в sequenceDiagram (критично для парсинга!)
         if code.startswith("sequenceDiagram"):
@@ -1116,7 +1031,6 @@ class FormulaTableAgent:
                 else:
                     fixed_lines.append(line)
             code = "\n".join(fixed_lines)
-            safe_print("     [NORMALIZE] ШАГ 8.5: Нормализованы стрелки в sequenceDiagram", flush=True)
 
         # ШАГ 9: Исправляем отсутствие пробелов вокруг стрелок для flowchart/graph
         if not code.startswith("sequenceDiagram") and not code.startswith("stateDiagram"):
@@ -1146,13 +1060,7 @@ class FormulaTableAgent:
             # Теперь нормализуем стрелки
             code = re.sub(r'(\w+)(-->)(\w+)', r'\1 \2 \3', code)
             code = re.sub(r'(\w+)(==>)(\w+)', r'\1 \2 \3', code)
-            safe_print("     [NORMALIZE] ШАГ 9: Удалены лишние дефисы и добавлены пробелы вокруг стрелок", flush=True)
 
-        final_start = code[:30]
-        if original_start != final_start:
-            safe_print(f"     [NORMALIZE] ШАГ 7-9: Начало изменено: '{original_start}' -> '{final_start}'", flush=True)
-
-        safe_print(f"     [NORMALIZE] ФИНАЛЬНЫЙ результат: длина {len(code)}, начинается с '{code[:50]}'", flush=True)
         return code
 
     def _check_mermaid_syntax(self, mermaid_code: str) -> bool:

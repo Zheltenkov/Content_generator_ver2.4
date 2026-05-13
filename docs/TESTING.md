@@ -273,9 +273,9 @@ def mock_llm_client():
 
 **Использование**:
 ```python
-def test_agent_process(mock_llm_client):
+def test_agent_generate(mock_llm_client):
     agent = SomeAgent(mock_llm_client)
-    result = agent.process({})
+    result = agent.generate(...)
     assert result is not None
 ```
 

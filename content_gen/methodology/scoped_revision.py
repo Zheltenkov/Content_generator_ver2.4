@@ -248,19 +248,6 @@ class ScopedRevisionExecutor:
             after_hash=self._hash_text(revised),
         )
 
-    def recommended_resume_index(
-        self,
-        current_start_index: int,
-        execution_plan: list[str],
-        results: list[ScopedRevisionResult] | None,
-    ) -> int:
-        """Move resume point back when a revision invalidates downstream stages."""
-        return self.build_resume_plan(
-            current_start_index,
-            execution_plan,
-            results,
-        ).resume_from_index
-
     def build_resume_plan(
         self,
         current_start_index: int,

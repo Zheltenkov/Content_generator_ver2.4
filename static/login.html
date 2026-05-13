@@ -3,246 +3,104 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🔐 Вход - Генератор учебных проектов</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #0a0e27;
-            background-image: url('/static/land.png');
-            background-size: cover;
-            background-position: center;
-            background-attachment: fixed;
-            background-repeat: no-repeat;
-            color: #e0e6ed;
-            line-height: 1.6;
-            position: relative;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(10, 14, 39, 0.85);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            z-index: -1;
-        }
-        
-        .login-container {
-            background: rgba(10, 14, 39, 0.9);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-radius: 16px;
-            padding: 3rem;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            border: 1px solid rgba(118, 75, 162, 0.3);
-            width: 100%;
-            max-width: 450px;
-        }
-        
-        .login-header {
-            text-align: center;
-            margin-bottom: 2rem;
-        }
-        
-        .login-header h1 {
-            font-size: 2rem;
-            color: #64ffda;
-            margin-bottom: 0.5rem;
-        }
-        
-        .login-header p {
-            color: #b8c5d6;
-            font-size: 1rem;
-        }
-        
-        .form-group {
-            margin-bottom: 1.5rem;
-        }
-        
-        label {
-            display: block;
-            margin-bottom: 0.5rem;
-            font-weight: 600;
-            color: #b8c5d6;
-        }
-        
-        input[type="text"],
-        input[type="password"],
-        input[type="email"] {
-            width: 100%;
-            padding: 1rem 1.25rem;
-            border: 2px solid rgba(118, 75, 162, 0.4);
-            border-radius: 8px;
-            font-size: 1.15rem;
-            transition: border-color 0.3s, background 0.3s, box-shadow 0.3s;
-            font-family: inherit;
-            background: rgba(20, 25, 50, 0.8);
-            color: #e0e6ed;
-            line-height: 1.5;
-        }
-        
-        input[type="email"]::placeholder {
-            color: rgba(184, 197, 214, 0.6);
-            font-size: 1rem;
-        }
-        
-        input:focus {
-            outline: none;
-            border-color: #64ffda;
-            background: rgba(20, 25, 50, 0.95);
-            box-shadow: 0 0 0 3px rgba(100, 255, 218, 0.15);
-        }
-        
-        input:hover {
-            border-color: rgba(118, 75, 162, 0.6);
-            background: rgba(20, 25, 50, 0.85);
-        }
-        
-        .btn {
-            background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
-            color: white;
-            border: none;
-            padding: 1rem 2rem;
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
-            width: 100%;
-        }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(100, 255, 218, 0.4);
-            background: linear-gradient(135deg, #64ffda 0%, #764ba2 100%);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
-        .btn-secondary {
-            background: rgba(118, 75, 162, 0.3);
-            color: #64ffda;
-            border: 2px solid rgba(100, 255, 218, 0.4);
-            padding: 0.75rem 1rem;
-            border-radius: 8px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
-            display: inline-block;
-            text-align: center;
-        }
-        
-        .btn-secondary:hover {
-            background: rgba(118, 75, 162, 0.5);
-            border-color: #64ffda;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(100, 255, 218, 0.3);
-            text-decoration: none;
-        }
-        
-        .error-msg {
-            background: rgba(220, 53, 69, 0.2);
-            border: 1px solid rgba(220, 53, 69, 0.5);
-            color: #f87171;
-            padding: 1rem;
-            border-radius: 8px;
-            margin-bottom: 1rem;
-            display: none;
-        }
-        
-        .error-msg.show {
-            display: block;
-        }
-        
-        .info-box {
-            background: rgba(33, 150, 243, 0.2);
-            border-left: 4px solid #64ffda;
-            padding: 1rem;
-            margin-top: 1rem;
-            border-radius: 4px;
-            color: #b8c5d6;
-            font-size: 0.9rem;
-        }
-        
-        a {
-            color: #64ffda;
-            text-decoration: none;
-            transition: opacity 0.2s;
-        }
-        
-        a:hover {
-            opacity: 0.8;
-            text-decoration: underline;
-        }
-    </style>
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title>Вход - Генератор учебных проектов</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/auth-light.css?v=20260512-login-redesign">
 </head>
-<body>
-    <div class="login-container">
-        <div class="login-header">
-            <h1>🎓 Школа 21</h1>
-            <p>Генератор учебных проектов</p>
-        </div>
-        
-        <div id="errorMsg" class="error-msg"></div>
-        
-        <form id="loginForm" onsubmit="handleLogin(event)">
-            <div class="form-group">
-                <label for="email">Email</label>
-                <input 
-                    type="email" 
-                    id="email" 
-                    name="email" 
-                    required 
-                    autocomplete="email"
-                    placeholder="Введите ваш email"
-                >
+<body class="auth-login">
+    <main class="auth-shell" aria-labelledby="loginTitle">
+        <section class="auth-brand-panel" aria-label="Генератор учебных проектов">
+            <div class="auth-stage-chip">01.1 · ВХОД</div>
+            <div class="auth-brand-row">
+                <span class="auth-logo-mark">21</span>
+                <span>
+                    <strong>Генератор</strong>
+                    <small>учебных проектов</small>
+                </span>
             </div>
-            
-            <div class="form-group">
-                <label for="password">Пароль</label>
-                <input 
-                    type="password" 
-                    id="password" 
-                    name="password" 
-                    required
-                    autocomplete="current-password"
-                    placeholder="Введите пароль"
-                >
+            <div class="auth-brand-copy">
+                <span class="auth-product-chip">• ГЕНЕРАТОР КОНТЕНТА</span>
+                <h1>Создавайте, проверяйте и переводите README в единой среде.</h1>
+                <p>Полный методологический пайплайн для авторов учебных проектов: от паспорта программы до готового документа со всеми критериями качества.</p>
             </div>
-            
-            <button type="submit" class="btn" id="loginBtn">Войти</button>
-        </form>
-        
-        <!-- Кнопки регистрации и восстановления пароля -->
-        <div style="margin-top: 1.5rem; display: flex; gap: 1rem; justify-content: center;">
-            <a href="/register" class="btn-secondary" style="flex: 1;">
-                📝 Регистрация
-            </a>
-            <a href="/forgot-password" class="btn-secondary" style="flex: 1;">
-                🔑 Забыли пароль?
-            </a>
-        </div>
-    </div>
+            <div class="auth-brand-footer">
+                <span>v 2.4 · build 318</span>
+                <span>RU · EN · KG · UZ · TG</span>
+            </div>
+            <span class="auth-deco auth-deco-1"></span>
+            <span class="auth-deco auth-deco-2"></span>
+            <span class="auth-deco auth-deco-3"></span>
+            <span class="auth-deco auth-deco-4"></span>
+        </section>
+
+        <section class="auth-form-panel">
+            <div class="login-container">
+                <div class="login-header">
+                    <h1 id="loginTitle">С возвращением</h1>
+                    <p>Войдите в свой аккаунт, чтобы продолжить работу</p>
+                </div>
+                
+                <div id="errorMsg" class="error-msg"></div>
+                
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label for="email">Email</label>
+                        <input 
+                            type="email" 
+                            id="email" 
+                            name="email" 
+                            required 
+                            autocomplete="email"
+                            placeholder="m.kravtsova@school21.ru"
+                        >
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="auth-label-row">
+                            <label for="password">Пароль</label>
+                            <a href="/forgot-password">Забыли пароль?</a>
+                        </div>
+                        <div class="auth-password-field">
+                            <input 
+                                type="password" 
+                                id="password" 
+                                name="password" 
+                                required
+                                autocomplete="current-password"
+                                placeholder="Введите пароль"
+                            >
+                            <button type="button" class="auth-eye-button" onclick="togglePasswordVisibility()" aria-label="Показать или скрыть пароль">
+                                <svg viewBox="0 0 24 24" aria-hidden="true">
+                                    <path d="M2.2 12s3.6-6 9.8-6 9.8 6 9.8 6-3.6 6-9.8 6-9.8-6-9.8-6Z"></path>
+                                    <circle cx="12" cy="12" r="2.7"></circle>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <label class="auth-remember">
+                        <input type="checkbox" id="rememberDevice" checked>
+                        <span>Запомнить меня на этом устройстве</span>
+                    </label>
+                    
+                    <button type="submit" class="btn" id="loginBtn">Войти <span aria-hidden="true">→</span></button>
+
+                    <button type="button" class="auth-sber-button" onclick="showError('Вход через Sber ID пока не подключен')">
+                        <span class="auth-sber-mark" aria-hidden="true">S</span>
+                        <span>Войти через Sber ID</span>
+                    </button>
+                </form>
+                
+                <div class="auth-create-account">
+                    <span>Нет аккаунта?</span>
+                    <a href="/register">Создать аккаунт</a>
+                </div>
+            </div>
+        </section>
+    </main>
     
     <script>
         const API_BASE = window.location.origin;
@@ -367,10 +225,17 @@
         
         function showError(message) {
             const errorMsg = document.getElementById('errorMsg');
-            errorMsg.textContent = `❌ ${message}`;
+            errorMsg.textContent = message;
             errorMsg.classList.add('show');
+        }
+
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('password');
+            if (!passwordInput) return;
+            passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
         }
     </script>
 </body>
 </html>
+
 

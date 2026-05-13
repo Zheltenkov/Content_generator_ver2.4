@@ -52,29 +52,6 @@ class SkeletonParts:
 class SkeletonAgent:
     """Строит каркас документа с заглушками."""
 
-    def run(self, input_data: dict[str, object]) -> dict[str, object]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        op = input_data.get("op", "build")
-        if op == "stitch":
-            result = self.stitch(
-                title=input_data.get("title", ""),
-                annotation_md=input_data.get("annotation_md", ""),
-                sk=input_data["sk"],
-            )
-            return {"result": result}
-        if op == "validate":
-            is_valid, issues = self.validate_structure(
-                skeleton_md=input_data.get("skeleton_md", ""),
-                language=input_data.get("language", "ru"),
-                has_bonus=bool(input_data.get("has_bonus", False)),
-            )
-            return {"result": {"is_valid": is_valid, "issues": issues}}
-        result = self.build(
-            language=input_data.get("language", "ru"),
-            has_bonus=bool(input_data.get("has_bonus", False)),
-        )
-        return {"result": result}
-
     def validate_structure(self, skeleton_md: str, language: str, has_bonus: bool) -> tuple[bool, list[str]]:
         """
         Проверяет структуру скелета на соответствие требованиям.

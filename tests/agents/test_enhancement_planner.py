@@ -60,3 +60,27 @@ def test_create_plan_supports_structured_per_part_list(monkeypatch):
     assert plan.per_part[1].topic == "Работа с волнением"
     assert plan.per_part[1].tables.value == "must"
     assert plan.per_part[1].anchor_hints == {"table": "после перечисления техник"}
+    assert plan.fallback_traces == []
+
+
+def test_create_plan_records_fallback_trace_for_empty_structured_plan(monkeypatch):
+    planner = EnhancementPlanner(StubLLM())
+    response = EnhancementPlanLLMResponse(per_part=[], reasoning="Пустой план")
+    monkeypatch.setattr(planner.structured_client, "complete_structured", lambda **kwargs: response)
+
+    plan = planner.create_plan(
+        parts=[
+            TheoryPart(
+                title="Работа с волнением",
+                body="**Волнение** — это естественная реакция перед выступлением.",
+                example="Команда готовится к питчу.",
+                bridge_questions=["Как ты подготовишься к выступлению?"],
+            )
+        ],
+        seed=_seed(),
+    )
+
+    assert plan.fallback_traces
+    assert plan.fallback_traces[0]["node"] == "theory_enhancement"
+    assert plan.fallback_traces[0]["fallback_type"] == "empty_enhancement_plan"
+    assert plan.fallback_traces[0]["quality_risk"] == "medium"

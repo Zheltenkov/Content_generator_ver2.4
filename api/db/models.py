@@ -338,6 +338,45 @@ class PausedGenerationSession(Base):
         }
 
 
+class UserRun(Base):
+    """Unified per-user activity feed for product dashboard rows."""
+
+    __tablename__ = "user_runs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    request_id = Column(String(36), nullable=False, unique=True, index=True)
+    user_id = Column(String(100), nullable=False, index=True)
+    kind = Column(String(40), nullable=False, index=True)
+    status = Column(String(40), nullable=False, index=True)
+    title = Column(String(500), nullable=True)
+    score = Column(JSON, nullable=True)
+    result_url = Column(String(500), nullable=True)
+    meta_data = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False, index=True)
+
+    __table_args__ = (
+        Index("idx_user_runs_user_updated", "user_id", "updated_at"),
+        Index("idx_user_runs_kind_status", "kind", "status"),
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a detached dashboard-safe representation."""
+        return {
+            "id": self.id,
+            "request_id": self.request_id,
+            "user_id": self.user_id,
+            "kind": self.kind,
+            "status": self.status,
+            "title": self.title,
+            "score": self.score,
+            "result_url": self.result_url,
+            "metadata": self.meta_data,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class RubricResult(Base):
     """Таблица для хранения полных rubric.json."""
 

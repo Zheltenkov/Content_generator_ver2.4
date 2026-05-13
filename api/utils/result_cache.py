@@ -21,6 +21,7 @@ _max_cache_size = int(os.getenv("MAX_RESULT_CACHE_SIZE", "100"))
 _generation_status: dict[str, str] = {}
 _generation_errors: dict[str, str] = {}
 _generation_methodology: dict[str, dict[str, Any]] = {}
+_generation_owners: dict[str, str] = {}
 
 # Активные задачи генерации для возможности отмены
 _active_generation_tasks: dict[str, Any] = {}
@@ -45,6 +46,7 @@ def _evict_if_needed() -> None:
         _generation_status.pop(oldest_request_id, None)
         _generation_errors.pop(oldest_request_id, None)
         _generation_methodology.pop(oldest_request_id, None)
+        _generation_owners.pop(oldest_request_id, None)
 
 
 def store_result(
@@ -52,6 +54,7 @@ def store_result(
     result: OrchestratorResult,
     regenerated: dict[str, Any] | None = None,
     user_id: str | None = None,
+    project_seed_payload: dict[str, Any] | None = None,
 ) -> None:
     """
     Сохраняет результат генерации в кэш.
@@ -60,6 +63,7 @@ def store_result(
         request_id: ID запроса
         result: Результат генерации
         regenerated: Перегенерированные данные (опционально)
+        project_seed_payload: Исходный ProjectSeed payload для downstream regeneration/review
     """
     markdown = normalize_markdown_display_blocks(result.report_json.get("markdown", ""))
     if result.report_json.get("markdown") != markdown:
@@ -86,9 +90,12 @@ def store_result(
         "assets": result.assets,
         "flow_trace": result.flow_trace,
         "methodology": report_json_clean.get("methodology_gate"),
+        "project_seed_payload": convert_numpy_types(project_seed_payload) if project_seed_payload else None,
         "user_id": user_id,
         "created_at": datetime.utcnow(),
     }
+    if user_id:
+        _generation_owners[request_id] = user_id
     if isinstance(report_json_clean.get("methodology_gate"), dict):
         set_generation_methodology(request_id, report_json_clean["methodology_gate"])
     _evict_if_needed()
@@ -121,6 +128,7 @@ def get_result(request_id: str) -> dict[str, Any] | None:
     created_at = _normalize_created_at(cached.get("created_at"))
     if created_at is None:
         del _result_cache[request_id]
+        _generation_owners.pop(request_id, None)
         return None
 
     age = datetime.utcnow() - created_at
@@ -130,6 +138,7 @@ def get_result(request_id: str) -> dict[str, Any] | None:
         _generation_status.pop(request_id, None)
         _generation_errors.pop(request_id, None)
         _generation_methodology.pop(request_id, None)
+        _generation_owners.pop(request_id, None)
         return None
 
     _result_cache.move_to_end(request_id)
@@ -148,6 +157,7 @@ def clear_result(request_id: str) -> None:
     _generation_status.pop(request_id, None)
     _generation_errors.pop(request_id, None)
     _generation_methodology.pop(request_id, None)
+    _generation_owners.pop(request_id, None)
 
 
 def clear_expired() -> None:
@@ -165,6 +175,7 @@ def clear_expired() -> None:
         _generation_status.pop(request_id, None)
         _generation_errors.pop(request_id, None)
         _generation_methodology.pop(request_id, None)
+        _generation_owners.pop(request_id, None)
 
 
 def set_generation_status(request_id: str, status: str) -> None:
@@ -177,6 +188,24 @@ def set_generation_status(request_id: str, status: str) -> None:
     """
     _generation_status[request_id] = status
     logger.debug(f"Статус генерации установлен: request_id={request_id}, status={status}")
+
+
+def set_generation_owner(request_id: str, user_id: str) -> None:
+    """Сохраняет владельца runtime-задачи для пользовательских dashboard-сводок."""
+    _generation_owners[request_id] = user_id
+
+
+def get_active_generation_count(user_id: str | None = None) -> int:
+    """Возвращает количество активных генераций, при необходимости только пользователя."""
+    active_statuses = {"pending", "in_progress", "needs_review"}
+    count = 0
+    for request_id, status in _generation_status.items():
+        if status not in active_statuses:
+            continue
+        if user_id is not None and _generation_owners.get(request_id) != user_id:
+            continue
+        count += 1
+    return count
 
 
 def get_generation_status(request_id: str) -> str | None:

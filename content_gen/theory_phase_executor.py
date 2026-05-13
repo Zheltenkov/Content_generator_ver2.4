@@ -9,12 +9,21 @@ from typing import Any
 from .config.thresholds import THRESHOLDS
 from .domain_contracts import StaticInstructionLeakGuard
 from .generation_runtime import GenerationRuntimeContainer
+from .models.phase_results import TheoryPhaseResult
+from .models.readme_document import ReadmeDocument, ReadmeSection
 from .models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
+from .observability import record_runtime_fallback_traces
+from .readme_document_pipeline import (
+    replace_readme_chapter_body,
+    replace_readme_chapter_body_document,
+    replace_readme_chapter_children_document,
+)
+from .recovery import ModelOutputNormalizer
 from .utils.cancellation import CancelledError
 from .utils.markdown_display_normalizer import normalize_markdown_display_blocks
-from .utils.markdown_helpers import clean_duplicate_chapter_headers, replace_chapter_content
+from .utils.markdown_helpers import clean_duplicate_chapter_headers
 
-logger = logging.getLogger("content_gen.orchestrator.phases.phase_2")
+logger = logging.getLogger("content_gen.theory_phase_executor")
 
 
 def _remove_static_instruction_leaks(text: str, *, topic_text: str = "") -> str:
@@ -90,8 +99,8 @@ def _render_theory_part_markdown(part: Any, part_index: int) -> str:
 
 def _parse_theory_part_markdown(markdown: str) -> tuple[str, str, str, list[str]]:
     """Parse regenerated theory markdown into title/body/example/questions."""
-    text = (markdown or "").strip()
-    header_match = re.search(r"^###\s+(?:2\.\d+|Часть\s+\d+)\.\s*(.+?)\s*$", text, flags=re.M)
+    text = ModelOutputNormalizer().normalize_theory_markdown(markdown or "").markdown.strip()
+    header_match = re.search(r"^###\s+2\.\d+\.\s*(.+?)\s*$", text, flags=re.M)
     title = header_match.group(1).strip() if header_match else ""
 
     content = text[header_match.end():].strip() if header_match else text
@@ -119,26 +128,6 @@ def _parse_theory_part_markdown(markdown: str) -> tuple[str, str, str, list[str]
     return title, body, example, questions
 
 
-def _execute_theory_phase(
-    orchestrator,
-    seed: ProjectSeed,
-    context_meta: ProjectContextMeta,
-    md: str,
-    practice_plan_contract: Any | None = None,
-    section_context: dict[str, Any] | None = None,
-) -> tuple[str, list[TheoryPart], list[Any], list[str]]:
-    """
-    Phase 2: Теория с проверками и локальной Regeneration.
-    """
-    return TheoryPhaseExecutor(orchestrator).execute(
-        seed,
-        context_meta,
-        md,
-        practice_plan_contract=practice_plan_contract,
-        section_context=section_context,
-    )
-
-
 class TheoryPhaseExecutor:
     """Execute Phase 2 theory generation, checks, and local repair."""
 
@@ -152,18 +141,26 @@ class TheoryPhaseExecutor:
         markdown: str,
         practice_plan_contract: Any | None = None,
         section_context: dict[str, Any] | None = None,
-    ) -> tuple[str, list[TheoryPart], list[Any], list[str]]:
+    ) -> TheoryPhaseResult:
         """Run the full theory phase through explicit, testable sub-steps."""
         theory_res = self.generate_parts(seed, context_meta, practice_plan_contract, section_context)
         self.process_parts(theory_res, seed)
         initial_checks_result, warnings = self.repair_initial_issues(theory_res, seed)
         self.enhance_parts(theory_res, seed)
         self.repair_post_edit_issues(theory_res, seed, warnings)
-        markdown = self.render_markdown(markdown, theory_res.parts, seed)
-        markdown = self.apply_completeness_check(markdown, seed, context_meta, warnings)
+        readme_document = self.render_document(ReadmeDocument.from_markdown(markdown), theory_res.parts, seed)
+        readme_document = self.apply_completeness_check_document(readme_document, seed, context_meta, warnings)
         final_issues = self.finalize_checks(theory_res.parts, initial_checks_result, warnings)
         self.runtime.theory_parts = list(theory_res.parts)
-        return normalize_markdown_display_blocks(markdown), theory_res.parts, final_issues, warnings
+        final_markdown = normalize_markdown_display_blocks(readme_document.to_markdown())
+        readme_document = ReadmeDocument.from_markdown(final_markdown)
+        return TheoryPhaseResult(
+            markdown=final_markdown,
+            readme_document=readme_document,
+            theory_parts=list(theory_res.parts),
+            issues=final_issues,
+            warnings=warnings,
+        )
 
     def generate_parts(
         self,
@@ -177,18 +174,13 @@ class TheoryPhaseExecutor:
         lo, hi = THRESHOLDS["theory_parts"]
         desired_parts = random.randint(lo, hi)
         practice_plan_contract = practice_plan_contract or getattr(self.runtime, "practice_plan_contract", None)
-        try:
-            theory_res = self.runtime.theory.generate(
-                seed,
-                context_meta,
-                desired_parts=desired_parts,
-                practice_plan_contract=practice_plan_contract,
-                section_context=section_context,
-            )
-        except TypeError as exc:
-            if "unexpected keyword" not in str(exc):
-                raise
-            theory_res = self.runtime.theory.generate(seed, context_meta, desired_parts=desired_parts)
+        theory_res = self.runtime.theory.generate(
+            seed,
+            context_meta,
+            desired_parts=desired_parts,
+            practice_plan_contract=practice_plan_contract,
+            section_context=section_context,
+        )
         self.runtime.theory_parts = list(theory_res.parts)
         return theory_res
 
@@ -341,15 +333,20 @@ class TheoryPhaseExecutor:
     def enhance_parts(self, theory_res: Any, seed: ProjectSeed) -> None:
         """Enhance, edit, and polish generated theory parts."""
         logger.info("🔄 Phase 2 | TheoryEnhancementAgent")
-        enhanced_parts, _, _ = self.runtime.theory_enhancement.enhance(
+        enhanced_parts, enhancement_plan, _ = self.runtime.theory_enhancement.enhance(
             parts=theory_res.parts,
             seed=seed,
         )
+        self._record_fallback_traces(list(getattr(enhancement_plan, "fallback_traces", []) or []))
         theory_res.parts = enhanced_parts
 
         logger.info("🔄 Phase 2 | ContentEditor.edit_theory_parts")
         theory_res.parts = self.runtime.content_editor.edit_theory_parts(theory_res.parts, seed)
         theory_res.parts = [_polish_theory_part(self.runtime, part, seed) for part in theory_res.parts]
+
+    def _record_fallback_traces(self, events: list[dict[str, Any]]) -> None:
+        """Store fallback events on runtime when the container supports it."""
+        record_runtime_fallback_traces(self.runtime, events)
 
     def repair_post_edit_issues(self, theory_res: Any, seed: ProjectSeed, warnings: list[str]) -> None:
         """Run final local repair after enhancement/editor passes."""
@@ -381,21 +378,53 @@ class TheoryPhaseExecutor:
                 except Exception as exc:
                     warnings.append(f"Не удалось выполнить финальную коррекцию части {issue.part_index}: {exc}")
 
-    def render_markdown(self, markdown: str, parts: list[Any], seed: ProjectSeed) -> str:
-        """Render theory parts into Chapter 2 and clean duplicated headers."""
-        topic_text = self._topic_text(seed)
-        theory_md = []
-        for i, part in enumerate(parts, 1):
-            clean_body = self._clean_theory_body(part.body, topic_text)
-            qs = "\n".join(f"- {q}" for q in part.bridge_questions)
-            theory_md.append(
-                f"### 2.{i}. {part.title}\n\n{clean_body}\n\n**Пример:** {part.example}\n\n**Вопросы к практике:**\n{qs}\n"
-            )
+    def render_document(
+        self,
+        readme_document: ReadmeDocument,
+        parts: list[Any],
+        seed: ProjectSeed,
+    ) -> ReadmeDocument:
+        """Render theory parts into Chapter 2 of the typed README document."""
+        updated, changed = replace_readme_chapter_children_document(
+            readme_document,
+            2,
+            self._render_theory_sections(parts, seed),
+            language=seed.language,
+        )
+        return updated if changed else readme_document
 
-        markdown = replace_chapter_content(markdown, 2, "\n".join(theory_md), seed.language)
+    def render_markdown(self, markdown: str, parts: list[Any], seed: ProjectSeed) -> str:
+        """Legacy Markdown render wrapper for partial snippets and external callers."""
+        theory_body = self._render_theory_body(parts, seed)
+        markdown = replace_readme_chapter_body(markdown, 2, theory_body, language=seed.language)
         markdown = normalize_markdown_display_blocks(markdown)
         markdown = self._remove_duplicate_chapter2_headers(markdown)
         return clean_duplicate_chapter_headers(markdown, seed.language)
+
+    def _render_theory_body(self, parts: list[Any], seed: ProjectSeed) -> str:
+        """Build the public Chapter 2 body from structured theory parts."""
+        return "\n\n".join(section.to_markdown() for section in self._render_theory_sections(parts, seed))
+
+    def _render_theory_sections(self, parts: list[Any], seed: ProjectSeed) -> list[ReadmeSection]:
+        """Build typed public Chapter 2 sections from structured theory parts."""
+        topic_text = self._topic_text(seed)
+        sections: list[ReadmeSection] = []
+        for i, part in enumerate(parts, 1):
+            clean_body = self._clean_theory_body(part.body, topic_text)
+            qs = "\n".join(f"- {q}" for q in part.bridge_questions)
+            body = (
+                f"{clean_body}\n\n"
+                f"**Пример:** {part.example}\n\n"
+                f"**Вопросы к практике:**\n{qs}"
+            )
+            sections.append(
+                ReadmeSection(
+                    title=f"2.{i}. {part.title}",
+                    level=3,
+                    body=body.strip(),
+                )
+            )
+        return sections
 
     @staticmethod
     def _topic_text(seed: ProjectSeed) -> str:
@@ -441,12 +470,28 @@ class TheoryPhaseExecutor:
         context_meta: ProjectContextMeta,
         warnings: list[str],
     ) -> str:
-        """Optionally enhance theory in README-improvement mode."""
+        """Legacy Markdown wrapper for the typed completeness check."""
+        document = self.apply_completeness_check_document(
+            ReadmeDocument.from_markdown(markdown),
+            seed,
+            context_meta,
+            warnings,
+        )
+        return normalize_markdown_display_blocks(document.to_markdown())
+
+    def apply_completeness_check_document(
+        self,
+        readme_document: ReadmeDocument,
+        seed: ProjectSeed,
+        context_meta: ProjectContextMeta,
+        warnings: list[str],
+    ) -> ReadmeDocument:
+        """Optionally enhance theory in README-improvement mode on the typed document."""
         try:
             import sys
 
             if "api.utils.logging_context" not in sys.modules:
-                return markdown
+                return readme_document
 
             from api.utils.improvement_cache import get_extract_request_id, get_extracted_data, get_original_readme
             from api.utils.logging_context import get_request_id
@@ -455,23 +500,29 @@ class TheoryPhaseExecutor:
 
             generation_request_id = get_request_id()
             if not generation_request_id:
-                return markdown
+                return readme_document
             extract_request_id = get_extract_request_id(generation_request_id)
             if not extract_request_id:
-                return markdown
+                return readme_document
 
             logger.info("🔄 Phase 2 | TheoryCompletenessAgent (режим улучшения README)")
             original_readme = get_original_readme(extract_request_id)
             extracted_data = get_extracted_data(extract_request_id)
             if not (original_readme and extracted_data):
-                return markdown
+                return readme_document
 
             partial_seed, _classification = extracted_data
             extracted_topics, extracted_tools = self._extract_completeness_inputs(partial_seed, original_readme)
 
             if self.runtime.theory_completeness is None:
-                self.runtime.theory_completeness = TheoryCompletenessAgent(self.runtime.llm)
+                llm_client = (
+                    self.runtime.llm_for("theory", "TheoryCompletenessAgent", "theory_completeness")
+                    if hasattr(self.runtime, "llm_for")
+                    else self.runtime.llm
+                )
+                self.runtime.theory_completeness = TheoryCompletenessAgent(llm_client)
 
+            markdown = readme_document.to_markdown()
             enhanced_md, completeness_warnings, completeness_issues = self.runtime.theory_completeness.check_and_enhance(
                 theory_markdown=markdown,
                 original_readme=original_readme,
@@ -483,15 +534,15 @@ class TheoryPhaseExecutor:
 
             if enhanced_md != markdown:
                 logger.info("✅ Теория дополнена недостающими темами и инструментами")
-                markdown = self._replace_with_enhanced_theory(markdown, enhanced_md, seed)
+                readme_document = self._replace_with_enhanced_theory_document(readme_document, enhanced_md, seed)
 
             warnings.extend(completeness_warnings)
             warnings.extend(str(issue) for issue in completeness_issues[:3] if issue)
         except ImportError:
-            return markdown
+            return readme_document
         except Exception as e:
             logger.warning(f"⚠️ Не удалось проверить полноту теории: {e}")
-        return markdown
+        return readme_document
 
     @staticmethod
     def _extract_completeness_inputs(partial_seed: Any, original_readme: str) -> tuple[list[str], list[str]]:
@@ -518,6 +569,21 @@ class TheoryPhaseExecutor:
     @staticmethod
     def _replace_with_enhanced_theory(markdown: str, enhanced_markdown: str, seed: ProjectSeed) -> str:
         """Replace Chapter 2 with the enhanced theory content when possible."""
+        document = ReadmeDocument.from_markdown(markdown)
+        updated = TheoryPhaseExecutor._replace_with_enhanced_theory_document(
+            document,
+            enhanced_markdown,
+            seed,
+        )
+        return normalize_markdown_display_blocks(updated.to_markdown())
+
+    @staticmethod
+    def _replace_with_enhanced_theory_document(
+        readme_document: ReadmeDocument,
+        enhanced_markdown: str,
+        seed: ProjectSeed,
+    ) -> ReadmeDocument:
+        """Replace Chapter 2 with enhanced theory in a typed README document."""
         chapter_2_match = re.search(
             r"(##\s+Глава\s+2[^\n]*\n)(.*?)(?=\n##\s+Глава\s+3|\Z)",
             enhanced_markdown,
@@ -525,10 +591,15 @@ class TheoryPhaseExecutor:
         )
         if chapter_2_match:
             chapter_2_content = chapter_2_match.group(2).strip()
-            markdown = replace_chapter_content(markdown, 2, chapter_2_content, seed.language)
-        else:
-            markdown = enhanced_markdown
-        return normalize_markdown_display_blocks(markdown)
+            updated, changed = replace_readme_chapter_body_document(
+                readme_document,
+                2,
+                chapter_2_content,
+                language=seed.language,
+            )
+            if changed:
+                return updated
+        return ReadmeDocument.from_markdown(enhanced_markdown)
 
     def finalize_checks(
         self,

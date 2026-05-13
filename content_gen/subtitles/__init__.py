@@ -1,5 +1,5 @@
-"""Пайплайн: видео -> транскрипция (Whisper) -> перевод сегментов -> SRT/VTT."""
+"""Subtitle pipeline helpers."""
 
-from .pipeline import run_video_to_subtitles_pipeline
+from .pipeline import build_srt, build_vtt, extract_audio, transcribe
 
-__all__ = ["run_video_to_subtitles_pipeline"]
+__all__ = ["build_srt", "build_vtt", "extract_audio", "transcribe"]

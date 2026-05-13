@@ -3,112 +3,300 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🎓 Школа 21 — Выбор режима</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <style>
-        .mode-container {
-            max-width: 900px;
-            margin: 4rem auto;
-            padding: 2rem;
-            background: rgba(10, 14, 39, 0.9);
-            border-radius: 12px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            border: 1px solid rgba(118, 75, 162, 0.4);
-            text-align: center;
-        }
-        .mode-header h1 {
-            color: #64ffda;
-            margin-bottom: 0.5rem;
-        }
-        .mode-header p {
-            color: #b8c5d6;
-            margin-bottom: 2rem;
-        }
-        .mode-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-            gap: 1.5rem;
-        }
-        .mode-card {
-            background: rgba(20, 25, 50, 0.8);
-            border-radius: 10px;
-            padding: 1.5rem;
-            border: 1px solid rgba(118, 75, 162, 0.4);
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            text-align: left;
-        }
-        .mode-card h2 {
-            color: #e0e6ed;
-            margin-bottom: 0.5rem;
-        }
-        .mode-card p {
-            color: #b8c5d6;
-            font-size: 0.95rem;
-            margin-bottom: 1rem;
-        }
-        .mode-card ul {
-            color: #b8c5d6;
-            font-size: 0.9rem;
-            margin-left: 1.25rem;
-            margin-bottom: 1rem;
-        }
-        .mode-card .btn {
-            width: 100%;
-        }
-    </style>
+    <title>Школа 21 — Генератор учебных проектов</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
+    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260513-dashboard-align">
 </head>
-<body>
-    <div class="container">
-        <div class="mode-container">
-            <div class="mode-header">
-                <h1>🎓 Генератор учебных проектов</h1>
-                <p>Выберите режим работы</p>
+<body class="s21-product page-menu">
+    <header class="dashboard-header">
+        <a class="dashboard-brand" href="/app" aria-label="Главная">
+            <span class="dashboard-brand-mark">ГЛАВНАЯ</span>
+            <span class="dashboard-brand-sub">учебных проектов · v 2.4</span>
+        </a>
+
+        <nav class="dashboard-nav" aria-label="Основные разделы">
+            <a href="/app" class="active">Главная</a>
+            <a href="/app/generate">Генерация</a>
+            <a href="/app/check">Проверка</a>
+            <a href="/app/translate">Перевод</a>
+            <a href="/docs" target="_blank" rel="noopener">Документация</a>
+        </nav>
+
+        <div class="dashboard-header-actions">
+            <div class="dashboard-lang" aria-label="Язык интерфейса">
+                <span class="active">RU</span>
+                <span>EN</span>
             </div>
-            <div class="mode-grid">
-                <div class="mode-card">
-                    <h2>🚀 Генерация README</h2>
-                    <p>Полный пайплайн: от задумки до итогового README с теорией, практикой и критериями.</p>
+            <button class="dashboard-user" type="button" onclick="handleLogout()" title="Выйти">
+                <span class="dashboard-user-avatar" id="dashboardUserInitials">U</span>
+                <span id="dashboardUserName">Пользователь</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="dashboard-shell">
+        <section class="dashboard-hero" aria-labelledby="dashboardTitle">
+            <div class="dashboard-hero-copy">
+                <div class="dashboard-kicker">• ГЛАВНАЯ · V 2.4</div>
+                <h1 id="dashboardTitle">Генератор учебных проектов</h1>
+                <p>Выберите режим работы. Все три инструмента работают с одной методологической базой и общими словарями.</p>
+                <div class="dashboard-meta-row" aria-label="Состояние сервиса">
+                    <span class="dashboard-service"><span></span>Сервис доступен</span>
+                    <span class="dashboard-dot"></span>
+                    <span>Последний запуск: <strong id="dashboardLastRun">—</strong></span>
+                    <span class="dashboard-dot"></span>
+                    <span>Активных задач: <strong id="dashboardActiveTasks">0</strong></span>
+                </div>
+            </div>
+            <div class="dashboard-mosaic" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+            </div>
+        </section>
+
+        <section class="dashboard-mode-grid" aria-label="Режимы работы">
+            <article class="dashboard-mode-card">
+                <div class="dashboard-card-art art-generate">
+                    <div class="art-doc light"></div>
+                    <span class="art-plus">+</span>
+                    <div class="art-doc dark"><span></span></div>
+                </div>
+                <div class="dashboard-card-body">
+                    <div class="dashboard-card-index">РЕЖИМ / 01</div>
+                    <h2>Генерация README</h2>
+                    <p>Полный пайплайн: от паспорта программы до итогового документа с теорией, практикой и критериями.</p>
                     <ul>
-          <li>Анализ учебного плана и ЗУНов</li>
+                        <li>Анализ учебного плана и ЗУНов</li>
                         <li>План практики, задачи и критерии</li>
                         <li>Диаграммы, формулы, отчёты</li>
                     </ul>
-                    <button class="btn" onclick="goToGenerator()">Перейти к генератору</button>
+                    <button class="dashboard-primary-action" onclick="goToGenerator()">Перейти к генератору <span>→</span></button>
                 </div>
-                <div class="mode-card">
-                    <h2>✅ Проверка README</h2>
-                    <p>Загрузите готовый README.md и получите разбор по всем критериям с комментариями.</p>
+            </article>
+
+            <article class="dashboard-mode-card">
+                <div class="dashboard-card-art art-check">
+                    <div class="art-report">
+                        <span class="art-line short"></span>
+                        <span class="art-line wide"></span>
+                        <span class="art-line"></span>
+                        <div class="art-report-score">87%</div>
+                        <div class="art-report-tags"><span>35 ✓</span><span>4 ×</span></div>
+                    </div>
+                </div>
+                <div class="dashboard-card-body">
+                    <div class="dashboard-card-index">РЕЖИМ / 02</div>
+                    <h2>Проверка README</h2>
+                    <p>Загрузите готовый README.md и получите разбор по 39 критериям с понятными комментариями.</p>
                     <ul>
-                        <li>Все 39 критериев проверки</li>
-                        <li>Комментарии, что улучшить и почему</li>
-                        <li>Текстовые метрики и структура</li>
+                        <li>Все 39 критериев качества</li>
+                        <li>Что улучшить и почему — текстом</li>
+                        <li>Метрики и структура документа</li>
                     </ul>
-                    <button class="btn" onclick="goToChecker()">Перейти к проверке</button>
+                    <button class="dashboard-primary-action" onclick="goToChecker()">Перейти к проверке <span>→</span></button>
                 </div>
-                <div class="mode-card">
-                    <h2>🌐 Перевод README</h2>
-                    <p>Переведите любой README или другой markdown-документ на нужный язык с сохранением структуры.</p>
+            </article>
+
+            <article class="dashboard-mode-card">
+                <div class="dashboard-card-art art-translate">
+                    <div class="art-lang-card light">RU<span></span></div>
+                    <span class="art-arrow">→</span>
+                    <div class="art-lang-card dark">EN<span></span></div>
+                </div>
+                <div class="dashboard-card-body">
+                    <div class="dashboard-card-index">РЕЖИМ / 03</div>
+                    <h2>Перевод документов и видео</h2>
+                    <p>Переведите README или Markdown с сохранением структуры. Также доступны видео и субтитры.</p>
                     <ul>
-                        <li>Сохранение структуры Markdown и формул</li>
-                        <li>Поддержка диаграмм Mermaid и таблиц</li>
-                        <li>Скачивание переведённого README</li>
+                        <li>Markdown, формулы и таблицы целые</li>
+                        <li>Поддержка Mermaid-диаграмм</li>
+                        <li>Субтитры VTT/SRT и видео-перевод</li>
                     </ul>
-                    <button class="btn" onclick="goToTranslator()">Перейти к переводу</button>
+                    <button class="dashboard-primary-action" onclick="goToTranslator()">Перейти к переводу <span>→</span></button>
                 </div>
+            </article>
+        </section>
+
+        <section class="dashboard-recent" aria-labelledby="recentRunsTitle">
+            <div class="dashboard-section-head">
+                <h2 id="recentRunsTitle">Недавние запуски</h2>
+                <button class="dashboard-link-button" type="button" onclick="loadDashboardRecent(20)">Все запуски →</button>
             </div>
-        </div>
-    </div>
+            <div class="dashboard-recent-list" id="dashboardRecentRuns">
+                <div class="dashboard-recent-empty">Загружаю последние запуски...</div>
+            </div>
+        </section>
+    </main>
+
     <script>
-        // Простейшая проверка токена: если его нет — отправляем на / (login)
-        (function() {
+        const API_URL = `${window.location.origin}/api/v1`;
+
+        function getAuthHeaders() {
+            const token = localStorage.getItem('auth_token');
+            return token ? { Authorization: `Bearer ${token}` } : {};
+        }
+
+        function clearAuthState() {
+            localStorage.removeItem('auth_token');
+            localStorage.removeItem('user_id');
+            localStorage.removeItem('username');
+            localStorage.removeItem('email');
+            localStorage.removeItem('session_id');
+        }
+
+        function redirectToLogin() {
+            clearAuthState();
+            window.location.replace('/');
+        }
+
+        function ensureAuth() {
             const token = localStorage.getItem('auth_token');
             if (!token) {
-                window.location.replace('/');
+                redirectToLogin();
+                return false;
+            }
+            return true;
+        }
+
+        function resolveDisplayName(user = {}) {
+            return user.username || localStorage.getItem('username') || localStorage.getItem('email') || 'Пользователь';
+        }
+
+        function resolveInitials(name) {
+            const clean = String(name || '').trim();
+            if (!clean) return 'U';
+            const parts = clean.replace(/@.*$/, '').split(/[.\s_-]+/).filter(Boolean);
+            if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+            return clean.slice(0, 2).toUpperCase();
+        }
+
+        function updateUserHeader(user = {}) {
+            const name = resolveDisplayName(user);
+            document.getElementById('dashboardUserName').textContent = name;
+            document.getElementById('dashboardUserInitials').textContent = resolveInitials(name);
+        }
+
+        function formatRunTime(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return '—';
+            const now = new Date();
+            const sameDay = date.toDateString() === now.toDateString();
+            const yesterday = new Date(now);
+            yesterday.setDate(now.getDate() - 1);
+            const time = date.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+            if (sameDay) return `сегодня, ${time}`;
+            if (date.toDateString() === yesterday.toDateString()) return `вчера, ${time}`;
+            return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit' }) + `, ${time}`;
+        }
+
+        function recentStatusClass(status) {
+            if (status === 'completed') return 'success';
+            if (status === 'failed' || status === 'cancelled') return 'danger';
+            return 'info';
+        }
+
+        function renderRecentRuns(items) {
+            const container = document.getElementById('dashboardRecentRuns');
+            if (!items || items.length === 0) {
+                container.innerHTML = '<div class="dashboard-recent-empty">Пока нет запусков. Начните с генерации README.</div>';
                 return;
             }
-        })();
+            container.innerHTML = items.map((item) => `
+                <article class="dashboard-run-row">
+                    <div class="dashboard-run-icon" aria-hidden="true"></div>
+                    <div class="dashboard-run-main">
+                        <h3>${escapeHtml(item.title || 'README project')}</h3>
+                        <p>${formatRunTime(item.updated_at || item.created_at)}</p>
+                    </div>
+                    <div class="dashboard-run-meta">
+                        <span class="dashboard-run-chip">${escapeHtml(item.kind_label || 'ГЕНЕРАЦИЯ')}</span>
+                        <span class="dashboard-run-chip ${recentStatusClass(item.status)}">• ${escapeHtml(item.status_label || item.status || 'ГОТОВО')}</span>
+                        <span class="dashboard-run-score">${escapeHtml(item.score?.label || '—')}</span>
+                    </div>
+                    <button class="dashboard-run-open" type="button" onclick="openRecentRun('${item.request_id}', '${item.kind || ''}', '${item.open_url || ''}', '${item.download_url || ''}')">Открыть</button>
+                </article>
+            `).join('');
+        }
+
+        async function openRecentRun(requestId, kind, openUrl, downloadUrl) {
+            const normalizedKind = String(kind || '').toLowerCase();
+            if (openUrl && normalizedKind !== 'generation' && normalizedKind !== 'regeneration') {
+                window.location.href = openUrl;
+                return;
+            }
+            try {
+                const response = await fetch(`${API_URL}/generate/status/${requestId}`, { headers: getAuthHeaders() });
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'completed' && data.result) {
+                        sessionStorage.setItem('generation_state', JSON.stringify({
+                            requestId,
+                            result: data.result,
+                            markdown: data.result.markdown || '',
+                            originalMarkdown: data.result.markdown || '',
+                            timestamp: Date.now()
+                        }));
+                        window.location.href = '/app/generate';
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.warn('Не удалось открыть результат из runtime cache:', error);
+            }
+            if (downloadUrl) {
+                await downloadRecentRun(downloadUrl, requestId);
+            }
+        }
+
+        async function downloadRecentRun(downloadUrl, requestId) {
+            const response = await fetch(downloadUrl, { headers: getAuthHeaders() });
+            if (!response.ok) {
+                alert('Не удалось открыть запуск. Результат не найден или нет доступа.');
+                return;
+            }
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `generation_${requestId}.zip`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        }
+
+        async function loadDashboardRecent(limit = 6) {
+            const container = document.getElementById('dashboardRecentRuns');
+            try {
+                const response = await fetch(`${API_URL}/dashboard/recent?limit=${limit}`, { headers: getAuthHeaders() });
+                if (response.status === 401) {
+                    redirectToLogin();
+                    return;
+                }
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                updateUserHeader(data.user || {});
+                document.getElementById('dashboardActiveTasks').textContent = String(data.active_tasks || 0);
+                document.getElementById('dashboardLastRun').textContent = formatRunTime(data.last_run_at);
+                renderRecentRuns(data.items || []);
+            } catch (error) {
+                console.error('Ошибка загрузки dashboard:', error);
+                container.innerHTML = '<div class="dashboard-recent-empty">Не удалось загрузить недавние запуски.</div>';
+            }
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
 
         function goToGenerator() {
             window.location.href = '/app/generate';
@@ -121,7 +309,21 @@
         function goToTranslator() {
             window.location.href = '/app/translate';
         }
+
+        async function handleLogout() {
+            try {
+                await fetch(`${API_URL}/auth/logout`, { method: 'POST', headers: getAuthHeaders() });
+            } catch (error) {
+                console.warn('Logout request failed:', error);
+            }
+            clearAuthState();
+            window.location.replace('/');
+        }
+
+        if (ensureAuth()) {
+            updateUserHeader();
+            loadDashboardRecent();
+        }
     </script>
 </body>
 </html>
-

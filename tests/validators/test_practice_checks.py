@@ -79,6 +79,7 @@ def test_practice_checks_report_missing_p2p_and_keep_approach_under_254():
     result = PracticeChecks(language="ru", expected_tasks=1).check([task])
 
     assert any(issue.criterion_id == "2.5.6" and issue.severity == "hard" for issue in result.all_issues)
+    assert any(issue.message.startswith("Задание 1 'Инструкция для тестирования API'") for issue in result.all_issues)
     assert not any(issue.criterion_id == "2.5.3" and "подход содержит" in issue.message for issue in result.all_issues)
 
 

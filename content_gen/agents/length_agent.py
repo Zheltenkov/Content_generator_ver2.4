@@ -179,9 +179,8 @@ class LengthAgent:
 
                 regenerated_body = regenerated_body.strip()
 
-                # Удаляем заголовок, если LLM его добавил
-                regenerated_body = re.sub(r'^###\s+Часть\s+\d+\.\s*[^\n]+\n+', '', regenerated_body, flags=re.M)
-                regenerated_body = re.sub(r'^\*\*Часть\s+\d+[^\*]+\*\*\s*\n+', '', regenerated_body, flags=re.M)
+                # Удаляем канонический заголовок раздела, если LLM его добавил.
+                regenerated_body = re.sub(r'^###\s+2\.\d+\.\s*[^\n]+\n+', '', regenerated_body, flags=re.M)
                 regenerated_body = regenerated_body.strip()
 
                 # Применяем StyleGuard

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from ..config.banned_phrases import BAD_GOAL_PATTERNS, BANNED_BY_LANG
 from ..config.loader import get_agent_config
+from ..models.readme_document import ReadmeDocument
 
 
 @dataclass
@@ -49,15 +50,6 @@ class StyleGuardAgent:
         self.eval_labels_rx = re.compile(
             r"\b(правильно|неправильно|плохо|хорошо|верно|неверно)\b", re.I
         )
-
-    def run(self, input_data: dict[str, str]) -> dict[str, list[LintIssue] | str]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        op = input_data.get("op", "lint")
-        text = input_data.get("text", "")
-        language = input_data.get("language", "ru")
-        if op == "rewrite":
-            return {"result": self.rewrite(text, language)}
-        return {"result": self.lint(text, language)}
 
     def _auto_rephrase_directive(self, text: str, language: str) -> str:
         """
@@ -248,6 +240,10 @@ class StyleGuardAgent:
 
         return issues
 
+    def lint_document(self, document: ReadmeDocument, language: str) -> list[LintIssue]:
+        """Lint a typed README while keeping Markdown as an output boundary."""
+        return self.lint(document.to_markdown(), language)
+
     def _fix_quotes(self, text: str, language: str) -> str:
         """
         Заменяет прямые кавычки на кавычки-елочки для русского языка.
@@ -371,3 +367,8 @@ class StyleGuardAgent:
         if self.auto_fix_quotes:
             t = self._fix_quotes(t, language)
         return t
+
+    def rewrite_document(self, document: ReadmeDocument, language: str) -> ReadmeDocument:
+        """Rewrite style and return a typed README document for the next pipeline step."""
+        rewritten = self.rewrite(document.to_markdown(), language)
+        return ReadmeDocument.from_markdown(rewritten, fallback_title=document.title)

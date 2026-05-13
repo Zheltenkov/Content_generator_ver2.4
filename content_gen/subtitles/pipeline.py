@@ -1,25 +1,11 @@
-"""
-Пайплайн: видео -> извлечение аудио (ffmpeg) -> транскрипция (Whisper) -> батчевый перевод -> SRT/VTT.
-
-Исходный язык можно задать для улучшения качества Whisper.
-Перевод сегментов выполняется батчами через TranslatorAgent.
-"""
+"""Shared subtitle primitives: audio extraction, Whisper transcription and SRT/VTT rendering."""
 
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 from collections.abc import Callable
 from pathlib import Path
-
-from content_gen.agents.translator import TranslatorAgent
-from content_gen.models.schemas import ProjectSeed
-
-# Максимум символов в одном батче для перевода (чтобы не превышать лимит контекста)
-SUBTITLE_BATCH_CHARS = 2500
-# Максимум реплик в одном батче
-SUBTITLE_BATCH_SIZE = 25
 
 # Коды языков для Whisper (ISO 639-1)
 WHISPER_LANGUAGE_MAP = {
@@ -127,6 +113,7 @@ def extract_audio(video_path: str | Path, progress_callback: Callable[[str], Non
             "-i", str(video_path),
             "-vn",
             "-acodec", "libmp3lame",
+            "-ac", "1",
             "-q:a", "4",
             "-ar", "16000",
             out_path,
@@ -193,166 +180,3 @@ def transcribe(
     if not segments and getattr(response, "text", None):
         segments = [{"start": 0.0, "end": 0.0, "text": str(getattr(response, "text", "") or "").strip()}]
     return segments
-
-
-def _translate_batch(
-    translator: TranslatorAgent,
-    lines: list[str],
-    target_language: str,
-    target_lang_name: str,
-    seed: ProjectSeed,
-) -> list[str]:
-    """Переводит один батч пронумерованных строк. Возвращает список переведённых строк в том же порядке."""
-    if not lines:
-        return []
-    numbered = "\n".join(f"{i+1}. {line}" for i, line in enumerate(lines))
-    prompt = (
-        f"Переведи следующие пронумерованные строки на {target_lang_name}. "
-        "Сохрани нумерацию в формате 1. 2. 3. Выведи только переведённые строки, без заголовков."
-    )
-    system = f"Ты переводчик. Переводишь только текст на {target_lang_name}. Сохраняй нумерацию 1. 2. 3."
-    out = translator.llm.complete(system=system, user=f"{prompt}\n\n{numbered}", temperature=0.2)
-    out = (out or "").strip()
-    result = []
-    for raw_line in out.splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        m = re.match(r"^\s*\d+\.\s*(.+)$", line)
-        if m:
-            result.append(m.group(1).strip())
-        else:
-            result.append(line)
-    if len(result) < len(lines):
-        result.extend(lines[len(result) :])
-    return result[: len(lines)]
-
-
-def translate_segments_batched(
-    segments: list[dict],
-    target_language: str,
-    translator: TranslatorAgent,
-    seed: ProjectSeed,
-    progress_callback: Callable[[str], None] | None = None,
-) -> list[dict]:
-    """
-    Переводит сегменты батчами, сохраняя таймкоды и порядок.
-    """
-    if progress_callback:
-        progress_callback("translate")
-    language_names = {
-        "en": "английский",
-        "kg": "киргизский",
-        "uz": "узбекский",
-        "tg": "таджикский",
-        "ru": "русский",
-    }
-    target_lang_name = language_names.get(target_language, target_language)
-    if target_language == "ru":
-        return segments
-    result: list[dict | None] = [None] * len(segments)
-    batch_lines: list[str] = []
-    batch_indices: list[int] = []
-    total_chars = 0
-    for i, seg in enumerate(segments):
-        text = (seg.get("text") or "").strip()
-        if not text:
-            result[i] = {**seg, "text": ""}
-            continue
-        batch_lines.append(text)
-        batch_indices.append(i)
-        total_chars += len(text)
-        if len(batch_lines) >= SUBTITLE_BATCH_SIZE or total_chars >= SUBTITLE_BATCH_CHARS:
-            out_lines = _translate_batch(
-                translator, batch_lines, target_language, target_lang_name, seed
-            )
-            for j, idx in enumerate(batch_indices):
-                result[idx] = {
-                    **segments[idx],
-                    "text": out_lines[j] if j < len(out_lines) else batch_lines[j],
-                }
-            batch_lines = []
-            batch_indices = []
-            total_chars = 0
-    if batch_lines:
-        out_lines = _translate_batch(
-            translator, batch_lines, target_language, target_lang_name, seed
-        )
-        for j, idx in enumerate(batch_indices):
-            result[idx] = {
-                **segments[idx],
-                "text": out_lines[j] if j < len(out_lines) else batch_lines[j],
-            }
-    return [r for r in result if r is not None]
-
-
-def run_video_to_subtitles_pipeline(
-    video_path: str | Path,
-    target_language: str,
-    source_language: str | None = None,
-    subtitle_format: str = "srt",
-    progress_callback: Callable[[str], None] | None = None,
-    translator: TranslatorAgent | None = None,
-    seed: ProjectSeed | None = None,
-) -> tuple[str, str]:
-    """
-    Полный пайплайн: видео -> аудио -> транскрипция -> перевод -> субтитры.
-
-    Args:
-        video_path: путь к файлу видео
-        target_language: целевой язык перевода (ru, en, kg, uz, tg)
-        source_language: исходный язык речи для Whisper (опционально)
-        subtitle_format: "srt" или "vtt"
-        progress_callback: вызывается с фазами extract_audio, transcribe, translate, build_srt
-        translator: агент перевода (если None, создаётся временный)
-        seed: ProjectSeed для контекста перевода (если None, минимальный)
-
-    Returns:
-        (translated_subtitles, original_transcript)
-        original_transcript — исходный текст с таймкодами (SRT) для справки.
-    """
-    from content_gen.llm.cached_client import CachedLLMClient
-
-    video_path = Path(video_path)
-    if not video_path.is_file():
-        raise FileNotFoundError(f"Видео не найдено: {video_path}")
-
-    if translator is None:
-        llm = CachedLLMClient(provider="openai", enable_cache=True, enable_batching=True)
-        translator = TranslatorAgent(llm)
-    if seed is None:
-        seed = ProjectSeed(
-            language="ru",
-            project_type="individual",
-            project_description="Субтитры к видео",
-        )
-
-    audio_path = None
-    try:
-        audio_path = extract_audio(video_path, progress_callback)
-        segments = transcribe(audio_path, source_language=source_language, progress_callback=progress_callback)
-        if not segments:
-            return "", ""
-
-        original_srt = build_srt(segments)
-        if progress_callback:
-            progress_callback("build_srt")
-
-        translated_segments = translate_segments_batched(
-            segments,
-            target_language,
-            translator,
-            seed,
-            progress_callback,
-        )
-        if subtitle_format.lower() == "vtt":
-            result = build_vtt(translated_segments)
-        else:
-            result = build_srt(translated_segments)
-        return result, original_srt
-    finally:
-        if audio_path and os.path.exists(audio_path):
-            try:
-                os.unlink(audio_path)
-            except OSError:
-                pass

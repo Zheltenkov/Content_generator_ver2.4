@@ -6,12 +6,15 @@ from typing import Any
 
 from ...config.thresholds import THRESHOLDS
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import (
     clean_markdown_prose_for_counting,
     count_prose_words,
     has_term_definitions,
 )
+from ..messages import theory_section_label
+from .document_utils import chapter_content, section_content, theory_part_sections
 
 
 class Chapter2Checker:
@@ -52,7 +55,7 @@ class Chapter2Checker:
     @staticmethod
     def _main_theory_text(part_text: str) -> str:
         """Оставляет основной теоретический блок без примера и вопросов."""
-        part_main = re.sub(r'^###\s+(?:2\.\d+|Часть\s+\d+)\.\s*[^\n]*\n*', '', part_text, flags=re.M)
+        part_main = re.sub(r'^###\s+2\.\d+\.\s*[^\n]*\n*', '', part_text, flags=re.M)
         part_main = part_main.split("**Пример:**", 1)[0]
         part_main = part_main.split("**Вопросы к практике:**", 1)[0]
         return part_main.strip()
@@ -96,7 +99,7 @@ class Chapter2Checker:
                 description=f"Наличие от {lo} до {hi} подразделов третьего уровня (###)",
                 check_method=CheckMethod.SCRIPT,
                 score=0,
-                comments=[f"Частей теории: {n_parts} (ожидалось {lo}–{hi})"],
+                comments=[f"Теоретических разделов: {n_parts} (ожидалось {lo}–{hi})"],
                 parent_id="2.4"
             ))
 
@@ -109,7 +112,7 @@ class Chapter2Checker:
                 description="Каждый подраздел имеет короткое тематическое название",
                 check_method=CheckMethod.AI_AGENT,
                 score=0,
-                comments=["Части теории не найдены"],
+                comments=["Теоретические разделы не найдены"],
                 parent_id="2.4",
                 strictness=StrictnessLevel.SOFT
             ))
@@ -130,7 +133,7 @@ class Chapter2Checker:
             part_titles = []
             for part in parts[:3]:  # Проверяем первые 3
                 title_match = re.search(
-                    r'^###\s+(?:2\.\d+|Часть\s+\d+)\.\s*(.+)$',
+                    r'^###\s+2\.\d+\.\s*(.+)$',
                     ch2_content[part.start():part.end()+200],
                     re.M,
                 )
@@ -152,7 +155,7 @@ class Chapter2Checker:
                     ))
                 except Exception as e:
                     # Ошибка при проверке - возвращаем предупреждение
-                    safe_print(f"⚠️ Ошибка при проверке названий частей: {e}")
+                    safe_print(f"⚠️ Ошибка при проверке названий теоретических разделов: {e}")
                     items.append(CriteriaItem(
                         id="2.4.2",
                         title="Проверка смысловой точности названий подразделов",
@@ -170,12 +173,12 @@ class Chapter2Checker:
                     description="Каждый подраздел имеет короткое тематическое название",
                     check_method=CheckMethod.AI_AGENT,
                     score=0,
-                    comments=["Названия частей не найдены"],
+                    comments=["Названия теоретических разделов не найдены"],
                     parent_id="2.4",
                     strictness=StrictnessLevel.SOFT
                 ))
 
-        # 2.4.3: Проверка объема каждой части
+        # 2.4.3: Проверка объема каждого теоретического раздела
         volume_issues = []
         volume_lo, volume_hi = THRESHOLDS["theory_words_per_part"]
         for i, part in enumerate(parts, 1):
@@ -183,12 +186,12 @@ class Chapter2Checker:
             part_main = self._main_theory_text(part_text)
             w = count_prose_words(part_main, self.lang)
             if not (volume_lo <= w <= volume_hi):
-                volume_issues.append(f"Часть {i}: {w} слов (ожидалось {volume_lo}–{volume_hi})")
+                volume_issues.append(f"{theory_section_label(i)}: {w} слов (ожидалось {volume_lo}–{volume_hi})")
 
         if len(volume_issues) == 0:
             items.append(CriteriaItem(
                 id="2.4.3",
-                title="Проверка объема каждой части",
+                title="Проверка объема каждого теоретического раздела",
                 description=f"Для каждого подраздела: {volume_lo}–{volume_hi} слов",
                 check_method=CheckMethod.SCRIPT,
                 score=1,
@@ -198,7 +201,7 @@ class Chapter2Checker:
         else:
             items.append(CriteriaItem(
                 id="2.4.3",
-                title="Проверка объема каждой части",
+                title="Проверка объема каждого теоретического раздела",
                 description=f"Для каждого подраздела: {volume_lo}–{volume_hi} слов",
                 check_method=CheckMethod.SCRIPT,
                 score=0,
@@ -218,24 +221,24 @@ class Chapter2Checker:
             part_text = ch2_content[part_start:part_end]
             # Сначала ищем определения с жирным выделением (приоритет)
             has_defs, found_defs = has_term_definitions(part_text, self.lang, min_definitions=1, require_bold=True)
-            safe_print(f"      [2.4.4] Часть {i}: найдено {len(found_defs) if found_defs else 0} определений с жирным выделением", flush=True)
+            safe_print(f"      [2.4.4] {theory_section_label(i)}: найдено {len(found_defs) if found_defs else 0} определений с жирным выделением", flush=True)
 
             if has_defs:
                 # Уже есть >=1 определений с жирным - всё ок
-                safe_print(f"      [2.4.4] ✅ Часть {i}: критерий пройден (найдено {len(found_defs)} определений с жирным)", flush=True)
+                safe_print(f"      [2.4.4] ✅ {theory_section_label(i)}: критерий пройден (найдено {len(found_defs)} определений с жирным)", flush=True)
             else:
                 # Если не найдено достаточно с жирным, ищем без жирного (fallback)
                 has_defs_no_bold, found_defs_no_bold = has_term_definitions(part_text, self.lang, min_definitions=1, require_bold=False)
-                safe_print(f"      [2.4.4] Часть {i}: найдено {len(found_defs_no_bold) if found_defs_no_bold else 0} определений без жирного выделения", flush=True)
+                safe_print(f"      [2.4.4] {theory_section_label(i)}: найдено {len(found_defs_no_bold) if found_defs_no_bold else 0} определений без жирного выделения", flush=True)
 
                 if has_defs_no_bold:
                     # Критерий пройден - НЕ добавляем в issues
-                    safe_print(f"      [2.4.4] ✅ Часть {i}: критерий пройден (найдено {len(found_defs_no_bold)} определений без жирного)", flush=True)
+                    safe_print(f"      [2.4.4] ✅ {theory_section_label(i)}: критерий пройден (найдено {len(found_defs_no_bold)} определений без жирного)", flush=True)
                 else:
                     # Критерий НЕ пройден - добавляем в issues
-                    safe_print(f"      [2.4.4] ❌ Часть {i}: недостаточно определений (с жирным: {len(found_defs) if found_defs else 0}, без жирного: {len(found_defs_no_bold) if found_defs_no_bold else 0})", flush=True)
+                    safe_print(f"      [2.4.4] ❌ {theory_section_label(i)}: недостаточно определений (с жирным: {len(found_defs) if found_defs else 0}, без жирного: {len(found_defs_no_bold) if found_defs_no_bold else 0})", flush=True)
                     definitions_issues.append(
-                        f"Часть {i}: недостаточно определений "
+                        f"{theory_section_label(i)}: недостаточно определений "
                         f"(найдено: {len(found_defs) if found_defs else 0} с жирным, "
                         f"{len(found_defs_no_bold) if found_defs_no_bold else 0} обычных, требуется минимум 1)"
                     )
@@ -244,7 +247,7 @@ class Chapter2Checker:
             items.append(CriteriaItem(
                 id="2.4.4",
                 title="Проверка наличия определений",
-                description="В каждой части минимум 1 явное определение термина",
+                description="В каждом теоретическом разделе минимум 1 явное определение термина",
                 check_method=CheckMethod.AI_AGENT,
                 score=1,
                 comments=[],
@@ -254,7 +257,7 @@ class Chapter2Checker:
             items.append(CriteriaItem(
                 id="2.4.4",
                 title="Проверка наличия определений",
-                description="В каждой части минимум 1 явное определение термина",
+                description="В каждом теоретическом разделе минимум 1 явное определение термина",
                 check_method=CheckMethod.AI_AGENT,
                 score=0,
                 comments=definitions_issues[:5],
@@ -268,7 +271,7 @@ class Chapter2Checker:
             items.append(CriteriaItem(
                 id="2.4.5",
                 title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое частей коррелирует с заявленными ЗУНами",
+                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
                 check_method=CheckMethod.HYBRID if used_ai else CheckMethod.SCRIPT,
                 score=1 if lo_ok else 0,
                 comments=[] if lo_ok else lo_comments,
@@ -279,7 +282,7 @@ class Chapter2Checker:
             items.append(CriteriaItem(
                 id="2.4.5",
                 title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое частей коррелирует с заявленными ЗУНами",
+                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
                 check_method=CheckMethod.AI_AGENT,
                 score=0,
                 comments=["ЗУНы не предоставлены"],
@@ -303,13 +306,13 @@ class Chapter2Checker:
             has_markers = any(m in part_text.lower() for m in ["пример", "ситуация", "кейс", "случай"])
 
             if not (has_example_block or has_markers):
-                example_issues.append(f"Часть {i}: отсутствует пример/кейс")
+                example_issues.append(f"{theory_section_label(i)}: отсутствует пример/кейс")
 
         if len(example_issues) == 0:
             items.append(CriteriaItem(
                 id="2.4.6",
                 title="Проверка наличия примера/кейса",
-                description="В каждой части есть пример, ситуация или кейс",
+                description="В каждом теоретическом разделе есть пример, ситуация или кейс",
                 check_method=CheckMethod.AI_AGENT,
                 score=1,
                 comments=[],
@@ -319,7 +322,7 @@ class Chapter2Checker:
             items.append(CriteriaItem(
                 id="2.4.6",
                 title="Проверка наличия примера/кейса",
-                description="В каждой части есть пример, ситуация или кейс",
+                description="В каждом теоретическом разделе есть пример, ситуация или кейс",
                 check_method=CheckMethod.AI_AGENT,
                 score=0,
                 comments=example_issues[:5],
@@ -376,8 +379,221 @@ class Chapter2Checker:
 
         return items
 
+    def check_document(
+        self,
+        document: ReadmeDocument,
+        learning_outcomes: list[str] | None = None,
+    ) -> list[CriteriaItem]:
+        """2.4: Проверка Главы 2 из typed README document."""
+        chapter = document.chapter_section(2, language=self.lang)
+        if chapter is None:
+            return self.check("", learning_outcomes)
+
+        parts = theory_part_sections(document, language=self.lang)
+        ch2_content = chapter_content(document, 2, language=self.lang)
+        if not parts:
+            return self.check(ch2_content, learning_outcomes)
+        return self._check_typed_parts(parts, ch2_content, learning_outcomes)
+
+    def _check_typed_parts(
+        self,
+        parts: list[Any],
+        ch2_content: str,
+        learning_outcomes: list[str] | None = None,
+    ) -> list[CriteriaItem]:
+        """2.4 checks over typed theory sections without regex section splitting."""
+        items: list[CriteriaItem] = []
+        n_parts = len(parts)
+        lo, hi = THRESHOLDS["theory_parts"]
+
+        items.append(CriteriaItem(
+            id="2.4.1",
+            title="Проверка структуры подразделов",
+            description=f"Наличие от {lo} до {hi} подразделов третьего уровня (###)",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if lo <= n_parts <= hi else 0,
+            comments=[] if lo <= n_parts <= hi else [f"Теоретических разделов: {n_parts} (ожидалось {lo}–{hi})"],
+            parent_id="2.4",
+        ))
+
+        if not self.llm:
+            items.append(CriteriaItem(
+                id="2.4.2",
+                title="Проверка смысловой точности названий подразделов",
+                description="Каждый подраздел имеет короткое тематическое название",
+                check_method=CheckMethod.AI_AGENT,
+                score=0,
+                comments=["ИИ-агент недоступен для проверки"],
+                parent_id="2.4",
+                strictness=StrictnessLevel.SOFT,
+            ))
+        else:
+            try:
+                ai_check = self._ai_check_part_titles_accuracy_typed(parts)
+                items.append(CriteriaItem(
+                    id="2.4.2",
+                    title="Проверка смысловой точности названий подразделов",
+                    description="Каждый подраздел имеет короткое тематическое название",
+                    check_method=CheckMethod.AI_AGENT,
+                    score=1 if ai_check else 0,
+                    comments=[] if ai_check else ["Некоторые названия не отражают содержание"],
+                    parent_id="2.4",
+                    strictness=StrictnessLevel.SOFT,
+                ))
+            except Exception as e:
+                safe_print(f"⚠️ Ошибка при проверке названий теоретических разделов: {e}")
+                items.append(CriteriaItem(
+                    id="2.4.2",
+                    title="Проверка смысловой точности названий подразделов",
+                    description="Каждый подраздел имеет короткое тематическое название",
+                    check_method=CheckMethod.AI_AGENT,
+                    score=0,
+                    comments=[f"Ошибка проверки: {str(e)}"],
+                    parent_id="2.4",
+                    strictness=StrictnessLevel.SOFT,
+                ))
+
+        volume_issues: list[str] = []
+        volume_lo, volume_hi = THRESHOLDS["theory_words_per_part"]
+        for i, part in enumerate(parts, 1):
+            part_main = self._main_theory_text(section_content(part))
+            words_count = count_prose_words(part_main, self.lang)
+            if not (volume_lo <= words_count <= volume_hi):
+                volume_issues.append(f"{theory_section_label(i, part.title)}: {words_count} слов (ожидалось {volume_lo}–{volume_hi})")
+        items.append(CriteriaItem(
+            id="2.4.3",
+            title="Проверка объема каждого теоретического раздела",
+            description=f"Для каждого подраздела: {volume_lo}–{volume_hi} слов",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if not volume_issues else 0,
+            comments=[] if not volume_issues else volume_issues[:5],
+            parent_id="2.4",
+            details={} if not volume_issues else {"issues": volume_issues},
+        ))
+
+        definitions_issues: list[str] = []
+        for i, part in enumerate(parts, 1):
+            part_text = section_content(part)
+            has_defs, found_defs = has_term_definitions(part_text, self.lang, min_definitions=1, require_bold=True)
+            safe_print(f"      [2.4.4] {theory_section_label(i, part.title)}: найдено {len(found_defs) if found_defs else 0} определений с жирным выделением", flush=True)
+            if has_defs:
+                continue
+            has_defs_no_bold, found_defs_no_bold = has_term_definitions(part_text, self.lang, min_definitions=1, require_bold=False)
+            if not has_defs_no_bold:
+                definitions_issues.append(
+                    f"{theory_section_label(i, part.title)}: недостаточно определений "
+                    f"(найдено: {len(found_defs) if found_defs else 0} с жирным, "
+                    f"{len(found_defs_no_bold) if found_defs_no_bold else 0} обычных, требуется минимум 1)"
+                )
+        items.append(CriteriaItem(
+            id="2.4.4",
+            title="Проверка наличия определений",
+            description="В каждом теоретическом разделе минимум 1 явное определение термина",
+            check_method=CheckMethod.AI_AGENT,
+            score=1 if not definitions_issues else 0,
+            comments=[] if not definitions_issues else definitions_issues[:5],
+            parent_id="2.4",
+            details={} if not definitions_issues else {"issues": definitions_issues},
+        ))
+
+        if learning_outcomes:
+            lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_content, learning_outcomes)
+            items.append(CriteriaItem(
+                id="2.4.5",
+                title="Проверка соответствия ЗУНам проекта",
+                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
+                check_method=CheckMethod.HYBRID if used_ai else CheckMethod.SCRIPT,
+                score=1 if lo_ok else 0,
+                comments=[] if lo_ok else lo_comments,
+                parent_id="2.4",
+                details=lo_details,
+            ))
+        else:
+            items.append(CriteriaItem(
+                id="2.4.5",
+                title="Проверка соответствия ЗУНам проекта",
+                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
+                check_method=CheckMethod.AI_AGENT,
+                score=0,
+                comments=["ЗУНы не предоставлены"],
+                parent_id="2.4",
+            ))
+
+        example_issues: list[str] = []
+        for i, part in enumerate(parts, 1):
+            part_text = section_content(part)
+            has_example_block = "**Пример:**" in part_text
+            has_markers = any(marker in part_text.lower() for marker in ["пример", "ситуация", "кейс", "случай"])
+            if not (has_example_block or has_markers):
+                example_issues.append(f"{theory_section_label(i, part.title)}: отсутствует пример/кейс")
+        items.append(CriteriaItem(
+            id="2.4.6",
+            title="Проверка наличия примера/кейса",
+            description="В каждом теоретическом разделе есть пример, ситуация или кейс",
+            check_method=CheckMethod.AI_AGENT,
+            score=1 if not example_issues else 0,
+            comments=[] if not example_issues else example_issues[:5],
+            parent_id="2.4",
+            details={} if not example_issues else {"issues": example_issues},
+        ))
+
+        readability_scores: list[float] = []
+        readability_issues: list[tuple[int, float]] = []
+        for i, part in enumerate(parts, 1):
+            part_main = clean_markdown_prose_for_counting(self._main_theory_text(section_content(part)))
+            raw_readability = self._calculate_readability(part_main.strip())
+            raw_clamped = max(0.0, min(raw_readability, 30.0))
+            readability = 50.0 + (80.0 - 50.0) * raw_clamped / 30.0
+            readability_scores.append(readability)
+            if not (50 <= readability <= 80):
+                readability_issues.append((i, readability))
+
+        avg_readability = sum(readability_scores) / len(readability_scores) if readability_scores else 0
+        items.append(CriteriaItem(
+            id="2.4.7",
+            title="Проверка читабельности текста",
+            description="Индекс читаемости: 50–80",
+            check_method=CheckMethod.SCRIPT,
+            score=1 if 50 <= avg_readability <= 80 else 0,
+            comments=[] if 50 <= avg_readability <= 80 else [f"Средний индекс читаемости: {avg_readability:.1f} (ожидалось 50–80)"],
+            parent_id="2.4",
+            details={"avg_readability": avg_readability, "readability_scores": readability_scores, "issues": readability_issues[:5]},
+        ))
+
+        return items
+
+    def _ai_check_part_titles_accuracy_typed(self, parts: list[Any]) -> bool:
+        """ИИ-проверка точности названий typed theory sections."""
+        if not self.llm:
+            return False
+        try:
+            for part in parts[:3]:
+                prompt = f"""Проверь, отражает ли название части её содержание.
+
+Название: {part.title}
+Содержание части (первые 500 символов):
+{section_content(part)[:500]}
+
+Верни только JSON:
+{{"accurate": true/false}}"""
+                response = self.llm.complete(
+                    system="Ты эксперт по анализу образовательных текстов.",
+                    user=prompt,
+                    response_format="json_object",
+                    temperature=0.1,
+                )
+                json_start = response.find("{")
+                json_end = response.rfind("}") + 1
+                if json_start >= 0 and json_end > json_start:
+                    data = json.loads(response[json_start:json_end])
+                    if not data.get("accurate", False):
+                        return False
+            return True
+        except Exception:
+            return False
+
     def _ai_check_part_titles_accuracy(self, part_titles: list[tuple[str, Any]], ch2_content: str) -> bool:
-        """ИИ-проверка точности названий частей."""
+        """ИИ-проверка точности названий теоретических разделов."""
         if not self.llm:
             return False
 

@@ -17,6 +17,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from ..methodology.decision import MethodologyGateInterrupt
+from ..observability import NodeTraceEvent
 from ..utils.cancellation import CancellationToken, CancelledError
 from ..utils.progress import ProgressTracker
 
@@ -173,6 +174,15 @@ class AgentFlowRunner:
                     if hasattr(state, "sync_from_context"):
                         state.sync_from_context(context)
                 duration_ms = (time.time() - start) * 1000
+                trace_event = self._build_node_trace(
+                    node=node,
+                    context=context,
+                    duration_ms=duration_ms,
+                    status=output.status,
+                    issues=[*(output.issues or []), *review_issues],
+                    output_schema=",".join(sorted((output.updates or {}).keys())) or None,
+                )
+                context.setdefault("node_traces", []).append(trace_event.model_dump(mode="json"))
                 steps.append(
                     FlowExecutionStep(
                         node_id=node.id,
@@ -186,6 +196,15 @@ class AgentFlowRunner:
                     break
             except MethodologyGateInterrupt as exc:
                 duration_ms = (time.time() - start) * 1000
+                trace_event = self._build_node_trace(
+                    node=node,
+                    context=context,
+                    duration_ms=duration_ms,
+                    status="paused",
+                    issues=[str(exc)],
+                    output_schema=None,
+                )
+                context.setdefault("node_traces", []).append(trace_event.model_dump(mode="json"))
                 pause_step = FlowExecutionStep(
                     node_id=node.id,
                     node_name=node.name,
@@ -203,6 +222,15 @@ class AgentFlowRunner:
                 raise
             except CancelledError as exc:
                 duration_ms = (time.time() - start) * 1000
+                trace_event = self._build_node_trace(
+                    node=node,
+                    context=context,
+                    duration_ms=duration_ms,
+                    status="cancelled",
+                    issues=[f"Отменено: {exc.reason}"],
+                    output_schema=None,
+                )
+                context.setdefault("node_traces", []).append(trace_event.model_dump(mode="json"))
                 steps.append(
                     FlowExecutionStep(
                         node_id=node.id,
@@ -215,6 +243,15 @@ class AgentFlowRunner:
                 break
             except Exception as exc:  # noqa: BLE001
                 duration_ms = (time.time() - start) * 1000
+                trace_event = self._build_node_trace(
+                    node=node,
+                    context=context,
+                    duration_ms=duration_ms,
+                    status="error",
+                    issues=[str(exc)],
+                    output_schema=None,
+                )
+                context.setdefault("node_traces", []).append(trace_event.model_dump(mode="json"))
                 steps.append(
                     FlowExecutionStep(
                         node_id=node.id,
@@ -226,6 +263,37 @@ class AgentFlowRunner:
                 )
                 raise
         return steps
+
+    def _build_node_trace(
+        self,
+        *,
+        node: FlowNodeConfig,
+        context: dict[str, object],
+        duration_ms: float,
+        status: str,
+        issues: list[str],
+        output_schema: str | None,
+    ) -> NodeTraceEvent:
+        """Create a typed observability trace for one node execution."""
+        input_payload = {
+            key: context.get(key)
+            for key in node.inputs
+            if key in context and key not in {"state"}
+        }
+        if not input_payload:
+            input_payload = {"context_keys": sorted(str(key) for key in context.keys() if key != "state")}
+        model = context.get("model")
+        return NodeTraceEvent.from_node_execution(
+            node=node.id,
+            inputs=input_payload,
+            latency_ms=duration_ms,
+            status=status,
+            issues=issues,
+            prompt_version=self.definition.version,
+            model=str(model) if model else None,
+            output_schema=output_schema,
+            metadata={"node_name": node.name, "handler": node.handler},
+        )
 
     def _should_skip_node(self, node: FlowNodeConfig, context: dict[str, object]) -> bool:
         """Evaluate optional node conditions from YAML config."""

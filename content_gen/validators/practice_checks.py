@@ -11,6 +11,7 @@ from ..config.thresholds import THRESHOLDS
 from ..models.schemas import PracticeTask
 from ..practice_contract import find_non_raw_material_issues, task_uses_previous_artifact
 from ..utils.text_analysis import count_words
+from .messages import practice_task_label
 
 
 @dataclass
@@ -121,7 +122,7 @@ class PracticeChecks:
                     task_title="",
                     criterion_id="2.5.1",
                     severity="hard",
-                    message=f"Количество задач: {len(tasks)} (ожидается {lo}-{hi})",
+                    message=f"Количество практических заданий: {len(tasks)} (ожидается {lo}-{hi})",
                     fixable=True
                 ))
 
@@ -132,12 +133,13 @@ class PracticeChecks:
                     task_title="",
                     criterion_id="2.5.1",
                     severity="hard",
-                    message=f"Количество задач: {len(tasks)} (ожидалось {self.expected_tasks})",
+                    message=f"Количество практических заданий: {len(tasks)} (ожидалось {self.expected_tasks})",
                     fixable=True
                 ))
 
         # Проверка каждой задачи
         for idx, task in enumerate(tasks, 1):
+            task_label = practice_task_label(idx, task.title)
             previous_task = tasks[idx - 2] if idx > 1 else None
 
             # Проверка 2.5.2: Наличие 5 блоков
@@ -165,7 +167,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.2",
                     severity="hard",
-                    message=f"Задача {idx} '{task.title[:50]}': отсутствуют блоки: {', '.join(missing_blocks)}",
+                    message=f"{task_label}: отсутствуют блоки: {', '.join(missing_blocks)}",
                     fixable=True
                 ))
             elif not self._looks_like_situation(task.situation):
@@ -174,7 +176,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.2",
                     severity="soft",
-                    message=f"Задача {idx} '{task.title[:50]}': блок «Ситуация» слишком общий и не задаёт рабочее напряжение",
+                    message=f"{task_label}: блок «Ситуация» слишком общий и не задаёт рабочее напряжение",
                     fixable=True
                 ))
 
@@ -184,7 +186,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.2",
                     severity="soft",
-                    message=f"Задача {idx} '{task.title[:50]}': нет явного блока «Ограничение / риск», задача выглядит слишком линейной",
+                    message=f"{task_label}: нет явного блока «Ограничение / риск», задание выглядит слишком линейным",
                     fixable=True
                 ))
 
@@ -196,7 +198,7 @@ class PracticeChecks:
                     criterion_id="2.5.materials",
                     severity="hard",
                     message=(
-                        f"Задача {idx} '{task.title[:50]}': входные материалы похожи на готовый результат "
+                        f"{task_label}: входные материалы похожи на готовый результат "
                         f"студента, а не на сырые данные: {', '.join(non_raw_materials)}"
                     ),
                     fixable=True
@@ -209,7 +211,7 @@ class PracticeChecks:
                     criterion_id="2.5.dependency",
                     severity="hard",
                     message=(
-                        f"Задача {idx} '{task.title[:50]}': не использует артефакт предыдущей задачи "
+                        f"{task_label}: не использует артефакт предыдущего задания "
                         f"`{previous_task.artifact_location}` как входные данные"
                     ),
                     fixable=True
@@ -223,7 +225,7 @@ class PracticeChecks:
                         task_title=task.title,
                         criterion_id="2.5.3",
                         severity="hard",
-                        message=f"Задача {idx} '{task.title[:50]}': цель содержит запрещённую пассивную формулировку",
+                        message=f"{task_label}: цель содержит запрещённую пассивную формулировку",
                         fixable=True
                     ))
                 elif not self._has_active_goal(task.goal):
@@ -232,7 +234,7 @@ class PracticeChecks:
                         task_title=task.title,
                         criterion_id="2.5.3",
                         severity="soft",
-                        message=f"Задача {idx} '{task.title[:50]}': цель не выглядит как активное действие с результатом",
+                        message=f"{task_label}: цель не выглядит как активное действие с результатом",
                         fixable=True
                     ))
 
@@ -247,7 +249,7 @@ class PracticeChecks:
                         task_title=task.title,
                         criterion_id="2.5.4",
                         severity="hard",
-                        message=f"Задача {idx} '{task.title[:50]}': подход содержит {approach_words} слов (максимум {max_words})",
+                        message=f"{task_label}: подход содержит {approach_words} слов (максимум {max_words})",
                         fixable=True
                     ))
                 if not (2 <= len(task.approach_bullets) <= 6):
@@ -256,7 +258,7 @@ class PracticeChecks:
                         task_title=task.title,
                         criterion_id="2.5.4",
                         severity="hard",
-                        message=f"Задача {idx} '{task.title[:50]}': в подходе {len(task.approach_bullets)} пунктов (ожидается 2-6)",
+                        message=f"{task_label}: в подходе {len(task.approach_bullets)} пунктов (ожидается 2-6)",
                         fixable=True
                     ))
 
@@ -267,7 +269,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.5",
                     severity="hard",
-                    message=f"Задача {idx} '{task.title[:50]}': входные данные слишком короткие или неявные",
+                    message=f"{task_label}: входные данные слишком короткие или неявные",
                     fixable=True
                 ))
 
@@ -281,7 +283,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.5",
                     severity="hard",
-                    message=f"Задача {idx} '{task.title[:50]}': локация результата не указана или неявная",
+                    message=f"{task_label}: локация результата не указана или неявная",
                     fixable=True
                 ))
             elif has_artifact and not has_location:
@@ -290,7 +292,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.5",
                     severity="hard",
-                    message=f"Задача {idx} '{task.title[:50]}': в ожидаемом результате нет явного пути к артефакту",
+                    message=f"{task_label}: в ожидаемом результате нет явного пути к артефакту",
                     fixable=True
                 ))
 
@@ -302,7 +304,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.6",
                     severity="hard",
-                    message=f"Задача {idx} '{task.title[:50]}': недостаточно критериев P2P-проверки (найдено {len(criteria)}, ожидается минимум 3)",
+                    message=f"{task_label}: недостаточно критериев P2P-проверки (найдено {len(criteria)}, ожидается минимум 3)",
                     fixable=True
                 ))
             else:
@@ -313,7 +315,7 @@ class PracticeChecks:
                         task_title=task.title,
                         criterion_id="2.5.6",
                         severity="soft",
-                        message=f"Задача {idx} '{task.title[:50]}': критерии P2P выглядят слишком общими и плохо проверяемыми",
+                        message=f"{task_label}: критерии P2P выглядят слишком общими и плохо проверяемыми",
                         fixable=True
                     ))
 
@@ -323,7 +325,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.7",
                     severity="soft",
-                    message=f"Задача {idx} '{task.title[:50]}': задача не привязана к конкретному LO текущего проекта",
+                    message=f"{task_label}: задание не привязано к конкретному LO текущего проекта",
                     fixable=True
                 ))
             if not getattr(task, "theory_support", None):
@@ -332,7 +334,7 @@ class PracticeChecks:
                     task_title=task.title,
                     criterion_id="2.5.7",
                     severity="soft",
-                    message=f"Задача {idx} '{task.title[:50]}': задача не ссылается на конкретные темы из теории",
+                    message=f"{task_label}: задание не ссылается на конкретные темы из теории",
                     fixable=True
                 ))
 

@@ -173,9 +173,8 @@ class DefinitionsAgent:
 
                 generated_body = generated_body.strip()
 
-                # Удаляем заголовок, если LLM его добавил
-                generated_body = re.sub(r'^###\s+Часть\s+\d+\.\s*[^\n]+\n+', '', generated_body, flags=re.M)
-                generated_body = re.sub(r'^\*\*Часть\s+\d+[^\*]+\*\*\s*\n+', '', generated_body, flags=re.M)
+                # Удаляем канонический заголовок раздела, если LLM его добавил.
+                generated_body = re.sub(r'^###\s+2\.\d+\.\s*[^\n]+\n+', '', generated_body, flags=re.M)
                 generated_body = generated_body.strip()
 
                 # Проверяем, что результат не пустой

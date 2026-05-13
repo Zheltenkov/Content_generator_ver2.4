@@ -6,13 +6,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .readme_document import ReadmeDocument
+
 
 class GenerationContext(BaseModel):
     """Typed view over the mutable AgentFlow context.
 
     The flow runner still owns the runtime dict. This model gives node services
-    typed access to the keys they consume while preserving compatibility with
-    existing nodes that still read from the dict directly.
+    typed access to the keys they consume while the AgentFlow context remains
+    the mutable state carrier at orchestration boundaries.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="allow")
@@ -22,6 +24,7 @@ class GenerationContext(BaseModel):
     warnings: list[str] = Field(default_factory=list)
     issues: list[Any] = Field(default_factory=list)
     section_contexts: dict[str, Any] = Field(default_factory=dict)
+    fallback_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     target_language: str | None = None
     generate_bonus: bool = False
@@ -41,11 +44,12 @@ class GenerationContext(BaseModel):
     annotation: Any | None = None
     intro_section: Any | None = None
     blueprint: Any | None = None
+    readme_document: Any | None = None
     markdown: str | None = None
     theory_parts: list[Any] = Field(default_factory=list)
 
     @classmethod
-    def from_legacy(cls, context: dict[str, Any]) -> "GenerationContext":
+    def from_flow_context(cls, context: dict[str, Any]) -> "GenerationContext":
         """Create a typed view from the mutable flow context dict."""
         data = {key: value for key, value in context.items() if key != "state"}
         return cls(**data)
@@ -67,7 +71,7 @@ class TypedNodeOutput(BaseModel):
     status: Literal["success", "skipped", "error"] = "success"
 
     def updates(self) -> dict[str, Any]:
-        """Return legacy FlowNodeOutput updates."""
+        """Return AgentFlow context updates."""
         raise NotImplementedError
 
 
@@ -118,6 +122,7 @@ class TaskPlanningNodeResult(TypedNodeOutput):
     artifact_chain_plan: Any | None = None
     evidence_specs: list[Any] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    fallback_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     def updates(self) -> dict[str, Any]:
         return {
@@ -127,6 +132,7 @@ class TaskPlanningNodeResult(TypedNodeOutput):
             "practice_plan_contract": self.practice_plan_contract,
             "artifact_chain_plan": self.artifact_chain_plan,
             "evidence_specs": self.evidence_specs,
+            "fallback_traces": self.fallback_traces,
         }
 
 
@@ -134,10 +140,14 @@ class QualityNodeResult(TypedNodeOutput):
     """Typed output of the global quality node."""
 
     markdown: str
+    readme_document: ReadmeDocument | None = None
+    fallback_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     def updates(self) -> dict[str, Any]:
         return {
             "markdown": self.markdown,
+            "readme_document": self.readme_document,
+            "fallback_traces": self.fallback_traces,
         }
 
 
@@ -160,12 +170,14 @@ class TranslationNodeResult(TypedNodeOutput):
     translated_markdown: str
     seed: Any
     target_language: str
+    readme_document: ReadmeDocument | None = None
 
     def updates(self) -> dict[str, Any]:
         return {
             "markdown": self.markdown,
             "translated_markdown": self.translated_markdown,
             "seed": self.seed,
+            "readme_document": self.readme_document,
         }
 
 
@@ -173,6 +185,7 @@ class PracticeNodeResult(TypedNodeOutput):
     """Typed output of the practice node."""
 
     markdown: str
+    readme_document: ReadmeDocument | None = None
     practice_critic_issues: list[Any] = Field(default_factory=list)
     practice_tasks: list[Any] = Field(default_factory=list)
     blueprint: Any | None = None
@@ -186,6 +199,7 @@ class PracticeNodeResult(TypedNodeOutput):
     def updates(self) -> dict[str, Any]:
         return {
             "markdown": self.markdown,
+            "readme_document": self.readme_document,
             "practice_critic_issues": self.practice_critic_issues,
             "practice_tasks": self.practice_tasks,
             "blueprint": self.blueprint,
@@ -202,6 +216,7 @@ class FinalizeNodeResult(TypedNodeOutput):
     result: Any
     project_spec: Any
     markdown: str
+    readme_document: ReadmeDocument | None = None
     translated_markdown: str | None = None
     assets_binary: dict[str, Any] = Field(default_factory=dict)
     section_contexts: dict[str, Any] = Field(default_factory=dict)
@@ -211,6 +226,7 @@ class FinalizeNodeResult(TypedNodeOutput):
             "result": self.result,
             "project_spec": self.project_spec,
             "markdown": self.markdown,
+            "readme_document": self.readme_document,
             "translated_markdown": self.translated_markdown,
             "assets_binary": self.assets_binary,
             "section_contexts": self.section_contexts,
@@ -221,6 +237,7 @@ class SkeletonNodeResult(TypedNodeOutput):
     """Typed output of the skeleton node."""
 
     markdown: str
+    readme_document: ReadmeDocument | None = None
     title: str
     annotation: Any
     intro_section: Any
@@ -231,6 +248,7 @@ class SkeletonNodeResult(TypedNodeOutput):
     def updates(self) -> dict[str, Any]:
         return {
             "markdown": self.markdown,
+            "readme_document": self.readme_document,
             "title": self.title,
             "annotation": self.annotation,
             "intro_section": self.intro_section,
@@ -242,6 +260,7 @@ class TheoryNodeResult(TypedNodeOutput):
     """Typed output of the theory node."""
 
     markdown: str
+    readme_document: ReadmeDocument | None = None
     theory_parts: list[Any] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     serialized_issues: list[Any] = Field(default_factory=list)
@@ -249,5 +268,6 @@ class TheoryNodeResult(TypedNodeOutput):
     def updates(self) -> dict[str, Any]:
         return {
             "markdown": self.markdown,
+            "readme_document": self.readme_document,
             "theory_parts": self.theory_parts,
         }

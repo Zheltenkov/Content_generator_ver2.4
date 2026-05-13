@@ -137,15 +137,6 @@ class RegenerationAgent:
         except Exception:
             self.didactics_context, self.didactics_trace = "", {}
 
-    def run(self, input_data: dict[str, str]) -> dict[str, RegenerationResult]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        result = self.regenerate(
-            original_md=input_data.get("original_md", ""),
-            comments=input_data.get("comments", ""),
-            language=input_data.get("language", "ru"),
-        )
-        return {"result": result}
-
     @staticmethod
     def _strip_markdown_fences(text: str) -> str:
         """Убирает случайные markdown fences вокруг полного README."""

@@ -151,9 +151,8 @@ class ReadabilityAgent:
 
                 improved_body = improved_body.strip()
 
-                # Удаляем заголовок, если LLM его добавил
-                improved_body = re.sub(r'^###\s+Часть\s+\d+\.\s*[^\n]+\n+', '', improved_body, flags=re.M)
-                improved_body = re.sub(r'^\*\*Часть\s+\d+[^\*]+\*\*\s*\n+', '', improved_body, flags=re.M)
+                # Удаляем канонический заголовок раздела, если LLM его добавил.
+                improved_body = re.sub(r'^###\s+2\.\d+\.\s*[^\n]+\n+', '', improved_body, flags=re.M)
                 improved_body = improved_body.strip()
 
                 # Проверяем, что результат не пустой

@@ -28,7 +28,6 @@ Content Generator построен на модульной архитектур�
 - После ключевых узлов запускается `MethodologyGate`: deterministic stage review с `StageReviewResult`, который сохраняется в `report_json.methodology_reviews` и `methodology_summary`
 - Для ограниченного набора замечаний запускается `MethodologyRepairController`: deterministic one-pass repair без LLM, с `StageRepairResult`, повторным post-review и записью в `report_json.methodology_repairs`
 - `MethodologyTraceRecorder` синхронизирует review/repair объекты с `ProjectFlowState`, сериализует их и добавляет summaries в `report_json`
-- `OrchestratorPhases` остаются источником бизнес-логики фаз (Phase 0-6), но их вызовы теперь обернуты в узлы Flow
 - `TaskPlanner` (через агент-конфиг) автоматически определяет количество практических задач (2–8) и сложность на основе уровня аудитории и контекста, пришедшего из учебного плана
 - Финальная сборка вынесена в `ResultAssembler`: он собирает `ProjectSpec`, `report_json`, assets, translated assets и fallback-структуры из flow context
 - При финальной сборке вызывается `mermaid_export` для конвертации всех ```mermaid``` блоков в изображения и прикладывает их к архиву выдачи
@@ -53,12 +52,12 @@ Content Generator построен на модульной архитектур�
 
 Содержит конкретные реализации AgentFlow-нод и registry для `AgentFlowRunner`:
 
-- вызывает `OrchestratorPhases` для фаз `context`, `skeleton`, `theory`, `practice`, `quality`, `antiplag`, `evaluation`, `translate`;
+- вызывает concrete node services/executors для фаз `context`, `skeleton`, `theory`, `practice`, `quality`, `evaluation`, `translate`;
 - обновляет mutable flow context результатами стадий;
 - делегирует финальную сборку в `ResultAssembler`;
 - инкапсулирует технические helpers для issue serialization и hard-failure detection.
 
-`Orchestrator` оставляет приватные `_node_*` wrappers только для обратной совместимости внутренних вызовов; основная логика нод находится в `GenerationFlowHandlers`.
+`Orchestrator` не держит phase wrappers: основная логика нод находится в `GenerationFlowHandlers`.
 
 ### FlowResultFinalizer
 
@@ -71,18 +70,7 @@ Content Generator построен на модульной архитектур�
 - добавляет `flow_trace` и methodology summaries в результат через `MethodologyTraceRecorder`;
 - поднимает `ContentGenerationError`, если flow остановился без результата.
 
-### 2. OrchestratorPhases
-
-**Файл:** `content_gen/orchestrator_phases.py`
-
-Координирует выполнение фаз через модули в `orchestrator_phases_modules/phases/`.
-
-**Структура фаз:**
-- Каждая фаза — отдельный модуль (`phase_0.py`, `phase_1.py`, и т.д.)
-- Базовый класс `BasePhase` в `phases/base.py`
-- Общие утилиты в `phases/helpers.py`
-
-### 3. Agents (Агенты)
+### 2. Agents (Агенты)
 
 **Директория:** `content_gen/agents/`
 
@@ -114,7 +102,7 @@ Content Generator построен на модульной архитектур�
 - **`AntiPlagiarismAgent`** — проверка на плагиат
 - **`TranslatorAgent`** — перевод на целевой язык
 
-### 4. Validators (Валидаторы)
+### 3. Validators (Валидаторы)
 
 **Директория:** `content_gen/validators/`
 
@@ -154,11 +142,10 @@ Content Generator построен на модульной архитектур�
 
 Используемые компоненты:
 
-- `phase_0.py` — собирает контекст проекта из учебного плана
+- `ContextPhaseExecutor` — собирает контекст проекта из учебного плана
 - `ProjectContextMeta` — метаданные позиции проекта в учебном плане
 - `ContextAnalysisResult` — типизированный контейнер для итогового контекста фазы 0
 - `content_gen/curriculum/graph.py` — deterministic-анализ соседних проектов и прогресса
-- `content_gen/extraction/lo_skills.py` — служебное извлечение ЗУНов для regeneration/reverse extraction
 
 ### 6. Models (Модели данных)
 
@@ -391,6 +378,6 @@ result = structured_client.complete_structured(
 
 - Добавлять новые агенты (наследование от базового класса) — см. [AGENTS.md](AGENTS.md)
 - Добавлять новые checker'ы (модульная структура) — см. [CRITERIA.md](CRITERIA.md)
-- Добавлять новые фазы (расширение `OrchestratorPhases`)
+- Добавлять новые flow-ноды через `flow.yaml`, `GenerationFlowHandlers` и concrete node service
 - Интегрировать новые LLM провайдеры (через `LLMClient`)
 - Расширять контекстный слой через `content_gen/curriculum/` и typed-контракты фазы 0

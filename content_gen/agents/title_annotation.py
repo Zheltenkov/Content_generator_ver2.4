@@ -160,17 +160,6 @@ class TitleAnnotationAgent:
         except Exception:
             self.didactics_context, self.didactics_trace = "", {}
 
-    def run(self, input_data: dict[str, object]) -> dict[str, object]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        seed = input_data["seed"]
-        context_meta = input_data["context"]
-        result = self.generate(seed, context_meta)
-        return {
-            "result": result,
-            "title": result.title,
-            "annotation": result.annotation,
-        }
-
     def _regenerate_annotation(self, title: str, original_annotation: str, seed: ProjectSeed, target_length: int) -> str:
         """
         Перегенерирует аннотацию для соответствия целевой длине.

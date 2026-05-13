@@ -223,9 +223,9 @@ def _stage_for_heading(heading: str, fallback: str | None = None) -> str:
         return "annotation"
     if "глава 1" in normalized or "введение" in normalized or "инструкц" in normalized:
         return "skeleton"
-    if "глава 2" in normalized or "теорет" in normalized or normalized.startswith("часть ") or re.match(r"^2\.\d+\b", normalized):
+    if "глава 2" in normalized or "теорет" in normalized or re.match(r"^2\.\d+\b", normalized):
         return "theory"
-    if "глава 3" in normalized or "практи" in normalized or normalized.startswith(("задача ", "задание ")):
+    if "глава 3" in normalized or "практи" in normalized or normalized.startswith("задание "):
         return "practice"
     if "бонус" in normalized:
         return "practice"
@@ -241,13 +241,10 @@ def _chapter_id(heading: str) -> str | None:
 
 def _subsection_suffix(heading: str) -> str | None:
     normalized = _norm(heading)
-    part_match = re.search(r"\bчасть\s+(\d+)", normalized)
-    if part_match:
-        return f"part_{part_match.group(1)}"
     canonical_part_match = re.search(r"\b2\.(\d+)\b", normalized)
     if canonical_part_match:
         return f"part_{canonical_part_match.group(1)}"
-    task_match = re.search(r"\b(?:задача|задание)\s+(\d+)", normalized)
+    task_match = re.search(r"\bзадание\s+(\d+)", normalized)
     if task_match:
         return f"task_{task_match.group(1)}"
     if "введение" in normalized:

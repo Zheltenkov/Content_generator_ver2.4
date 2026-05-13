@@ -109,3 +109,4 @@ dmypy.json
 
 bibliarium/
 .cursor/
+.serena/

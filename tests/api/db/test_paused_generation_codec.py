@@ -60,3 +60,35 @@ def test_paused_generation_codec_roundtrips_steps() -> None:
     assert hydrated[0].node_id == "context"
     assert hydrated[0].status == "paused"
     assert hydrated[0].issues == ["needs review"]
+
+
+def test_paused_generation_codec_records_unknown_type_compatibility_event() -> None:
+    hydrated = hydrate_context(
+        {
+            "legacy": {
+                "__paused_type__": "old.module:Thing",
+                "data": {"value": 42},
+            }
+        }
+    )
+
+    assert hydrated["legacy"] == {"value": 42}
+    assert hydrated["compatibility_events"][0]["compatibility_type"] == "unknown_paused_type"
+    assert hydrated["compatibility_events"][0]["metadata"] == {"type_name": "old.module:Thing"}
+
+
+def test_paused_generation_codec_records_model_validation_compatibility_event() -> None:
+    hydrated = hydrate_context(
+        {
+            "seed": {
+                "__paused_type__": "content_gen.models.schemas:ProjectSeed",
+                "data": {"language": "ru"},
+            }
+        }
+    )
+
+    assert hydrated["seed"] == {"language": "ru"}
+    assert hydrated["compatibility_events"][0]["compatibility_type"] == "pydantic_model_validation_failed"
+    assert hydrated["compatibility_events"][0]["metadata"] == {
+        "type_name": "content_gen.models.schemas:ProjectSeed"
+    }

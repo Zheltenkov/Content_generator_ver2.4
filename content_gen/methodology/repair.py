@@ -9,6 +9,7 @@ from typing import Any
 from content_gen.config.thresholds import THRESHOLDS
 from content_gen.models.flow_state import ProjectBlueprint
 from content_gen.models.schemas import PracticeTask, TheoryPart
+from content_gen.recovery import ModelOutputNormalizer
 
 from .models import StageRepairResult, StageReviewIssue, StageReviewResult
 
@@ -233,12 +234,13 @@ class MethodologyRepairController:
     @classmethod
     def parse_theory_parts(cls, markdown: str) -> list[TheoryPart]:
         """Extract typed theory parts from a generated markdown chapter."""
-        chapter_2 = cls._extract_chapter(markdown, "2", "3")
+        normalized_markdown = ModelOutputNormalizer().normalize_theory_markdown(markdown).markdown
+        chapter_2 = cls._extract_chapter(normalized_markdown, "2", "3")
         if not chapter_2:
             return []
 
         parts: list[TheoryPart] = []
-        pattern = r"^###\s+(?:2\.\d+|Часть\s+\d+)\.\s+(.+?)\s*\n+(.*?)(?=^###\s+(?:2\.\d+|Часть\s+\d+)\.|\Z)"
+        pattern = r"^###\s+2\.\d+\.\s+(.+?)\s*\n+(.*?)(?=^###\s+2\.\d+\.|\Z)"
         for match in re.finditer(pattern, chapter_2, re.S | re.M):
             title = match.group(1).strip()
             body = match.group(2).strip()
@@ -249,13 +251,14 @@ class MethodologyRepairController:
     @classmethod
     def parse_practice_tasks(cls, markdown: str) -> list[PracticeTask]:
         """Extract typed practice tasks from a generated markdown chapter."""
-        chapter_3 = cls._extract_chapter(markdown, "3", None)
+        normalized_markdown = ModelOutputNormalizer().normalize_practice_markdown(markdown).markdown
+        chapter_3 = cls._extract_chapter(normalized_markdown, "3", None)
         if not chapter_3:
             return []
         chapter_3 = re.split(r"^##\s+Бонус\b", chapter_3, maxsplit=1, flags=re.M)[0]
 
         tasks: list[PracticeTask] = []
-        pattern = r"^###\s+(?:Задание|Задача)\s+\d+\.\s+(.+?)\s*\n+(.*?)(?=^###\s+(?:Задание|Задача)\s+\d+\.|\Z)"
+        pattern = r"^###\s+Задани(?:е|я)\s+\d+\.\s+(.+?)\s*\n+(.*?)(?=^###\s+Задани(?:е|я)\s+\d+\.|\Z)"
         for match in re.finditer(pattern, chapter_3, re.S | re.M):
             title = match.group(1).strip()
             body = match.group(2).strip()

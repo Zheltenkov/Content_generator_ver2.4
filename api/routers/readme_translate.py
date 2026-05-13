@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from api.db.logging_db import write_log_async
+from api.db.user_runs_db import upsert_user_run
 from api.dependencies import get_current_user
 from api.utils.file_validation import MAX_VIDEO_SIZE, validate_video_file
 from api.utils.logger import get_logger
@@ -29,7 +30,6 @@ from api.utils.result_cache import (
 from content_gen.agents.translator import TranslatorAgent
 from content_gen.llm.cached_client import CachedLLMClient
 from content_gen.models.schemas import ProjectSeed
-from content_gen.subtitles import run_video_to_subtitles_pipeline
 from content_gen.subtitles.burned_pipeline import run_burned_subs_pipeline
 
 logger = get_logger("readme-translate")
@@ -54,6 +54,15 @@ STAGE_PROGRESS = {
 # избежать конкурирующей загрузки ASR/ffmpeg и OOM на маленьких серверах.
 VIDEO_MAX_CONCURRENT_JOBS = int(os.getenv("VIDEO_MAX_CONCURRENT_JOBS", "1"))
 _video_jobs_semaphore = threading.Semaphore(max(1, VIDEO_MAX_CONCURRENT_JOBS))
+
+
+def _markdown_title(markdown: str, fallback: str = "Перевод README") -> str:
+    """Extract a compact dashboard title from the first Markdown H1."""
+    for line in (markdown or "").splitlines():
+        clean = line.strip()
+        if clean.startswith("# "):
+            return clean.lstrip("#").strip()[:160] or fallback
+    return fallback
 
 
 class TranslateReadmeRequest(BaseModel):
@@ -103,7 +112,6 @@ def _run_translation(
         set_translation_phase(request_id, phase)
 
     llm_client = CachedLLMClient(
-        provider="openai",
         enable_cache=True,
         enable_batching=True,
     )
@@ -125,6 +133,15 @@ def _run_translation(
             translated_markdown=translated_md,
             target_language=target_language,
         )
+        upsert_user_run(
+            request_id=request_id,
+            user_id=user_id,
+            kind="translation",
+            status="completed",
+            title=_markdown_title(markdown),
+            result_url=f"/api/v1/translate/status/{request_id}",
+            metadata={"target_language": target_language, "translation_mode": translation_mode},
+        )
     except Exception as e:  # noqa: BLE001
         logger.error("Ошибка при переводе README: %s", e, exc_info=True)
         set_translation_job(
@@ -134,83 +151,15 @@ def _run_translation(
             target_language=target_language,
             error=str(e),
         )
-
-
-def _run_video_translation(
-    request_id: str,
-    user_id: str,
-    video_path: str,
-    target_language: str,
-    source_language: str | None,
-    subtitle_format: str,
-) -> None:
-    """Синхронный запуск пайплайна видео -> субтитры в отдельном потоке."""
-    def progress_callback(phase: str) -> None:
-        set_translation_phase(request_id, phase)
-
-    llm_client = CachedLLMClient(
-        provider="openai",
-        enable_cache=True,
-        enable_batching=True,
-    )
-    translator = TranslatorAgent(llm_client)
-    seed = ProjectSeed(
-        language="ru",
-        project_type="individual",
-        thematic_block="GEN",
-        audience_level="base",
-        required_tools=[],
-        title_seed="",
-        project_description="Субтитры к видео",
-        learning_outcomes=[],
-        skills=[],
-        tasks_count=None,
-        task_complexity=None,
-        bonus_wish=None,
-        context_track_dir=None,
-        last_known_order=None,
-        group_size=None,
-        repo_base_url=None,
-        repo_path_template=None,
-        is_programming_project=None,
-        target_languages=None,
-        zun=None,
-    )
-    try:
-        translated_srt, original_srt = run_video_to_subtitles_pipeline(
-            video_path=video_path,
-            target_language=target_language,
-            source_language=source_language,
-            subtitle_format=subtitle_format,
-            progress_callback=progress_callback,
-            translator=translator,
-            seed=seed,
-        )
-        set_translation_job(
+        upsert_user_run(
             request_id=request_id,
-            status="completed",
-            phase="build_srt",
-            target_language=target_language,
-            job_type="video",
-            translated_subtitles=translated_srt,
-            original_transcript=original_srt,
-            subtitle_format=subtitle_format,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.error("Ошибка при переводе видео/субтитров: %s", e, exc_info=True)
-        set_translation_job(
-            request_id=request_id,
+            user_id=user_id,
+            kind="translation",
             status="failed",
-            target_language=target_language,
-            job_type="video",
-            error=str(e),
+            title=_markdown_title(markdown),
+            result_url=f"/api/v1/translate/status/{request_id}",
+            metadata={"target_language": target_language, "translation_mode": translation_mode, "error": str(e)},
         )
-    finally:
-        if os.path.exists(video_path):
-            try:
-                os.unlink(video_path)
-            except OSError:
-                pass
 
 
 def _run_burned_video_translation(
@@ -249,7 +198,6 @@ def _run_burned_video_translation(
         set_translation_phase(request_id, phase, progress)
 
     llm_client = CachedLLMClient(
-        provider="openai",
         enable_cache=True,
         enable_batching=True,
     )
@@ -298,6 +246,19 @@ def _run_burned_video_translation(
                 progress=100.0,
                 result_links=result_links,
             )
+            upsert_user_run(
+                request_id=request_id,
+                user_id=user_id,
+                kind="video_translation",
+                status="completed",
+                title="Перевод видео",
+                result_url=f"/api/v1/translate/status/{request_id}",
+                metadata={
+                    "target_language": target_language,
+                    "output_mode": output_mode,
+                    "segments_count": segments_count,
+                },
+            )
         except Exception as e:  # noqa: BLE001
             elapsed = time.monotonic() - start_ts
             logger.error(
@@ -317,6 +278,15 @@ def _run_burned_video_translation(
                 job_type="video",
                 error=str(e),
                 error_code="pipeline_error",
+            )
+            upsert_user_run(
+                request_id=request_id,
+                user_id=user_id,
+                kind="video_translation",
+                status="failed",
+                title="Перевод видео",
+                result_url=f"/api/v1/translate/status/{request_id}",
+                metadata={"target_language": target_language, "output_mode": output_mode, "error": str(e)},
             )
         finally:
             if os.path.exists(video_path):
@@ -415,6 +385,16 @@ async def translate_readme_start(
         original_markdown=markdown,
         target_language=target_language,
     )
+    await asyncio.to_thread(
+        upsert_user_run,
+        request_id=request_id,
+        user_id=user_id,
+        kind="translation",
+        status="in_progress",
+        title=payload.title_seed or _markdown_title(markdown),
+        result_url=f"/api/v1/translate/status/{request_id}",
+        metadata={"target_language": target_language, "translation_mode": translation_mode},
+    )
 
     asyncio.create_task(
         asyncio.to_thread(
@@ -507,6 +487,16 @@ async def translate_video_start(
         target_language=target_language,
         job_type="video",
         progress=0.0,
+    )
+    await asyncio.to_thread(
+        upsert_user_run,
+        request_id=request_id,
+        user_id=user_id,
+        kind="video_translation",
+        status="in_progress",
+        title=file.filename or "Перевод видео",
+        result_url=f"/api/v1/translate/status/{request_id}",
+        metadata={"target_language": target_language, "output_mode": mode},
     )
 
     asyncio.create_task(

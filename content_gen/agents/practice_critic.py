@@ -13,6 +13,7 @@ from ..config.loader import get_agent_config
 from ..llm.client import LLMClient
 from ..llm.structured_output import StructuredLLMClient
 from ..models.schemas import ProjectSeed
+from ..observability import FallbackTraceEvent
 
 
 class PracticeIssue(BaseModel):
@@ -37,7 +38,7 @@ class PracticeIssue(BaseModel):
     )
 
     def as_dict(self) -> dict:
-        """Возвращает словарь для обратной совместимости."""
+        """Return a plain dict for API serialization."""
         return self.model_dump(exclude_none=True)
 
 
@@ -62,15 +63,13 @@ class PracticeCriticAgent:
         self.llm_kwargs = self.config.llm.to_kwargs() if self.config.llm else {}
         options = self.config.options or {}
         self.max_issues = options.get("max_issues", 8)
+        self.fallback_traces: list[dict] = []
 
-    def run(self, input_data: dict[str, object]) -> dict[str, list[PracticeIssue]]:
-        """Совместимый адаптер для старого graph/run-контракта."""
-        result = self.review(
-            seed=input_data["seed"],
-            practice_markdown=input_data.get("practice_markdown", ""),
-            theory_summary=input_data.get("theory_summary"),
-        )
-        return {"result": result}
+    def consume_fallback_traces(self) -> list[dict]:
+        """Return and clear fallback events collected during the last reviews."""
+        events = list(self.fallback_traces)
+        self.fallback_traces.clear()
+        return events
 
     def review(
         self,
@@ -110,9 +109,24 @@ class PracticeCriticAgent:
             issues = self._merge_sjm_alignment_issues(seed, practice_markdown, issues)
             return issues
         except Exception as e:
-            # Fallback на старый метод парсинга при ошибке
+            # Recovery path for providers that reject structured output.
             import sys
             print(f"  ⚠️  Ошибка structured output, используем fallback: {e}", file=sys.stderr, flush=True)
+            self.fallback_traces.append(
+                FallbackTraceEvent.from_fallback(
+                    node="practice",
+                    fallback_type="practice_critic_json_object_recovery",
+                    reason=str(e),
+                    quality_risk="low",
+                    inputs={
+                        "title_seed": seed.title_seed,
+                        "practice_chars": len(practice_markdown or ""),
+                        "theory_summary_chars": len(theory_summary or ""),
+                    },
+                    trace={"max_issues": self.max_issues},
+                    metadata={"agent": self.__class__.__name__},
+                ).model_dump(mode="json")
+            )
             response_text = self.llm.complete(
                 system=system_prompt,
                 user=user_prompt,
@@ -129,7 +143,7 @@ class PracticeCriticAgent:
 
     @staticmethod
     def _split_tasks(practice_markdown: str) -> dict[int, str]:
-        matches = list(re.finditer(r"^###\s+(?:Задание|Задача)\s+(\d+)\.\s*(.+?)\s*$", practice_markdown or "", flags=re.M))
+        matches = list(re.finditer(r"^###\s+Задани(?:е|я)\s+(\d+)\.\s*(.+?)\s*$", practice_markdown or "", flags=re.M))
         blocks: dict[int, str] = {}
         if not matches:
             return blocks
@@ -143,13 +157,12 @@ class PracticeCriticAgent:
 
     @staticmethod
     def _has_story_context(task_text: str) -> bool:
-        match = re.search(r"\*\*Ситуация:?\*\*\s*(.+?)(?=\n\*\*|\Z)", task_text or "", flags=re.S)
-        text = match.group(1).strip().lower() if match else ""
+        action_match = re.search(r"\*\*Что нужно сделать:?\*\*\s*(.+?)(?=\n\*\*|\Z)", task_text or "", flags=re.S | re.I)
+        action_text = action_match.group(1).strip() if action_match else ""
+        situation_match = re.search(r"(?:^|\n)\s*Ситуация:\s*(.+?)(?=\n\s*(?:Исходные данные:|Цель:|Подход:)|\Z)", action_text, flags=re.S | re.I)
+        text = situation_match.group(1).strip().lower() if situation_match else ""
         if not text:
-            action_match = re.search(r"\*\*Что нужно сделать:?\*\*\s*(.+?)(?=\n\*\*|\Z)", task_text or "", flags=re.S | re.I)
-            action_text = action_match.group(1).strip() if action_match else ""
-            situation_match = re.search(r"(?:^|\n)\s*Ситуация:\s*(.+?)(?=\n\s*(?:Исходные данные:|Цель:|Подход:)|\Z)", action_text, flags=re.S | re.I)
-            text = situation_match.group(1).strip().lower() if situation_match else action_text.strip().lower()
+            text = action_text.strip().lower()
         if not text:
             return False
         if len(text) < 25:
@@ -364,7 +377,7 @@ class PracticeCriticAgent:
         return (existing_issues + [issue])[: self.max_issues]
 
     def _parse_response_fallback(self, response: str) -> list[PracticeIssue]:
-        """Fallback метод для парсинга ответа (старая логика)."""
+        """Parse a raw JSON response when structured output is unavailable."""
         issues: list[PracticeIssue] = []
         try:
             payload = self._extract_json(response)

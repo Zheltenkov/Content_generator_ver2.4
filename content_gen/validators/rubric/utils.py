@@ -17,6 +17,7 @@ class TaskBlock:
     """Блок задачи из главы 3."""
     title: str
     body: str
+    artifact_paths: list[str] | None = None
 
 
 def tokens(text: str, lang: str) -> list[str]:

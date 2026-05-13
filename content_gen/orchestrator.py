@@ -3,7 +3,7 @@ content_gen/orchestrator.py
 
 Оркестратор пайплайна генерации контента.
 
-Главный координатор всех агентов генерации. Использует фазовый подход (orchestrator_phases.py).
+Главный координатор AgentFlow-пайплайна генерации.
 """
 
 import logging
@@ -25,6 +25,7 @@ from .agents.task_planner import TaskPlanner
 from .exceptions import ContentGenerationError
 from .flow_handlers import GenerationFlowHandlers
 from .flow_result import FlowResultFinalizer
+from .llm.observed_client import ObservedLLMClient
 from .methodology import (
     HumanApprovalCheckpointPolicy,
     MethodologyGate,
@@ -36,20 +37,10 @@ from .methodology import (
 from .methodology.repair import MethodologyRepairController
 from .models.flow_state import ProjectFlowState
 from .models.result import OrchestratorResult
-from .node_services import (
-    ContextNodeService,
-    EvaluationNodeService,
-    FinalizeNodeService,
-    PracticeNodeService,
-    QualityNodeService,
-    SectionContextRecorder,
-    SkeletonNodeService,
-    TaskPlanningNodeService,
-    TheoryNodeService,
-    TitleAnnotationNodeService,
-    TranslationNodeService,
-)
-from .orchestrator_phases import OrchestratorPhases
+from .generation_runtime import GenerationRuntimeContainer
+from .observability import LLMTraceRecorder
+from .node_executor_bundle import GenerationNodeExecutorBundle
+from .node_services import SectionContextRecorder
 from .result_assembly import ResultAssembler
 from .utils.cancellation import CancellationToken
 from .utils.progress import ProgressTracker
@@ -59,7 +50,7 @@ class Orchestrator:
     """
     Оркестратор пайплайна генерации контента.
     
-    Использует фазовый подход с встроенными проверками.
+    Использует AgentFlow с независимыми node services и встроенными проверками.
     """
 
     def __init__(
@@ -80,15 +71,23 @@ class Orchestrator:
             methodology_progress_callback: Callback для live-снимков автоматических проверок методолога
             human_approval_enabled: Явно включает/выключает human-in-the-loop checkpoint'ы
         """
-        self.llm = llm_client
+        self.llm_trace_recorder = LLMTraceRecorder()
+        self.raw_llm = llm_client
+        self.llm = ObservedLLMClient(
+            llm_client,
+            self.llm_trace_recorder,
+            node="generation",
+            agent="orchestrator",
+            prompt_version="content_generation",
+        )
         self.cancellation_token = cancellation_token or CancellationToken()
         self.progress_tracker = progress_tracker or ProgressTracker()
-        self.phases = OrchestratorPhases(
-            llm_client,
+        self.runtime = GenerationRuntimeContainer(
+            self.llm,
             cancellation_token=self.cancellation_token,
             progress_tracker=self.progress_tracker
         )
-        self.runtime = self.phases.runtime
+        self.node_executors = GenerationNodeExecutorBundle.from_runtime(self.runtime)
 
         # Агенты, используемые в run_v2 для извлечения данных
         self.title_annot = self.runtime.title_annot
@@ -108,7 +107,9 @@ class Orchestrator:
         self.methodology_progress_callback = methodology_progress_callback
         self.methodology_repair = MethodologyRepairController()
         self.methodology_trace = MethodologyTraceRecorder()
-        self.scoped_revision_executor = ScopedRevisionExecutor(self.llm)
+        self.scoped_revision_executor = ScopedRevisionExecutor(
+            self.runtime.llm_for("methodology_review", "ScopedRevisionExecutor", "scoped_revision")
+        )
         self.flow_result_finalizer = FlowResultFinalizer(self.methodology_trace)
         self.section_context_recorder = SectionContextRecorder()
         self.result_assembler = ResultAssembler(
@@ -118,51 +119,11 @@ class Orchestrator:
             theory_parts_parser=self.methodology_repair.parse_theory_parts,
             practice_tasks_parser=self.methodology_repair.parse_practice_tasks,
         )
-        self.flow_handlers = GenerationFlowHandlers(
-            phases=self.phases,
+        self.flow_handlers = GenerationFlowHandlers.from_node_executors(
+            node_executors=self.node_executors,
             task_planner=self.task_planner,
             result_assembler=self.result_assembler,
             log_phase=self._log_phase_to_db,
-            context_service=ContextNodeService(self.phases.phase_0_context),
-            title_annotation_service=TitleAnnotationNodeService(self.phases.phase_1_title_annotation),
-            task_planning_service=TaskPlanningNodeService(
-                self.task_planner,
-                legacy_state=self.runtime,
-            ),
-            skeleton_service=SkeletonNodeService(
-                self.phases.phase_1_skeleton,
-                self.phases.phase_1_structure,
-                GenerationFlowHandlers._serialize_issues,
-                GenerationFlowHandlers._has_hard_issues,
-                GenerationFlowHandlers._issue_messages,
-                GenerationFlowHandlers._json_safe,
-            ),
-            theory_service=TheoryNodeService(
-                self.phases.phase_2_theory,
-                self.section_context_recorder,
-                GenerationFlowHandlers._serialize_issues,
-                GenerationFlowHandlers._has_hard_issues,
-                GenerationFlowHandlers._issue_messages,
-            ),
-            practice_service=PracticeNodeService(
-                self.phases.phase_3_practice,
-                self.section_context_recorder,
-                GenerationFlowHandlers._serialize_issues,
-                GenerationFlowHandlers._has_hard_issues,
-                GenerationFlowHandlers._issue_messages,
-                legacy_state=self.runtime,
-            ),
-            quality_service=QualityNodeService(self.phases.phase_4_global_quality),
-            evaluation_service=EvaluationNodeService(
-                self.phases.phase_6_final_evaluation,
-                GenerationFlowHandlers._serialize_issues,
-            ),
-            translation_service=TranslationNodeService(self.phases.phase_7_translate),
-            finalize_service=FinalizeNodeService(
-                self.result_assembler,
-                self.section_context_recorder,
-                legacy_state=self.runtime,
-            ),
             section_context_recorder=self.section_context_recorder,
         )
         self.flow_runner = AgentFlowRunner(
@@ -247,13 +208,9 @@ class Orchestrator:
 
     def _build_initial_context(self, raw_input: dict[str, Any], track_files: list[str] | None) -> dict[str, Any]:
         state = ProjectFlowState.from_initial_input(raw_input, track_files)
-        return state.to_context()
-
-    def _default_flow_registry(self) -> dict[str, Callable[[dict[str, Any]], FlowNodeOutput]]:
-        return self.flow_handlers.registry()
-
-    def _build_flow_registry(self) -> dict[str, Callable[[dict[str, Any]], FlowNodeOutput]]:
-        return {}
+        context = state.to_context()
+        context["llm_traces"] = self.llm_trace_recorder.events
+        return context
 
     def _review_stage(self, node, context: dict[str, Any], _output: FlowNodeOutput) -> list[str]:
         """Attach methodology review and bounded repair feedback after a node completes."""
@@ -336,38 +293,11 @@ class Orchestrator:
         """Extract human-readable messages from validator issues."""
         return GenerationFlowHandlers._issue_messages(issues)
 
-    def _node_context(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_context(context)
-
-    def _node_task_planning(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_task_planning(context)
-
-    def _node_skeleton(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_skeleton(context)
-
-    def _node_theory(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_theory(context)
-
-    def _node_practice(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_practice(context)
-
-    def _node_global_quality(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_global_quality(context)
-
-    def _node_translate(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_translate(context)
-
-    def _node_evaluation(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_evaluation(context)
-
-    def _node_finalize(self, context: dict[str, Any]) -> FlowNodeOutput:
-        return self.flow_handlers.node_finalize(context)
-
     def run(self, raw_input: dict[str, Any], track_files: list[str] = None) -> OrchestratorResult:
         """
         Запускает полный пайплайн генерации.
         
-        Использует фазовый подход с встроенными проверками.
+        Использует AgentFlow с независимыми node services и встроенными проверками.
 
         Args:
             raw_input: Сырые входные данные от методолога
@@ -423,14 +353,15 @@ class Orchestrator:
     ) -> OrchestratorResult:
         """Run or resume the configured flow over an existing mutable context."""
         try:
-            registry = self._default_flow_registry()
-            registry.update(self._build_flow_registry())
+            context["llm_traces"] = self.llm_trace_recorder.events
+            registry = self.flow_handlers.registry()
             steps = self.flow_runner.run(
                 context,
                 registry,
                 start_index=start_index,
                 previous_steps=previous_steps,
             )
+            context["llm_traces"] = self.llm_trace_recorder.events
             return self.flow_result_finalizer.finalize(context, steps)
         except Exception as exc:
             # Проверяем, не была ли это отмена

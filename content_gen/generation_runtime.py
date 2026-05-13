@@ -40,23 +40,23 @@ class GenerationRuntimeContainer:
 
         # Agents are long-lived dependencies for the current orchestrator instance.
         self.intent = None
-        self.title_annot = TitleAnnotationAgent(llm_client)
+        self.title_annot = TitleAnnotationAgent(self.llm_for("title_annotation", "TitleAnnotationAgent"))
         self.skeleton = SkeletonAgent()
-        self.intro = IntroRulesAgent(llm_client)
-        self.theory = TheoryAgent(llm_client)
-        self.theory_enhancement = TheoryEnhancementAgent(llm_client)
+        self.intro = IntroRulesAgent(self.llm_for("skeleton", "IntroRulesAgent"))
+        self.theory = TheoryAgent(self.llm_for("theory", "TheoryAgent"))
+        self.theory_enhancement = TheoryEnhancementAgent(self.llm_for("theory", "TheoryEnhancementAgent"))
         self.theory_completeness = None
-        self.content_editor = ContentEditorAgent(llm_client)
-        self.definitions_agent = DefinitionsAgent(llm_client)
-        self.length_agent = LengthAgent(llm_client)
-        self.readability_agent = ReadabilityAgent(llm_client)
-        self.practice = PracticeAgent(llm_client)
-        self.dataset_generator = DatasetGeneratorAgent(llm_client)
+        self.content_editor = ContentEditorAgent(self.llm_for("quality", "ContentEditorAgent"))
+        self.definitions_agent = DefinitionsAgent(self.llm_for("theory", "DefinitionsAgent"))
+        self.length_agent = LengthAgent(self.llm_for("theory", "LengthAgent"))
+        self.readability_agent = ReadabilityAgent(self.llm_for("theory", "ReadabilityAgent"))
+        self.practice = PracticeAgent(self.llm_for("practice", "PracticeAgent"))
+        self.dataset_generator = DatasetGeneratorAgent(self.llm_for("practice", "DatasetGeneratorAgent"))
         self.toc = TOCAgent()
         self.style = StyleGuardAgent()
-        self.practice_critic = PracticeCriticAgent(llm_client)
-        self.translator = TranslatorAgent(llm_client)
-        self.regeneration = RegenerationAgent(llm_client)
+        self.practice_critic = PracticeCriticAgent(self.llm_for("practice", "PracticeCriticAgent"))
+        self.translator = TranslatorAgent(self.llm_for("translate", "TranslatorAgent"))
+        self.regeneration = RegenerationAgent(self.llm_for("repair", "RegenerationAgent"))
 
         # Validators are deterministic services shared by phase executors.
         self.structural_preflight = StructuralPreflight()
@@ -69,6 +69,7 @@ class GenerationRuntimeContainer:
 
         # Mutable artifacts are runtime state, not orchestration API.
         self.practice_critic_issues: list[dict[str, Any]] = []
+        self.fallback_traces: list[dict[str, Any]] = []
         self.practice_tasks: list[PracticeTask] = []
         self.dataset_files: list[dict[str, Any]] = []
         self.theory_parts: list[TheoryPart] = []
@@ -76,6 +77,17 @@ class GenerationRuntimeContainer:
         self.practice_plan_contract: Any | None = None
         self.artifact_chain_plan: Any | None = None
         self.evidence_specs: list[Any] = []
+
+    def llm_for(self, node: str, agent: str, prompt_version: str | None = None) -> Any:
+        """Return a node-scoped LLM client when the active client supports tracing scopes."""
+        scoped = getattr(self.llm, "scoped", None)
+        if callable(scoped):
+            return scoped(
+                node=node,
+                agent=agent,
+                prompt_version=prompt_version or agent,
+            )
+        return self.llm
 
     def create_empty_context(self, thematic_block: str) -> ProjectContextMeta:
         """Create empty curriculum context for fallback paths."""

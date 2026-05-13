@@ -94,7 +94,7 @@ if static_dir.exists():
                 content={"detail": f"Файл login.html не найден: {login_path}"}
             )
         logger.debug(f"✅ Возвращаем login.html: {login_path}")
-        return FileResponse(str(login_path))
+        return FileResponse(str(login_path), headers={"Cache-Control": "no-store"})
 
     @app.get("/register")
     async def read_register():

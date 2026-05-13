@@ -3,6 +3,7 @@
 import re
 
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 
 
@@ -252,3 +253,7 @@ class Section4Checker:
         safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 4.3: {items[-1].title}", flush=True)
 
         return items
+
+    def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
+        """Проверяет раздел 4 по typed README document tree."""
+        return self.check(document.to_markdown())

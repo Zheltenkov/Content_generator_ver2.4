@@ -11,6 +11,7 @@ from typing import Any
 
 from ..config.loader import get_agent_config
 from ..models.schemas import ProjectSeed
+from ..recovery import ModelOutputNormalizer
 from .base.agent import BaseAgent
 from .base.llm_client import LLMClientProtocol
 
@@ -33,7 +34,8 @@ class TheoryCompletenessAgent(BaseAgent):
         super().__init__(llm)
         self.config = get_agent_config(self.CONFIG_NAME)
         self.llm_kwargs = self.config.llm.to_kwargs() if self.config.llm else {}
-        self.rx_part = re.compile(r"^###\s+Часть\s+(\d+)\.\s*(.+?)\s*$", re.M)
+        self.output_normalizer = ModelOutputNormalizer()
+        self.rx_part = re.compile(r"^###\s+2\.(\d+)\.\s*(.+?)\s*$", re.M)
 
     def check_and_enhance(
         self,
@@ -97,6 +99,7 @@ class TheoryCompletenessAgent(BaseAgent):
 
     def _extract_theory_parts(self, markdown: str) -> list[dict[str, Any]]:
         """Извлекает части теории из Markdown."""
+        markdown = self.output_normalizer.normalize_theory_markdown(markdown).markdown
         parts = []
         matches = self.rx_part.finditer(markdown)
 

@@ -1,5 +1,5 @@
 from content_gen.models.schemas import PracticeTask
-from content_gen.orchestrator_phases_modules.phases.phase_3 import _render_practice_block
+from content_gen.practice_phase_executor import _render_practice_block
 
 
 def test_public_practice_block_uses_source_pdf_template() -> None:

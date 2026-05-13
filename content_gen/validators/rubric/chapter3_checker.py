@@ -8,8 +8,11 @@ from ...config.banned_phrases import BAD_GOAL_PATTERNS, BANNED_BY_LANG
 from ...config.active_goals import has_active_goal_verb
 from ...config.thresholds import THRESHOLDS
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
+from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import clean_markdown_prose_for_counting, count_words
+from ..messages import practice_task_label
+from .document_utils import chapter_content, practice_task_sections, section_artifact_paths, section_content
 from .utils import TaskBlock, bag, cosine, tokens
 
 
@@ -38,7 +41,7 @@ class Chapter3Checker:
         return has_active_goal_verb(goal_text)
 
     @staticmethod
-    def _has_deterministic_p2p_signal(task_text: str) -> bool:
+    def _has_deterministic_p2p_signal(task_text: str, artifact_paths: list[str] | None = None) -> bool:
         criteria_match = re.search(
             r"\*\*(?:Что должно получиться|Критерии проверки.*?):?\*\*\s*\n(.*?)(?=\n\*\*|\n###|\n##|\Z)",
             task_text,
@@ -76,7 +79,9 @@ class Chapter3Checker:
                 )
             )
         ]
-        has_location = bool(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+", task_text))
+        has_location = bool(artifact_paths) or bool(
+            re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./-]+\.[A-Za-z0-9]+", task_text)
+        )
         return len(observable_items) >= 2 and has_location
 
     @staticmethod
@@ -93,34 +98,37 @@ class Chapter3Checker:
         return match.group(1).strip() if match else ""
 
     @classmethod
-    def _extract_goal_text(cls, task_text: str) -> str:
-        legacy = cls._extract_label_block(task_text, "Цель")
-        if legacy:
-            return legacy
+    def _extract_action_field(cls, task_text: str, label: str) -> str:
         action = cls._extract_label_block(task_text, "Что нужно сделать")
-        match = re.search(r"(?:^|\n)\s*Цель:\s*(.+?)(?=\n\s*(?:Подход:|Исходные данные:)|\Z)", action, flags=re.S | re.I)
-        return match.group(1).strip() if match else action[:300]
+        labels = ["Ситуация", "Исходные данные", "Цель", "Подход"]
+        other_labels = "|".join(re.escape(item) for item in labels if item.casefold() != label.casefold())
+        match = re.search(
+            rf"(?:^|\n)\s*{re.escape(label)}:\s*(.+?)(?=\n\s*(?:{other_labels}):|\Z)",
+            action,
+            flags=re.S | re.I,
+        )
+        return match.group(1).strip() if match else ""
+
+    @classmethod
+    def _extract_goal_text(cls, task_text: str) -> str:
+        return cls._extract_action_field(task_text, "Цель")
 
     @classmethod
     def _extract_approach_text(cls, task_text: str) -> str:
-        return cls._extract_label_block(task_text, "Подход") or cls._extract_label_block(task_text, "Что нужно сделать")
+        return cls._extract_action_field(task_text, "Подход")
 
     @classmethod
-    def _has_expected_result_text(cls, task_text: str) -> bool:
-        result = cls._extract_label_block(task_text, "Ожидаемый результат") or cls._extract_label_block(
-            task_text,
-            "Что должно получиться",
-        )
+    def _has_expected_result_text(cls, task_text: str, artifact_paths: list[str] | None = None) -> bool:
+        result = cls._extract_label_block(task_text, "Что должно получиться")
         has_artifact = bool(re.search(r"\b(файл|документ|таблиц|схем|артефакт|отчет|отчёт|README|Markdown)\b", result, re.I))
-        has_location = bool(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}:\-]+", result))
+        has_location = bool(artifact_paths) or bool(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}:\-]+", result))
         return bool(result.strip()) and (has_artifact or has_location)
 
     @staticmethod
     def _has_task_situation(task_text: str) -> bool:
-        situation_match = re.search(r"\*\*Ситуация:\*\*\s*(.+?)(?=\n\*\*|\Z)", task_text, flags=re.S)
-        if not situation_match:
+        situation_text = Chapter3Checker._extract_action_field(task_text, "Ситуация").strip().lower()
+        if not situation_text:
             return False
-        situation_text = situation_match.group(1).strip().lower()
         if len(situation_text) < 25:
             return False
         actor_signals = ["ты", "команда", "заказчик", "клиент", "коллега", "ревьюер", "проект"]
@@ -135,15 +143,20 @@ class Chapter3Checker:
             return True
         return len(situation_text) >= 60
 
-    def check(self, ch3_content: str, ch2_content: str) -> list[CriteriaItem]:
+    def check(
+        self,
+        ch3_content: str,
+        ch2_content: str,
+        task_blocks: list[TaskBlock] | None = None,
+    ) -> list[CriteriaItem]:
         """2.5: Проверка Главы 3 (2.5.1-2.5.7)."""
         items = []
 
         if not ch3_content:
             # Используем правильные названия критериев даже когда глава 3 отсутствует
             titles = {
-                "2.5.1": "Проверка количества задач",
-                "2.5.2": "Проверка структуры задачи",
+                "2.5.1": "Проверка количества заданий",
+                "2.5.2": "Проверка структуры задания",
                 "2.5.3": "Проверка формулировки цели",
                 "2.5.4": "Проверка корректности подсказки выполнения",
                 "2.5.5": "Проверка формулировки ожидаемого результата",
@@ -151,8 +164,8 @@ class Chapter3Checker:
                 "2.5.7": "Проверка связи с теоретическим блоком"
             }
             descriptions = {
-                "2.5.1": "Допустимый диапазон — 3–8 задач",
-                "2.5.2": "В каждой задаче 5 блоков: Ситуация, Входные данные, Цель, Подход, Ожидаемый результат",
+                "2.5.1": "Допустимый диапазон — 3–8 заданий",
+                "2.5.2": "В каждом задании есть канонические блоки: Что нужно сделать, Что должно получиться, Формат сдачи",
                 "2.5.3": "Цель в активной форме: «разработать», «настроить», «проверить»",
                 "2.5.4": "Подход ≤150 слов, без директив, 2–6 пунктов",
                 "2.5.5": "Результат описан конкретно с указанием артефакта и локации",
@@ -171,16 +184,16 @@ class Chapter3Checker:
                 ))
             return items
 
-        # 2.5.1: Проверка количества задач
-        task_blocks = self._split_tasks(ch3_content)
+        # 2.5.1: Проверка количества заданий
+        task_blocks = task_blocks if task_blocks is not None else self._split_tasks(ch3_content)
         n_tasks = len(task_blocks)
         lo, hi = THRESHOLDS["practice_tasks_range"]
 
         if lo <= n_tasks <= hi:
             items.append(CriteriaItem(
                 id="2.5.1",
-                title="Проверка количества задач",
-                description=f"Допустимый диапазон — {lo}–{hi} задач",
+                title="Проверка количества заданий",
+                description=f"Допустимый диапазон — {lo}–{hi} заданий",
                 check_method=CheckMethod.SCRIPT,
                 score=1,
                 comments=[],
@@ -189,15 +202,15 @@ class Chapter3Checker:
         else:
             items.append(CriteriaItem(
                 id="2.5.1",
-                title="Проверка количества задач",
-                description=f"Допустимый диапазон — {lo}–{hi} задач",
+                title="Проверка количества заданий",
+                description=f"Допустимый диапазон — {lo}–{hi} заданий",
                 check_method=CheckMethod.SCRIPT,
                 score=0,
-                comments=[f"Количество задач: {n_tasks} (ожидалось {lo}–{hi})"],
+                comments=[f"Количество практических заданий: {n_tasks} (ожидалось {lo}–{hi})"],
                 parent_id="2.5"
             ))
 
-        # 2.5.2: Проверка структуры задачи (ИИ)
+        # 2.5.2: Проверка структуры задания (ИИ)
         structure_issues = []
         for i, task in enumerate(task_blocks, 1):
             task_text = task.body
@@ -206,27 +219,23 @@ class Chapter3Checker:
                 self._has_label(task_text, "Что нужно сделать")
                 and self._has_label(task_text, "Что должно получиться")
                 and self._has_label(task_text, "Формат сдачи")
-            )
-            legacy = (
-                self._has_task_situation(task_text)
-                and self._has_label(task_text, "Входные данные")
-                and self._has_label(task_text, "Цель")
-                and self._has_label(task_text, "Подход")
-                and self._has_label(task_text, "Ожидаемый результат")
+                and self._has_task_situation(task_text)
             )
 
-            if not (canonical or legacy):
+            if not canonical:
                 missing = []
                 for label in ["Что нужно сделать", "Что должно получиться", "Формат сдачи"]:
                     if not self._has_label(task_text, label):
                         missing.append(label)
-                structure_issues.append(f"Задача {i}: отсутствуют блоки: {', '.join(missing)}")
+                if not self._has_task_situation(task_text):
+                    missing.append("Ситуация")
+                structure_issues.append(f"{practice_task_label(i, task.title)}: отсутствуют блоки: {', '.join(missing)}")
 
         if len(structure_issues) == 0:
             items.append(CriteriaItem(
                 id="2.5.2",
-                title="Проверка структуры задачи",
-                description="В каждой задаче 5 блоков: Ситуация, Входные данные, Цель, Подход, Ожидаемый результат",
+                title="Проверка структуры задания",
+                description="В каждом задании есть канонические блоки: Что нужно сделать, Что должно получиться, Формат сдачи",
                 check_method=CheckMethod.AI_AGENT,
                 score=1,
                 comments=[],
@@ -235,8 +244,8 @@ class Chapter3Checker:
         else:
             items.append(CriteriaItem(
                 id="2.5.2",
-                title="Проверка структуры задачи",
-                description="В каждой задаче 5 блоков: Ситуация, Входные данные, Цель, Подход, Ожидаемый результат",
+                title="Проверка структуры задания",
+                description="В каждом задании есть канонические блоки: Что нужно сделать, Что должно получиться, Формат сдачи",
                 check_method=CheckMethod.AI_AGENT,
                 score=0,
                 comments=structure_issues[:5],
@@ -257,11 +266,11 @@ class Chapter3Checker:
                 has_active_verb = self._has_active_goal_verb(goal_text)
 
                 if has_bad_goal:
-                    goal_issues.append(f"Задача {i}: цель содержит запрещенные слова («изучить/ознакомиться/посмотреть»)")  # HARD
+                    goal_issues.append(f"{practice_task_label(i, task.title)}: цель содержит запрещенные слова («изучить/ознакомиться/посмотреть»)")  # HARD
                 if not has_active_verb:
-                    goal_issues.append(f"Задача {i}: цель не содержит явного активного глагола")  # SOFT
+                    goal_issues.append(f"{practice_task_label(i, task.title)}: цель не содержит явного активного глагола")  # SOFT
             else:
-                goal_issues.append(f"Задача {i}: цель не найдена")  # HARD
+                goal_issues.append(f"{practice_task_label(i, task.title)}: цель не найдена")  # HARD
 
         has_hard_issues = any("запрещенные слова" in issue or "не найдена" in issue for issue in goal_issues)
 
@@ -299,12 +308,12 @@ class Chapter3Checker:
 
                 # Проверяем длину
                 if w > 150:
-                    approach_issues.append(f"Задача {i}: подход {w} слов (>150)")
+                    approach_issues.append(f"{practice_task_label(i, task.title)}: подход {w} слов (>150)")
 
                 # Проверяем директивы
                 has_directives = any(re.search(p, approach_text, flags=re.I) for p in self.rx_directives)
                 if has_directives:
-                    approach_issues.append(f"Задача {i}: подход содержит директивы")
+                    approach_issues.append(f"{practice_task_label(i, task.title)}: подход содержит директивы")
 
                 # Проверяем количество пунктов
                 list_items = re.findall(r'^[\s]*[-*+]\s+', approach_text, re.MULTILINE)
@@ -312,9 +321,9 @@ class Chapter3Checker:
                 total_items = len(list_items) + len(numbered_items)
 
                 if total_items > 0 and not (2 <= total_items <= 6):
-                    approach_issues.append(f"Задача {i}: подход содержит {total_items} пунктов (ожидалось 2–6)")
+                    approach_issues.append(f"{practice_task_label(i, task.title)}: подход содержит {total_items} пунктов (ожидалось 2–6)")
             else:
-                approach_issues.append(f"Задача {i}: подход не найден")
+                approach_issues.append(f"{practice_task_label(i, task.title)}: подход не найден")
 
         has_hard_issues = any("директивы" in issue for issue in approach_issues)
 
@@ -351,7 +360,7 @@ class Chapter3Checker:
                 check_result = self._ai_check_expected_result(task_text)
 
                 if not check_result["is_valid"]:
-                    issue_msg = f"Задача {i}: {check_result['reason']}"
+                    issue_msg = f"{practice_task_label(i, task.title)}: {check_result['reason']}"
                     result_issues.append(issue_msg)
 
             if len(result_issues) == 0:
@@ -377,8 +386,8 @@ class Chapter3Checker:
                 ))
         else:
             for i, task in enumerate(task_blocks, 1):
-                if not self._has_expected_result_text(task.body):
-                    result_issues.append(f"Задача {i}: ожидаемый результат не найден или не содержит артефакт/локацию")
+                if not self._has_expected_result_text(task.body, task.artifact_paths):
+                    result_issues.append(f"{practice_task_label(i, task.title)}: ожидаемый результат не найден или не содержит артефакт/локацию")
             items.append(CriteriaItem(
                 id="2.5.5",
                 title="Проверка формулировки ожидаемого результата",
@@ -395,12 +404,12 @@ class Chapter3Checker:
         for i, task in enumerate(task_blocks, 1):
             task_text = task.body
 
-            has_p2p_signal = self._has_deterministic_p2p_signal(task_text)
+            has_p2p_signal = self._has_deterministic_p2p_signal(task_text, task.artifact_paths)
             if not has_p2p_signal and self.llm:
                 has_p2p_signal = self._ai_check_p2p_verifiability(task_text)
 
             if not has_p2p_signal:
-                p2p_issues.append(f"Задача {i}: артефакт не является p2p-проверяемым")
+                p2p_issues.append(f"{practice_task_label(i, task.title)}: артефакт не является p2p-проверяемым")
 
         if len(p2p_issues) == 0:
             items.append(CriteriaItem(
@@ -426,7 +435,7 @@ class Chapter3Checker:
 
         # 2.5.7: Проверка связи с теоретическим блоком
         ch2_text = ch2_content if ch2_content else ""
-        tasks = self._split_tasks(ch3_content)
+        tasks = task_blocks
 
         if not ch2_text.strip():
             items.append(CriteriaItem(
@@ -445,7 +454,7 @@ class Chapter3Checker:
                 description="Ключевые понятия из главы 2 встречаются в главе 3",
                 check_method=CheckMethod.SCRIPT,
                 score=0,
-                comments=["Задачи в главе 3 не найдены"],
+                comments=["Практические задания в главе 3 не найдены"],
                 parent_id="2.5"
             ))
         else:
@@ -513,6 +522,22 @@ class Chapter3Checker:
                 ))
 
         return items
+
+    def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
+        """2.5: Проверка Главы 3 из typed README document."""
+        task_blocks = [
+            TaskBlock(
+                title=section.title,
+                body=section_content(section),
+                artifact_paths=section_artifact_paths(section),
+            )
+            for section in practice_task_sections(document, language=self.lang)
+        ]
+        return self.check(
+            chapter_content(document, 3, language=self.lang),
+            chapter_content(document, 2, language=self.lang),
+            task_blocks=task_blocks or None,
+        )
 
     def _ai_check_expected_result(self, task_text: str) -> dict[str, Any]:
         """ИИ-проверка формулировки ожидаемого результата."""
@@ -688,7 +713,7 @@ class Chapter3Checker:
             return []
 
         # Режем по заголовкам задач
-        raw = re.split(r'(?=^###\s+(?:Задание|Задача)\s+\d+\.?)', ch3_text, flags=re.M)
+        raw = re.split(r'(?=^###\s+Задани(?:е|я)\s+\d+\.?)', ch3_text, flags=re.M)
         blocks: list[TaskBlock] = []
 
         for chunk in raw:
@@ -738,7 +763,7 @@ class Chapter3Checker:
         """Извлекает проверяемые термины из заголовков и определений теории."""
         raw_terms: list[str] = []
         raw_terms.extend(
-            re.findall(r"^###\s+(?:(?:2\.\d+|Часть\s+\d+)\.?\s*)?(.+?)\s*$", ch2_text, flags=re.M | re.I)
+            re.findall(r"^###\s+(?:2\.\d+\.?\s*)?(.+?)\s*$", ch2_text, flags=re.M | re.I)
         )
         raw_terms.extend(
             re.findall(

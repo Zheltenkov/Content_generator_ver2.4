@@ -11,9 +11,10 @@ from .curriculum.models import CurriculumEntry
 from .domain_contracts import build_narrative_contract
 from .generation_runtime import GenerationRuntimeContainer
 from .models.flow_state import ProjectContextBundle
+from .models.phase_results import ContextPhaseResult
 from .models.schemas import ProjectContextMeta, ProjectSeed
 
-logger = logging.getLogger("content_gen.orchestrator.phases.phase_0")
+logger = logging.getLogger("content_gen.context_phase_executor")
 
 
 def _safe_int(value: Any) -> int | None:
@@ -121,14 +122,7 @@ def _execute_context_phase(
     orchestrator,
     raw_input: dict[str, Any],
     track_files: list[str] = None
-) -> tuple[
-    ProjectSeed,
-    ProjectContextMeta,
-    ContextAnalysisResult,
-    ProjectContextBundle,
-    list[CurriculumEntry],
-    list[str],
-]:
+) -> ContextPhaseResult:
     """Build seed and curriculum-aware context without retrieval."""
     orchestrator.intent = IntentMapper()
     logger.info("🔄 Phase 0 | IntentMapper + curriculum context")
@@ -295,7 +289,14 @@ def _execute_context_phase(
         reference_enabled,
     )
 
-    return seed, context_meta, context_analysis, context_bundle, similar_projects, warnings
+    return ContextPhaseResult(
+        seed=seed,
+        context_meta=context_meta,
+        context_analysis=context_analysis,
+        context_bundle=context_bundle,
+        similar_projects=list(similar_projects or []),
+        warnings=warnings,
+    )
 
 
 class ContextPhaseExecutor:
@@ -308,12 +309,5 @@ class ContextPhaseExecutor:
         self,
         raw_input: dict[str, Any],
         track_files: list[str] | None = None,
-    ) -> tuple[
-        ProjectSeed,
-        ProjectContextMeta,
-        ContextAnalysisResult,
-        ProjectContextBundle,
-        list[Any],
-        list[str],
-    ]:
+    ) -> ContextPhaseResult:
         return _execute_context_phase(self.runtime, raw_input, track_files)
