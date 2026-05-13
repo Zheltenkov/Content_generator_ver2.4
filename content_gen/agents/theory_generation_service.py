@@ -160,7 +160,6 @@ class TheoryGenerationService:
         section_context: dict[str, Any] | None,
     ) -> str:
         """Build the main theory user prompt."""
-        zun_info = seed.zun if hasattr(seed, "zun") and seed.zun else "—"
         curriculum_context_section = build_theory_curriculum_context_section(seed, section_context=section_context)
         sjm_section = build_theory_sjm_section(seed, section_context=section_context)
         practice_plan_section = render_practice_plan_contract_section(
@@ -210,7 +209,6 @@ class TheoryGenerationService:
             skills="; ".join(filtered_skills),
             context_summary=filtered_context_summary,
             narrative_anchor=filtered_narrative_anchor,
-            zun=zun_info,
             include_formulas=seed.include_formulas,
             include_tables=seed.include_tables,
             include_diagrams=seed.include_diagrams,
@@ -220,8 +218,8 @@ class TheoryGenerationService:
             formulas_code_requirements=build_theory_formulas_requirements(seed, content_type),
             platform_name=platform_name,
             gitlab_link=gitlab_link,
+            required_software=", ".join(getattr(seed, "required_software", []) or []) or "—",
             workload_hours=getattr(seed, "workload_hours", None) or "—",
-            workload_days=getattr(seed, "workload_days", None) or "—",
             i="{i}",
         )
         if practice_plan_section:

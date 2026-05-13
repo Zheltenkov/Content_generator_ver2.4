@@ -48,7 +48,8 @@ def test_provider_builds_seed_from_nested_curriculum_project_payload() -> None:
     assert result.seed.thematic_block == "Блок 1. Введение"
     assert result.seed.project_type == "group"
     assert result.seed.group_size == 3
-    assert result.seed.required_tools == ["Figma", "Miro"]
+    assert result.seed.required_tools == []
+    assert result.seed.required_software == ["Figma", "Miro"]
     assert result.seed.learning_outcomes == [
         "Понимает назначение прототипа.",
         "Умеет описывать сценарий.",

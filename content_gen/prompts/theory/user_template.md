@@ -30,12 +30,12 @@
 Образовательные результаты (LO): {learning_outcomes}
 Контекст: {context_summary}
 Мост к предыдущим проектам: {narrative_anchor}
-ЗУНы (Знания, Умения, Навыки): {zun}
 
 === ДАННЫЕ ИЗ УЧЕБНОГО ПЛАНА (УП) ===
 Название проекта на платформе: {platform_name}
 Материалы из УП: {gitlab_link}
-Трудоёмкость: {workload_hours} часов / {workload_days} дней
+Необходимое ПО: {required_software}
+Трудоёмкость: {workload_hours} часов
 
 === КОНТЕКСТ ИЗ УЧЕБНОГО ПЛАНА (УП) ===
 {curriculum_context_section}

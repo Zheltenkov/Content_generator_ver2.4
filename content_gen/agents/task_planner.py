@@ -169,6 +169,20 @@ class TaskPlanner:
         if not value:
             return 1
         norm = value.strip().lower()
+        fixed_levels = {
+            "beginner": 0,
+            "basic": 0,
+            "base": 0,
+            "базовый": 0,
+            "начальный": 0,
+            "beginner_plus": 1,
+            "beginner+": 1,
+            "middle": 1,
+            "advanced": 2,
+            "professional": 2,
+        }
+        if norm in fixed_levels:
+            return fixed_levels[norm]
         for idx, keywords in self.level_keywords.items():
             if any(k in norm for k in keywords):
                 return idx

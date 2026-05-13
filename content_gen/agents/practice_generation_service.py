@@ -152,12 +152,14 @@ class PracticeGenerationService:
         filtered_learning_outcomes = (section_context or {}).get("learning_outcomes") or seed.learning_outcomes
         filtered_skills = (section_context or {}).get("skills") or seed.skills
         filtered_required_tools = (section_context or {}).get("required_tools") or seed.required_tools
+        filtered_required_software = (section_context or {}).get("required_software") or getattr(seed, "required_software", [])
         filtered_project_description = (section_context or {}).get("project_description") or seed.project_description
 
         user_prompt = self.config.get_prompt("user_template").format(
             n=task_count,
             i="{i}",
             required_tools=", ".join(filtered_required_tools) if filtered_required_tools else "—",
+            required_software=", ".join(filtered_required_software) if filtered_required_software else "—",
             project_description=filtered_project_description,
             learning_outcomes="; ".join(filtered_learning_outcomes),
             skills="; ".join(filtered_skills),

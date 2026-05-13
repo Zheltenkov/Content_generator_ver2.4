@@ -2171,48 +2171,6 @@ body.s21-product.page-generate {
   gap: 12px;
 }
 
-.generator-brand-badge {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  position: relative;
-  border-radius: 10px;
-  background: var(--s21-dark);
-  color: var(--s21-accent);
-  font-family: var(--s21-font-mono);
-  font-size: 0;
-  font-weight: 800;
-}
-
-.generator-brand-badge::before,
-.generator-brand-badge::after {
-  content: "";
-  position: absolute;
-  border-radius: 4px;
-  background: var(--s21-accent);
-}
-
-.generator-brand-badge::before {
-  width: 10px;
-  height: 10px;
-  right: -5px;
-  bottom: -3px;
-}
-
-.generator-brand-badge::after {
-  width: 36px;
-  height: 24px;
-  left: -7px;
-  top: 7px;
-  background: rgba(238, 240, 232, 0.86);
-  color: var(--s21-muted);
-  content: attr(data-step);
-  display: grid;
-  place-items: center;
-  font-size: 13px;
-}
-
 .generator-subbar {
   min-height: 68px;
   padding: 0 44px;
@@ -4233,6 +4191,13 @@ body.s21-product.page-checker.checker-generating-assignment #checkerImprovementR
   font-size: 20px;
 }
 
+.translate-latin-note {
+  margin: 12px 0 22px;
+  color: var(--s21-muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
 .translate-hidden-input,
 .translate-hidden-select {
   position: absolute;
@@ -4624,7 +4589,6 @@ body.s21-product :where(
 body.s21-product :where(
   .dashboard-card-index,
   .dashboard-brand-mark,
-  .generator-brand-badge,
   .generator-section-index,
   .s21-tl-dot,
   .checker-criterion-code
@@ -4770,19 +4734,6 @@ body.s21-product.page-menu {
   grid-template-columns: minmax(0, 1fr) 300px;
   align-items: center;
   gap: 44px;
-}
-
-.dashboard-kicker {
-  width: fit-content;
-  margin-bottom: 20px;
-  padding: 7px 12px;
-  border: 1px solid var(--s21-border);
-  border-radius: 999px;
-  background: var(--s21-surface-muted);
-  color: var(--s21-ink);
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
 }
 
 .dashboard-hero h1 {

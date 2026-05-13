@@ -25,6 +25,30 @@
             }
         }
 
+        function normalizeAudienceLevel(value) {
+            const norm = String(value || '').trim().toLowerCase();
+            if (!norm) return 'beginner_plus';
+            if (['beginner_plus', 'beginner+', 'basic+', 'base+', 'базовый+', 'начальный+'].includes(norm)) {
+                return 'beginner_plus';
+            }
+            if (['beginner', 'basic', 'base', 'базовый', 'начальный'].includes(norm)) return 'beginner';
+            if (['middle', 'intermediate', 'средний'].includes(norm)) return 'middle';
+            if (['advanced', 'продвинутый'].includes(norm)) return 'advanced';
+            if (['professional', 'pro', 'expert', 'профессиональный', 'экспертный'].includes(norm)) return 'professional';
+            return 'beginner_plus';
+        }
+
+        function setAudienceLevel(value) {
+            setValue('audienceLevel', normalizeAudienceLevel(value));
+        }
+
+        function splitCommaList(value) {
+            return String(value || '')
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
+        }
+
         function setDisplay(id, displayValue) {
             const element = byId(id);
             if (element) {
@@ -840,33 +864,30 @@
             if (seed.project_type) document.getElementById('projectType').value = seed.project_type;
             if (seed.direction) setValue('direction', seed.direction);
             if (seed.thematic_block) document.getElementById('thematicBlock').value = seed.thematic_block;
-            if (seed.audience_level) document.getElementById('audienceLevel').value = seed.audience_level;
+            if (seed.audience_level) setAudienceLevel(seed.audience_level);
             if (seed.required_tools) document.getElementById('requiredTools').value = seed.required_tools.join(', ');
+            if (seed.required_software) setValue(
+                'requiredSoftware',
+                Array.isArray(seed.required_software) ? seed.required_software.join(', ') : seed.required_software
+            );
             if (seed.title_seed) document.getElementById('titleSeed').value = seed.title_seed;
             if (seed.project_description) document.getElementById('projectDescription').value = seed.project_description;
             if (seed.sjm) document.getElementById('storytelling').value = seed.sjm;
             if (seed.learning_outcomes) document.getElementById('learningOutcomes').value = seed.learning_outcomes.join('\n');
             if (seed.skills) document.getElementById('skills').value = seed.skills.join('\n');
             if (seed.group_size) document.getElementById('groupSize').value = seed.group_size;
-            if (seed.tasks_count !== undefined && seed.tasks_count !== null) setValue('tasksCount', seed.tasks_count);
-            if (seed.task_complexity) setValue('taskComplexity', seed.task_complexity);
             if (seed.repo_path_template) document.getElementById('repoPathTemplate').value = seed.repo_path_template;
             if (seed.repo_base_url) setValue('repoBaseUrl', seed.repo_base_url);
             if (seed.platform_name) setValue('platformName', seed.platform_name);
             if (seed.gitlab_link) setValue('gitlabLink', seed.gitlab_link);
             if (seed.workload_hours !== undefined && seed.workload_hours !== null) setValue('workloadHours', seed.workload_hours);
-            if (seed.workload_days !== undefined && seed.workload_days !== null) setValue('workloadDays', seed.workload_days);
-            if (seed.xp_reward !== undefined && seed.xp_reward !== null) setValue('xpReward', seed.xp_reward);
             if (seed.additional_materials) setValue('additionalMaterials', seed.additional_materials);
-            if (seed.expert_notes) setValue('expertNotes', seed.expert_notes);
-            if (seed.context_track_dir) setValue('contextTrackDir', seed.context_track_dir);
-            if (seed.last_known_order !== undefined && seed.last_known_order !== null) setValue('lastKnownOrder', seed.last_known_order);
-            if (seed.target_languages) setValue('targetLanguages', seed.target_languages.join(', '));
-            if (seed.zun) setValue('zun', seed.zun);
             if (seed.reference_project_hint) setValue('referenceProjectHint', seed.reference_project_hint);
             if (seed.reference_practice_hint) setValue('referencePracticeHint', seed.reference_practice_hint);
-            if (seed.is_programming_project !== undefined && seed.is_programming_project !== null) {
-                setValue('isProgrammingProject', String(!!seed.is_programming_project));
+            if (seed.project_content_type) {
+                setValue('projectContentType', seed.project_content_type === 'auto' ? '' : seed.project_content_type);
+            } else if (seed.is_programming_project !== undefined && seed.is_programming_project !== null) {
+                setValue('projectContentType', seed.is_programming_project ? 'hard_code' : 'no_code');
             }
             
             // Восстанавливаем чекбоксы
@@ -1054,20 +1075,19 @@
             // Уровень аудитории
             const audienceLevelEl = document.getElementById('audienceLevel');
             if (audienceLevelEl) {
-                audienceLevelEl.value = project.audience_level || '';
+                audienceLevelEl.value = normalizeAudienceLevel(project.audience_level);
             }
             
-            // Обязательные инструменты: новая колонка УП имеет приоритет над legacy "Необходимое ПО/веб".
+            // Обязательные инструменты и ПО разделены: инструменты влияют на практику, ПО — на окружение.
             const requiredToolsEl = document.getElementById('requiredTools');
             if (requiredToolsEl) {
                 if (project.required_tools && project.required_tools.length > 0) {
                     requiredToolsEl.value = project.required_tools.join(', ');
-                } else if (project.required_software) {
-                    requiredToolsEl.value = project.required_software;
                 } else {
                     requiredToolsEl.value = '';
                 }
             }
+            setValue('requiredSoftware', project.required_software || '');
 
             // Сторителлинг / SJM
             const storytellingEl = document.getElementById('storytelling');
@@ -1086,30 +1106,10 @@
                 document.getElementById('groupSize').value = project.group_size;
             }
 
-            if (project.tasks_count !== undefined && project.tasks_count !== null) {
-                setValue('tasksCount', project.tasks_count);
-            }
-            if (project.task_complexity) {
-                setValue('taskComplexity', project.task_complexity);
-            }
-            if (project.zun) {
-                setValue('zun', project.zun);
-            }
-            if (project.target_languages) {
-                setValue(
-                    'targetLanguages',
-                    Array.isArray(project.target_languages) ? project.target_languages.join(', ') : project.target_languages
-                );
-            }
             setValue('platformName', project.platform_name || project.title || '');
             setValue('gitlabLink', project.gitlab_link || '');
             setValue('workloadHours', project.workload_hours || '');
-            setValue('workloadDays', project.workload_days || '');
-            setValue('xpReward', project.xp || project.xp_reward || '');
             setValue('additionalMaterials', project.additional_materials || '');
-            setValue('expertNotes', project.expert_notes || '');
-            setValue('contextTrackDir', project.context_track_dir || '');
-            setValue('lastKnownOrder', project.order || '');
             
             // Направление
             if (block.code && block.code !== 'UNK') {
@@ -1199,6 +1199,7 @@
                 current_project_skills: currentProject.skills || [],
                 current_project_audience_level: currentProject.audience_level || null,
                 current_project_required_tools: currentProject.required_tools || [],
+                current_project_required_software: currentProject.required_software || null,
                 previous_projects: previousProjects,
                 next_projects: nextProjects,
                 all_block_learning_outcomes: [...new Set(allBlockLO)],
@@ -1374,58 +1375,6 @@
             }
         }
         
-        // Экспортируем toggleExpander сразу после определения
-        function handleFileSelect(event) {
-            const fileInput = event && event.target ? event.target : null;
-            const file = fileInput && fileInput.files ? fileInput.files[0] : null;
-            if (file) {
-                const fileNameEl = document.getElementById('fileName');
-                if (fileNameEl) {
-                    fileNameEl.textContent = file.name;
-                }
-                // Автоматически загружаем и парсим файл
-                parseSpecFile(file);
-            }
-        }
-        
-        function handleTrackFilesSelect(event) {
-            const fileInput = event && event.target ? event.target : null;
-            const files = fileInput && fileInput.files ? Array.from(fileInput.files) : [];
-            if (files.length > 0) {
-                const trackFilesNamesEl = document.getElementById('trackFilesNames');
-                if (trackFilesNamesEl) {
-                    trackFilesNamesEl.textContent = `${files.length} файл(ов) выбрано`;
-                }
-            }
-        }
-        
-        async function parseSpecFile(file) {
-            const reader = new FileReader();
-            reader.onload = async (e) => {
-                try {
-                    let data;
-                    if (file.name.endsWith('.json')) {
-                        data = JSON.parse(e.target.result);
-                    } else if (file.name.endsWith('.xlsx')) {
-                        // Для Excel нужен специальный endpoint
-                        const formData = new FormData();
-                        formData.append('file', file);
-                        const response = await fetch(`${API_URL}/parse-excel`, {
-                            method: 'POST',
-                            body: formData
-                        });
-                        data = await response.json();
-                    }
-                    
-                    // Заполняем форму данными из файла
-                    fillFormFromData(data);
-                } catch (error) {
-                    alert('Ошибка при чтении файла: ' + error.message);
-                }
-            };
-            reader.readAsText(file);
-        }
-        
         function fillFormFromData(data) {
             if (data.language) document.getElementById('language').value = data.language;
             if (data.project_type) {
@@ -1438,7 +1387,7 @@
                 document.getElementById('thematicBlock').value = data.thematic_block || data.track;
             }
             if (data.direction) setValue('direction', data.direction);
-            if (data.audience_level) document.getElementById('audienceLevel').value = data.audience_level;
+            if (data.audience_level) setAudienceLevel(data.audience_level);
             // Маппинг: project_title -> title_seed для обратной совместимости
             if (data.title_seed || data.project_title) {
                 document.getElementById('titleSeed').value = data.title_seed || data.project_title;
@@ -1447,6 +1396,12 @@
                 document.getElementById('requiredTools').value = Array.isArray(data.required_tools) 
                     ? data.required_tools.join(', ') 
                     : data.required_tools;
+            }
+            if (data.required_software) {
+                setValue(
+                    'requiredSoftware',
+                    Array.isArray(data.required_software) ? data.required_software.join(', ') : data.required_software
+                );
             }
             if (data.sjm) document.getElementById('storytelling').value = data.sjm;
             if (data.methodology_human_review !== undefined) {
@@ -1467,34 +1422,18 @@
                 document.getElementById('groupSize').value = data.group_size;
                 toggleGroupSize();
             }
-            if (data.tasks_count !== undefined && data.tasks_count !== null) setValue('tasksCount', data.tasks_count);
-            if (data.task_complexity) setValue('taskComplexity', data.task_complexity);
             if (data.repo_base_url) document.getElementById('repoBaseUrl').value = data.repo_base_url;
             if (data.repo_path_template) document.getElementById('repoPathTemplate').value = data.repo_path_template;
             if (data.platform_name) setValue('platformName', data.platform_name);
             if (data.gitlab_link) setValue('gitlabLink', data.gitlab_link);
             if (data.workload_hours !== undefined && data.workload_hours !== null) setValue('workloadHours', data.workload_hours);
-            if (data.workload_days !== undefined && data.workload_days !== null) setValue('workloadDays', data.workload_days);
-            if (data.xp_reward !== undefined && data.xp_reward !== null) {
-                setValue('xpReward', data.xp_reward);
-            } else if (data.xp !== undefined && data.xp !== null) {
-                setValue('xpReward', data.xp);
-            }
             if (data.additional_materials) setValue('additionalMaterials', data.additional_materials);
-            if (data.expert_notes) setValue('expertNotes', data.expert_notes);
-            if (data.context_track_dir) setValue('contextTrackDir', data.context_track_dir);
-            if (data.last_known_order !== undefined && data.last_known_order !== null) setValue('lastKnownOrder', data.last_known_order);
-            if (data.target_languages) {
-                setValue(
-                    'targetLanguages',
-                    Array.isArray(data.target_languages) ? data.target_languages.join(', ') : data.target_languages
-                );
-            }
-            if (data.zun) setValue('zun', data.zun);
             if (data.reference_project_hint) setValue('referenceProjectHint', data.reference_project_hint);
             if (data.reference_practice_hint) setValue('referencePracticeHint', data.reference_practice_hint);
-            if (data.is_programming_project !== undefined && data.is_programming_project !== null) {
-                setValue('isProgrammingProject', String(!!data.is_programming_project));
+            if (data.project_content_type) {
+                setValue('projectContentType', data.project_content_type === 'auto' ? '' : data.project_content_type);
+            } else if (data.is_programming_project !== undefined && data.is_programming_project !== null) {
+                setValue('projectContentType', data.is_programming_project ? 'hard_code' : 'no_code');
             }
             setChecked('includeFormulas', !!data.include_formulas);
             setChecked('includeTables', !!data.include_tables);
@@ -1505,22 +1444,6 @@
                 toggleBonusWish();
             }
         }
-        
-        async function downloadTemplate() {
-            try {
-                const response = await fetch(`${API_URL}/template`);
-                const blob = await response.blob();
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = 'project_spec_template.xlsx';
-                a.click();
-                window.URL.revokeObjectURL(url);
-            } catch (error) {
-                alert('Ошибка при скачивании шаблона: ' + error.message);
-            }
-        }
-        
         async function addThematicBlock() {
             const name = document.getElementById('newBlockName').value.trim();
             const code = document.getElementById('newBlockCode').value.trim();
@@ -1600,29 +1523,21 @@
                 document.getElementById('addBlockExpander').style.display = 'none';
                 
                 // Остальные поля
-                document.getElementById('audienceLevel').value = '';
+                setAudienceLevel('beginner_plus');
                 document.getElementById('titleSeed').value = '';
                 document.getElementById('requiredTools').value = '';
+                setValue('requiredSoftware', '');
                 document.getElementById('storytelling').value = '';
                 document.getElementById('projectDescription').value = '';
                 document.getElementById('learningOutcomes').value = '';
                 document.getElementById('skills').value = '';
-                setValue('tasksCount', '');
-                setValue('taskComplexity', '');
-                setValue('targetLanguages', '');
-                setValue('zun', '');
                 setValue('referenceProjectHint', '');
                 setValue('referencePracticeHint', '');
-                setValue('isProgrammingProject', '');
+                setValue('projectContentType', '');
                 setValue('platformName', '');
                 setValue('gitlabLink', '');
                 setValue('workloadHours', '');
-                setValue('workloadDays', '');
-                setValue('xpReward', '');
                 setValue('additionalMaterials', '');
-                setValue('expertNotes', '');
-                setValue('contextTrackDir', '');
-                setValue('lastKnownOrder', '');
                 
                 // Настройки репозитория
                 document.getElementById('repoBaseUrl').value = '';
@@ -1637,16 +1552,6 @@
                 setChecked('includeFormulas', false);
                 setChecked('includeTables', false);
                 setChecked('includeDiagrams', false);
-                
-                // Файлы
-                const specFileInput = document.getElementById('specFile');
-                const fileNameEl = document.getElementById('fileName');
-                const trackFilesInput = document.getElementById('trackFiles');
-                const trackFilesNamesEl = document.getElementById('trackFilesNames');
-                if (specFileInput) specFileInput.value = '';
-                if (fileNameEl) fileNameEl.textContent = 'Старый формат спецификации';
-                if (trackFilesInput) trackFilesInput.value = '';
-                if (trackFilesNamesEl) trackFilesNamesEl.textContent = 'Дополнительный контекст';
                 
                 console.log('✅ Форма очищена');
                 if (window.toast) {
@@ -2040,7 +1945,7 @@
             {
                 id: 'context',
                 title: 'Анализ контекста',
-                subtitle: 'Проверяем учебный план, ЗУНы, соседние проекты и ограничения.'
+                subtitle: 'Проверяем учебный план, результаты обучения, соседние проекты и ограничения.'
             },
             {
                 id: 'planning',
@@ -3410,8 +3315,9 @@
                     direction: directionValue !== 'ADD' ? directionValue : '',
                     // thematic_block теперь берется из УП или из direction для обратной совместимости
                     thematic_block: thematicBlockValue || directionValue,
-                    audience_level: document.getElementById('audienceLevel').value,
-                    required_tools: document.getElementById('requiredTools').value.split(',').map(s => s.trim()).filter(s => s),
+                    audience_level: normalizeAudienceLevel(document.getElementById('audienceLevel').value),
+                    required_tools: splitCommaList(document.getElementById('requiredTools').value),
+                    required_software: splitCommaList(document.getElementById('requiredSoftware')?.value),
                     title_seed: document.getElementById('titleSeed').value,
                     project_description: document.getElementById('projectDescription').value,
                     learning_outcomes: document.getElementById('learningOutcomes').value.split('\n').map(s => s.trim()).filter(s => s),
@@ -3423,31 +3329,14 @@
                     include_diagrams: getChecked('includeDiagrams'),
                 };
 
-                const tasksCountValue = parseInt(document.getElementById('tasksCount')?.value || '', 10);
-                if (!Number.isNaN(tasksCountValue)) {
-                    seed.tasks_count = tasksCountValue;
-                }
-
-                const taskComplexityValue = document.getElementById('taskComplexity')?.value || '';
-                if (taskComplexityValue) {
-                    seed.task_complexity = taskComplexityValue;
-                }
-
-                const programmingValue = document.getElementById('isProgrammingProject')?.value || '';
-                if (programmingValue === 'true') {
-                    seed.is_programming_project = true;
-                } else if (programmingValue === 'false') {
-                    seed.is_programming_project = false;
-                }
-
-                const targetLanguagesValue = document.getElementById('targetLanguages')?.value.trim() || '';
-                if (targetLanguagesValue) {
-                    seed.target_languages = targetLanguagesValue.split(',').map(s => s.trim()).filter(Boolean);
-                }
-
-                const zunValue = document.getElementById('zun')?.value.trim() || '';
-                if (zunValue) {
-                    seed.zun = zunValue;
+                const projectContentType = document.getElementById('projectContentType')?.value || '';
+                if (projectContentType) {
+                    seed.project_content_type = projectContentType;
+                    seed.is_programming_project = projectContentType === 'hard_code'
+                        ? true
+                        : projectContentType === 'no_code'
+                            ? false
+                            : null;
                 }
 
                 const referenceProjectHint = document.getElementById('referenceProjectHint')?.value.trim() || '';
@@ -3499,31 +3388,9 @@
                             if (projectData.workload_hours !== undefined && projectData.workload_hours !== null) {
                                 seed.workload_hours = projectData.workload_hours;
                             }
-                            if (projectData.workload_days !== undefined && projectData.workload_days !== null) {
-                                seed.workload_days = projectData.workload_days;
-                            }
-                            
-                            // XP
-                            if (projectData.xp_reward !== undefined && projectData.xp_reward !== null) {
-                                seed.xp_reward = projectData.xp_reward;
-                            } else if (projectData.xp !== undefined && projectData.xp !== null) {
-                                seed.xp_reward = projectData.xp;
-                            }
-                            
                             // Дополнительные материалы
                             if (projectData.additional_materials) {
                                 seed.additional_materials = projectData.additional_materials;
-                            }
-                            
-                            // Подсказки для эксперта
-                            if (projectData.expert_notes) {
-                                seed.expert_notes = projectData.expert_notes;
-                            }
-                            if (projectData.context_track_dir) {
-                                seed.context_track_dir = projectData.context_track_dir;
-                            }
-                            if (projectData.order !== undefined && projectData.order !== null) {
-                                seed.last_known_order = projectData.order;
                             }
 
                             // Сторителлинг из УП, если поле формы не заполнено вручную
@@ -3563,13 +3430,8 @@
 
                 applyOptionalTextSeedField('platformName', 'platform_name');
                 applyOptionalTextSeedField('gitlabLink', 'gitlab_link');
-                applyOptionalTextSeedField('contextTrackDir', 'context_track_dir');
                 applyOptionalTextSeedField('additionalMaterials', 'additional_materials');
-                applyOptionalTextSeedField('expertNotes', 'expert_notes');
                 applyOptionalNumberSeedField('workloadHours', 'workload_hours', parseFloat);
-                applyOptionalNumberSeedField('workloadDays', 'workload_days', parseFloat);
-                applyOptionalNumberSeedField('xpReward', 'xp_reward', (value) => parseInt(value, 10));
-                applyOptionalNumberSeedField('lastKnownOrder', 'last_known_order', (value) => parseInt(value, 10));
                 
                 if (seed.project_type === 'group') {
                     seed.group_size = parseInt(document.getElementById('groupSize').value);
@@ -3600,16 +3462,8 @@
                     agent: 'Инициализация пайплайна'
                 });
                 
-                // Загружаем файлы трека
-                const trackFilesInput = document.getElementById('trackFiles');
                 const formData = new FormData();
                 formData.append('seed', JSON.stringify(seed));
-                
-                if (trackFilesInput && trackFilesInput.files.length > 0) {
-                    for (const file of trackFilesInput.files) {
-                        formData.append('track_files', file);
-                    }
-                }
                 
                 const token = localStorage.getItem('auth_token');
                 
@@ -7083,12 +6937,9 @@
             window.switchMetricsVersion = switchMetricsVersion;
             window.switchReportVersion = switchReportVersion;
             window.clearRegeneration = clearRegeneration;
-            window.downloadTemplate = downloadTemplate;
             window.addThematicBlock = addThematicBlock;
             window.toggleBonusWish = toggleBonusWish;
             window.toggleGroupSize = toggleGroupSize;
-            window.handleFileSelect = handleFileSelect;
-            window.handleTrackFilesSelect = handleTrackFilesSelect;
             window.checkReadme = checkReadme;
             window.handleReadmeFileSelect = handleReadmeFileSelect;
             window.handleReadmeFileSelectForExtraction = handleReadmeFileSelectForExtraction;
@@ -7776,7 +7627,7 @@ flowchart TD
             }
             const translated = uiSmokeMarkdown.replace('Когортный анализ', 'Cohort Analysis').replaceAll('Глава', 'Chapter');
             window.translationTranslatedMarkdown = translated;
-            setText('translationSourceFileTitle', 'methodology-handbook.md');
+            setText('translationSourceFileTitle', 'README.md');
             setText('translationFileName', 'RU · 4 218 слов');
             updateTranslationTextMeta('original', uiSmokeMarkdown, 25 * 1024);
             updateTranslationTextMeta('translated', translated);

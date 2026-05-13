@@ -112,7 +112,9 @@ class ProjectSeedProvider:
             "direction": direction,
             "thematic_block": thematic_block,
             "audience_level": payload.get("audience_level") or project.get("audience_level") or "base",
-            "required_tools": cls._as_list(project.get("required_tools") or project.get("required_software")),
+            "required_tools": cls._as_list(project.get("required_tools")),
+            "required_software": cls._as_list(project.get("required_software")),
+            "project_content_type": payload.get("project_content_type") or project.get("project_content_type"),
             "title_seed": project.get("title_seed") or project.get("title") or "",
             "project_description": (
                 project.get("project_description")
@@ -158,6 +160,8 @@ class ProjectSeedProvider:
             "thematic_block": getattr(spec, "thematic_block", ""),
             "audience_level": getattr(spec, "audience_level", "base"),
             "required_tools": list(getattr(spec, "required_tools", []) or []),
+            "required_software": list(getattr(spec, "required_software", []) or []),
+            "project_content_type": getattr(spec, "project_content_type", None),
             "title_seed": getattr(spec, "title_seed", ""),
             "project_description": getattr(spec, "project_description", "Перегенерированный контент"),
             "learning_outcomes": list(getattr(spec, "learning_outcomes", []) or []),
@@ -176,10 +180,8 @@ class ProjectSeedProvider:
             data["project_description"] = data.get("description") or data.get("title_seed") or data.get("title") or "Перегенерированный контент"
         if not data.get("title_seed") and data.get("title"):
             data["title_seed"] = data["title"]
-        if not data.get("required_tools"):
-            data["required_tools"] = ProjectSeedProvider._as_list(data.get("required_software"))
-        else:
-            data["required_tools"] = ProjectSeedProvider._as_list(data.get("required_tools"))
+        data["required_tools"] = ProjectSeedProvider._as_list(data.get("required_tools"))
+        data["required_software"] = ProjectSeedProvider._as_list(data.get("required_software"))
         data["learning_outcomes"] = ProjectSeedProvider._as_list(data.get("learning_outcomes"))
         data["skills"] = ProjectSeedProvider._as_list(data.get("skills"))
 
@@ -191,6 +193,7 @@ class ProjectSeedProvider:
             "learning_outcomes",
             "skills",
             "required_tools",
+            "required_software",
             "curriculum_context",
             "platform_name",
             "expert_notes",

@@ -66,6 +66,9 @@ def build_practice_curriculum_context_section(
         if isinstance(goals, list):
             lines.append(f"Цели блока: {'; '.join(goals[:3])}")
 
+    if ctx.get("current_project_required_software"):
+        lines.append(f"Необходимое ПО проекта: {ctx['current_project_required_software']}")
+
     prev_projects = ctx.get("previous_projects", [])
     if prev_projects:
         lines.append("")
@@ -133,6 +136,10 @@ def build_practice_sjm_section(
 
 def determine_practice_content_type(seed: ProjectSeed) -> str:
     """Classify practice prompt profile from project direction."""
+    explicit_type = getattr(seed, "project_content_type", None)
+    if explicit_type in {"hard_code", "low_code", "no_code"}:
+        return explicit_type
+
     direction = (getattr(seed, "direction", "") or seed.thematic_block or "").upper()
     hard_code_directions = {
         "C",

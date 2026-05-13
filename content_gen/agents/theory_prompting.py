@@ -72,6 +72,9 @@ def build_theory_curriculum_context_section(
         if isinstance(skills, list):
             lines.append(f"Список навыков проекта: {'; '.join(skills)}")
 
+    if ctx.get("current_project_required_software"):
+        lines.append(f"Необходимое ПО проекта: {ctx['current_project_required_software']}")
+
     prev_projects = ctx.get("previous_projects", [])
     if prev_projects:
         lines.append("")
@@ -144,6 +147,10 @@ def build_theory_sjm_section(
 
 def determine_theory_content_type(seed: ProjectSeed) -> str:
     """Classify content profile for formula/code restrictions."""
+    explicit_type = getattr(seed, "project_content_type", None)
+    if explicit_type in {"hard_code", "low_code", "no_code"}:
+        return explicit_type
+
     direction = (getattr(seed, "direction", "") or seed.thematic_block or "").upper()
     hard_code_directions = {
         "C",

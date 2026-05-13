@@ -169,6 +169,10 @@ class EnhancementPlanner:
         Returns:
             'hard_code' | 'low_code' | 'no_code'
         """
+        explicit_type = getattr(seed, "project_content_type", None)
+        if explicit_type in {"hard_code", "low_code", "no_code"}:
+            return explicit_type
+
         direction = (getattr(seed, 'direction', '') or seed.thematic_block or "").upper()
 
         # Hard code: Разработчик ПО, C/C++, Java, Python backend

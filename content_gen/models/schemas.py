@@ -25,6 +25,14 @@ class ProjectSeed(BaseModel):
 
     audience_level: str = "base"
     required_tools: list[str] = Field(default_factory=list)
+    required_software: list[str] | str | None = Field(
+        default_factory=list,
+        description="Необходимое ПО и среда выполнения отдельно от предметных инструментов",
+    )
+    project_content_type: str | None = Field(
+        default=None,
+        description="Явный профиль проекта: hard_code, low_code, no_code или auto",
+    )
     title_seed: str = ""  # Название проекта
     project_description: str
     learning_outcomes: list[str] = Field(default_factory=list)
@@ -127,6 +135,26 @@ class ProjectSeed(BaseModel):
         description="Эталонный фрагмент заданий (из существующего README) — при генерации практики ориентироваться на его структуру и стиль"
     )
 
+    @model_validator(mode='before')
+    @classmethod
+    def normalize_seed_inputs(cls, data: Any) -> Any:
+        """Приводит UI/legacy payload к стабильному seed-контракту."""
+        if not isinstance(data, dict):
+            return data
+
+        def to_list(value: Any) -> list[str]:
+            if value is None:
+                return []
+            if isinstance(value, list):
+                return [str(item).strip() for item in value if str(item).strip()]
+            return [item.strip() for item in str(value).split(",") if item.strip()]
+
+        if "required_software" in data:
+            data["required_software"] = to_list(data.get("required_software"))
+        if "required_tools" in data:
+            data["required_tools"] = to_list(data.get("required_tools"))
+        return data
+
     @model_validator(mode='after')
     def normalize_lists(self):
         """Нормализация данных после инициализации."""
@@ -137,6 +165,14 @@ class ProjectSeed(BaseModel):
         self.required_tools = list(
             dict.fromkeys(tool.strip() for tool in self.required_tools if tool.strip())
         )
+        required_software = self.required_software or []
+        if isinstance(required_software, str):
+            required_software = [item.strip() for item in required_software.split(",") if item.strip()]
+        self.required_software = list(
+            dict.fromkeys(str(item).strip() for item in required_software if str(item).strip())
+        )
+        self.audience_level = self._normalize_audience_level(self.audience_level)
+        self.project_content_type = self._normalize_project_content_type(self.project_content_type)
         # Обратная совместимость: если direction пустой, используем thematic_block как direction
         if not self.direction and self.thematic_block:
             # Проверяем, похоже ли thematic_block на код направления (BSA, Cb, etc.)
@@ -153,6 +189,41 @@ class ProjectSeed(BaseModel):
             self.repo_path_template = f"{self.platform_name}/part-03/task-{{num:02d}}/README.md"
 
         return self
+
+    @staticmethod
+    def _normalize_audience_level(value: str | None) -> str:
+        norm = (value or "").strip().lower()
+        if norm in {"beginner_plus", "beginner+", "basic+", "base+", "базовый+", "начальный+"}:
+            return "beginner_plus"
+        if norm in {"beginner", "basic", "base", "базовый", "начальный"}:
+            return "beginner"
+        if norm in {"middle", "intermediate", "средний"}:
+            return "middle"
+        if norm in {"advanced", "продвинутый"}:
+            return "advanced"
+        if norm in {"professional", "pro", "expert", "профессиональный", "экспертный"}:
+            return "professional"
+        return "beginner_plus"
+
+    @staticmethod
+    def _normalize_project_content_type(value: str | None) -> str | None:
+        norm = (value or "").strip().lower()
+        if norm in {"", "auto"}:
+            return None
+        aliases = {
+            "technical_code": "hard_code",
+            "programming": "hard_code",
+            "code": "hard_code",
+            "technical": "low_code",
+            "technical_low_code": "low_code",
+            "analytical": "low_code",
+            "design_product": "no_code",
+            "humanitarian": "no_code",
+            "management": "no_code",
+            "business": "no_code",
+        }
+        normalized = aliases.get(norm, norm)
+        return normalized if normalized in {"hard_code", "low_code", "no_code"} else None
 
 
 class ProjectContextMeta(BaseModel):

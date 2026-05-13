@@ -27,7 +27,7 @@ TRANSLATE_BATCH_MIN_RETRY = 5
 DEBUG_SUBTITLES_LOG = os.getenv("SUBTITLES_DEBUG_LOG", "0") in {"1", "true", "True"}
 VIDEO_ENCODER = os.getenv("VIDEO_ENCODER", "libx264")
 logger = logging.getLogger(__name__)
-LATIN_RE = re.compile(r"[A-Za-z]")
+CYRILLIC_RE = re.compile(r"[А-Яа-яЁё]")
 
 _whisper_model_cache = None
 
@@ -291,9 +291,9 @@ def translate_segments_llm(
     lang_names = {"en": "английский", "kg": "киргизский", "uz": "узбекский", "tg": "таджикский"}
     target_lang_name = lang_names.get(target_lang, target_lang)
     alphabet_hints = {
-        "kg": "Пиши на киргизском языке ТОЛЬКО кириллицей (алфавит кыргыз тили: А–Я, Ң, Ү, Ө и др.). Не используй латиницу.",
-        "uz": "Пиши на узбекском языке ТОЛЬКО кириллицей (узбекский алфавит на кириллице). Не используй латинские буквы.",
-        "tg": "Пиши на таджикском языке ТОЛЬКО кириллицей. Не используй латиницу.",
+        "kg": "Пиши на киргизском языке латиницей. Не используй кириллицу в переводимом тексте.",
+        "uz": "Пиши на узбекском языке латиницей. Не используй кириллицу в переводимом тексте.",
+        "tg": "Пиши на таджикском языке латиницей. Не используй кириллицу в переводимом тексте.",
     }
     style_hints = {
         "en": "Пиши естественным современным английским, простыми и ясными предложениями, без кальки и тяжеловесных конструкций.",
@@ -310,6 +310,7 @@ def translate_segments_llm(
         "Перевод должен быть точным по смыслу, естественным для носителя языка, простым и удобным для чтения. "
         "Нельзя добавлять новый смысл, опускать важный смысл или делать вольный пересказ. "
         "Избегай кальки с русского и неестественного порядка слов. "
+        "Весь переводимый текст пиши латиницей; кириллицу оставляй только в неизменяемых именах, коде или ссылках. "
         "Сохраняй структуру: НЕЛЬЗЯ менять количество элементов, объединять или разбивать сегменты, менять id. "
         f"Переводишь с русского на {target_lang_name}. {extra_hint} "
         "Ответ ДОЛЖЕН быть строго JSON-массивом длины N, где N = количеству сегментов во входе. "
@@ -346,6 +347,7 @@ def translate_segments_llm(
             )
         user = (
             f"Переведи субтитры на {target_lang_name}. "
+            "Пиши результат латиницей, без кириллицы в переводимом тексте. "
             "Верни ТОЛЬКО JSON-массив длины N, где N = количеству сегментов во входе. "
             "Каждый элемент массива: {\"id\": <number>, \"text\": \"...\"}. "
             "Количество элементов и id должны в точности совпадать с входными сегментами. "
@@ -385,15 +387,15 @@ def translate_segments_llm(
                 if isinstance(item, dict) and "id" in item
             }
             if target_lang in {"kg", "uz", "tg"} and DEBUG_SUBTITLES_LOG:
-                latin_issues = [text for text in translated.values() if LATIN_RE.search(text or "")]
-                if latin_issues:
+                cyrillic_issues = [text for text in translated.values() if CYRILLIC_RE.search(text or "")]
+                if cyrillic_issues:
                     logger.warning(
-                        "Translated subtitles for target_lang=%s contain latin letters in %d segment(s). "
-                        "Убедитесь, что используется кириллица (см. alphabet_hints в translate_segments_llm). "
+                        "Translated subtitles for target_lang=%s contain Cyrillic letters in %d segment(s). "
+                        "Убедитесь, что используется латиница (см. alphabet_hints в translate_segments_llm). "
                         "Примеры: %s",
                         target_lang,
-                        len(latin_issues),
-                        "; ".join(latin_issues[:3]),
+                        len(cyrillic_issues),
+                        "; ".join(cyrillic_issues[:3]),
                     )
 
             # После основного ответа проверяем, все ли id получили перевод.
@@ -421,6 +423,7 @@ def translate_segments_llm(
                     one_payload = [{"id": mid, "text_ru": src.get("text_ru", "")}]
                     user_one = (
                         f"Переведи одну строку на {target_lang_name}. "
+                        "Пиши результат латиницей, без кириллицы в переводимом тексте. "
                         "Верни ТОЛЬКО один JSON-объект: {\"id\": <number>, \"text\": \"...\"}.\n\n"
                         + json.dumps(one_payload, ensure_ascii=False)
                     )
@@ -491,7 +494,7 @@ def translate_segments_llm(
                         }
                     ]
                     user_one = (
-                        f"Переведи одну строку на {target_lang_name}. Верни JSON: "
+                        f"Переведи одну строку на {target_lang_name}. Пиши результат латиницей. Верни JSON: "
                         f'{{"id": {seg.get("id", idx + 1)}, "text": "..."}}\n\n'
                         f"{json.dumps(one, ensure_ascii=False)}"
                     )

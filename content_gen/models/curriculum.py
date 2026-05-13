@@ -39,6 +39,7 @@ class CurriculumContext(BaseModel):
     current_project_skills: list[str] = Field(default_factory=list, description="Список навыков текущего проекта")
     current_project_audience_level: str | None = Field(default=None, description="Уровень аудитории текущего проекта")
     current_project_required_tools: list[str] = Field(default_factory=list, description="Обязательные инструменты текущего проекта")
+    current_project_required_software: str | None = Field(default=None, description="Необходимое ПО текущего проекта")
 
     # Соседние проекты внутри блока (приоритет)
     previous_projects: list[ProjectSummary] = Field(

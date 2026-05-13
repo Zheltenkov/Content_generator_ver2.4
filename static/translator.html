@@ -28,7 +28,7 @@
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
-    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260509-design-system-audit">
+    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260513-translate-cleanup">
     <script src="/static/js/utils/sanitize.js"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
     <script src="/static/js/utils/modal.js?v=20260508-polish-ui"></script>
@@ -38,10 +38,9 @@
 <body class="s21-product page-translate">
     <header class="dashboard-header translate-topbar">
         <a class="dashboard-brand generator-brand" href="/app" aria-label="Главная">
-            <span id="translationBrandBadge" class="generator-brand-badge" data-step="05.1">05.1</span>
             <span>
                 <span id="translationBrandMark" class="dashboard-brand-mark">ПЕРЕВОД ДОКУМЕНТА · RU → EN</span>
-                <span id="translationBrandSub" class="dashboard-brand-sub">учебных проектов · v 2.4</span>
+                <span id="translationBrandSub" class="dashboard-brand-sub">учебных проектов</span>
             </span>
         </a>
 
@@ -59,8 +58,8 @@
                 <span>EN</span>
             </div>
             <button class="dashboard-user" type="button" onclick="handleLogout()" title="Выйти">
-                <span class="dashboard-user-avatar" id="translationUserInitials">МК</span>
-                <span id="translationUserName">M. Кравцова</span>
+                <span class="dashboard-user-avatar" id="translationUserInitials">U</span>
+                <span id="translationUserName">Пользователь</span>
             </button>
         </div>
     </header>
@@ -99,8 +98,8 @@
                     <div class="translate-file-pill" onclick="document.getElementById('translationFile').click()">
                         <input type="file" id="translationFile" accept=".md,.markdown,.txt" onchange="handleTranslationFileSelect(event)">
                         <span class="translate-file-icon">▤</span>
-                        <strong id="translationSourceFileTitle">methodology-handbook.md</strong>
-                        <small id="translationFileName">RU · 4 218 слов</small>
+                        <strong id="translationSourceFileTitle">Загрузить README.md</strong>
+                        <small id="translationFileName">Markdown-файл для перевода</small>
                         <button type="button" aria-label="Очистить файл" onclick="event.stopPropagation(); clearTranslationFile()">×</button>
                     </div>
                     <textarea id="translationInput" class="translate-hidden-input" rows="8" placeholder="Вставьте markdown вручную"></textarea>
@@ -130,6 +129,11 @@
                     <button class="btn" type="button" onclick="translateReadme()">◎ Перевести</button>
                 </div>
             </div>
+
+            <p class="translate-latin-note">
+                Результат перевода пишется латиницей. Кириллицу оставляем только там, где это часть неизменяемого кода,
+                пути, названия файла, ссылки или исходного имени собственного.
+            </p>
 
             <div id="translationNoResults" class="translate-empty-state">
                 <div class="translate-empty-icon">▤</div>
@@ -269,7 +273,7 @@
         </section>
     </main>
 
-    <script src="/static/js/main.js?v=20260509-translate-ui"></script>
+    <script src="/static/js/main.js?v=20260513-translate-cleanup"></script>
     <script>
         (function () {
             const token = localStorage.getItem('auth_token');
@@ -292,15 +296,17 @@
             } catch {
                 user = null;
             }
-            const rawName = user && (user.full_name || user.name || user.email || user.username);
-            const displayName = rawName || 'M. Кравцова';
+            const rawName = (
+                user && (user.full_name || user.name || user.email || user.username)
+            ) || localStorage.getItem('username') || localStorage.getItem('email');
+            const displayName = rawName || 'Пользователь';
             const initials = String(displayName)
                 .split(/[\s.@_-]+/)
                 .filter(Boolean)
                 .slice(0, 2)
                 .map(part => part[0])
                 .join('')
-                .toUpperCase() || 'МК';
+                .toUpperCase() || 'U';
             const nameEl = document.getElementById('translationUserName');
             const initialsEl = document.getElementById('translationUserInitials');
             if (nameEl) nameEl.textContent = displayName;

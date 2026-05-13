@@ -144,12 +144,14 @@ def _execute_context_phase(
         if not seed.sjm and curriculum_ctx.get("sjm_context"):
             seed.sjm = str(curriculum_ctx["sjm_context"]).strip() or None
         if (
-            (not seed.audience_level or seed.audience_level == "base")
+            (not seed.audience_level or str(seed.audience_level).lower() in {"base", "beginner", "beginner_plus"})
             and curriculum_ctx.get("current_project_audience_level")
         ):
             seed.audience_level = str(curriculum_ctx["current_project_audience_level"]).strip()
         if not seed.required_tools and curriculum_ctx.get("current_project_required_tools"):
             seed.required_tools = _normalize_list(curriculum_ctx["current_project_required_tools"])
+        if not getattr(seed, "required_software", None) and curriculum_ctx.get("current_project_required_software"):
+            seed.required_software = _normalize_list(curriculum_ctx["current_project_required_software"])
 
     previous_projects = curriculum_ctx.get("previous_projects", [])
     if not isinstance(previous_projects, list):
