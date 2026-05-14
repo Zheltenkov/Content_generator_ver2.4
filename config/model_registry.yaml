@@ -1,0 +1,115 @@
+version: 1
+
+defaults:
+  timeout_seconds: 120
+  max_retries: 2
+  retry_delay_seconds: 1.0
+  rate_limit_rpm: null
+  budget_usd: null
+
+aliases:
+  title_annotation: planner
+  skeleton: planner
+  context: planner
+  theory: theory
+  practice: practice
+  quality: critic
+  evaluation: critic
+  repair: critic
+  regeneration: critic
+  readme_check: critic
+  methodology_review: critic
+  translate: translator
+  translation: translator
+  video_translation: translator
+  readme_improvement: planner
+  reverse_extraction: planner
+  task_planning: planner
+  enhancement_plan: planner
+  practice_critic: critic
+  methodology_review_matrix: critic
+
+roles:
+  planner:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_PLANNER_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_PLANNER_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_PLANNER_MODEL
+        model: GigaChat-2-Pro
+
+  theory:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_THEORY_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_THEORY_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_THEORY_MODEL
+        model: GigaChat-2-Pro
+
+  practice:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_PRACTICE_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_PRACTICE_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_PRACTICE_MODEL
+        model: GigaChat-2-Pro
+
+  critic:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_CRITIC_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_CRITIC_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_CRITIC_MODEL
+        model: GigaChat-2-Pro
+
+  translator:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_TRANSLATOR_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_TRANSLATOR_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_TRANSLATOR_MODEL
+        model: GigaChat-2-Pro
+
+  default:
+    fallback_chain:
+      - provider: openai
+        model_env: OPENAI_MODEL
+        model: gpt-4o-mini
+        input_cost_per_1m: 0.15
+        output_cost_per_1m: 0.60
+      - provider: deepseek
+        model_env: DEEPSEEK_MODEL
+        model: deepseek-chat
+      - provider: gigachat
+        model_env: GIGACHAT_MODEL
+        model: GigaChat-2-Pro

@@ -7,7 +7,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from .models import LogEntry, RequestLog
+from .models import LogEntry, RequestLog, utc_now_naive
 
 # Пул потоков для асинхронной записи логов
 _executor = ThreadPoolExecutor(max_workers=5)
@@ -52,7 +52,7 @@ def write_log(
     log_entry = LogEntry(
         request_id=request_id,
         user_id=user_id,
-        timestamp=timestamp or datetime.utcnow(),
+        timestamp=timestamp or utc_now_naive(),
         level=level.upper(),
         message=message,
         agent_name=agent_name,
@@ -238,7 +238,7 @@ def write_request_log(
         response_time_ms=response_time_ms,
         ip_address=ip_address,
         user_agent=user_agent,
-        timestamp=timestamp or datetime.utcnow(),
+        timestamp=timestamp or utc_now_naive(),
     )
     db.add(log_entry)
     db.commit()
@@ -402,47 +402,60 @@ def cleanup_old_logs(
     Returns:
         Количество удаленных записей
     """
-    cutoff_date = datetime.utcnow() - timedelta(days=days_to_keep)
+    cutoff_date = utc_now_naive() - timedelta(days=days_to_keep)
 
-    deleted_count = 0
-
-    # Удаляем старые логи (LogEntry)
-    while True:
-        logs_to_delete = db.query(LogEntry).filter(
-            LogEntry.timestamp < cutoff_date
-        ).limit(batch_size).all()
-
-        if not logs_to_delete:
-            break
-
-        for log in logs_to_delete:
-            db.delete(log)
-
-        db.commit()
-        deleted_count += len(logs_to_delete)
-
-        if len(logs_to_delete) < batch_size:
-            break
-
-    # Удаляем старые логи запросов (RequestLog)
-    while True:
-        request_logs_to_delete = db.query(RequestLog).filter(
-            RequestLog.timestamp < cutoff_date
-        ).limit(batch_size).all()
-
-        if not request_logs_to_delete:
-            break
-
-        for log in request_logs_to_delete:
-            db.delete(log)
-
-        db.commit()
-        deleted_count += len(request_logs_to_delete)
-
-        if len(request_logs_to_delete) < batch_size:
-            break
-
+    deleted_count = _delete_old_rows_by_id(
+        db=db,
+        model=LogEntry,
+        timestamp_column=LogEntry.timestamp,
+        cutoff_date=cutoff_date,
+        batch_size=batch_size,
+    )
+    deleted_count += _delete_old_rows_by_id(
+        db=db,
+        model=RequestLog,
+        timestamp_column=RequestLog.timestamp,
+        cutoff_date=cutoff_date,
+        batch_size=batch_size,
+    )
     return deleted_count
+
+
+def _delete_old_rows_by_id(
+    db: Session,
+    model: Any,
+    timestamp_column: Any,
+    cutoff_date: datetime,
+    batch_size: int,
+) -> int:
+    """Delete old rows in batches without materializing full ORM payloads."""
+    total_deleted = 0
+    while True:
+        row_ids = [
+            row_id
+            for (row_id,) in (
+                db.query(model.id)
+                .filter(timestamp_column < cutoff_date)
+                .order_by(model.id)
+                .limit(batch_size)
+                .all()
+            )
+        ]
+        if not row_ids:
+            break
+
+        deleted = (
+            db.query(model)
+            .filter(model.id.in_(row_ids))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+        total_deleted += int(deleted or 0)
+
+        if len(row_ids) < batch_size:
+            break
+
+    return total_deleted
 
 
 async def cleanup_old_logs_async(

@@ -63,6 +63,8 @@ alembic.ini.bak
 .coverage
 htmlcov/
 .pytest_cache/
+pytest-cache-files-*/
+.pytest_eval_tmp/
 .tox/
 .mypy_cache/
 .ruff_cache/
@@ -91,6 +93,9 @@ uploads/
 downloads/
 output/
 .playwright-mcp/
+.curriculum_cache/
+.tmp/
+.tmp_script_tests/
 .pytest_tmp/
 .tmp_prodcheck_pytest/
 

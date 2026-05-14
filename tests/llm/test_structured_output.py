@@ -5,18 +5,18 @@ from unittest.mock import MagicMock, Mock
 import pytest
 from pydantic import BaseModel, Field
 
-from content_gen.llm.client import LLMClient
+from content_gen.agents.base.llm_client import LLMClientProtocol
 from content_gen.llm.structured_output import StructuredLLMClient
 
 
-class TestModel(BaseModel):
+class StructuredOutputTestModel(BaseModel):
     """Тестовая Pydantic модель."""
     name: str = Field(description="Имя")
     age: int = Field(description="Возраст", ge=0)
     tags: list[str] = Field(default_factory=list, description="Теги")
 
 
-class TestModelNested(BaseModel):
+class NestedStructuredOutputModel(BaseModel):
     """Тестовая модель с вложенными объектами."""
     class InnerModel(BaseModel):
         value: str
@@ -28,7 +28,7 @@ class TestModelNested(BaseModel):
 @pytest.fixture
 def mock_llm_client():
     """Создает мок LLM клиента."""
-    client = Mock(spec=LLMClient)
+    client = Mock(spec=LLMClientProtocol)
     client.model = "gpt-4o-mini"
     return client
 
@@ -60,7 +60,7 @@ def test_supports_structured_outputs(structured_client):
 
 def test_prepare_json_schema(structured_client):
     """Тест подготовки JSON Schema из Pydantic модели."""
-    schema = structured_client._prepare_json_schema(TestModel)
+    schema = structured_client._prepare_json_schema(StructuredOutputTestModel)
 
     assert schema["type"] == "object"
     assert "properties" in schema
@@ -79,12 +79,12 @@ def test_complete_structured_with_structured_outputs(structured_client):
     structured_client.llm.complete = MagicMock(return_value=mock_response)
 
     result = structured_client.complete_structured(
-        output_model=TestModel,
+        output_model=StructuredOutputTestModel,
         system="You are a test assistant",
         user="Generate test data"
     )
 
-    assert isinstance(result, TestModel)
+    assert isinstance(result, StructuredOutputTestModel)
     assert result.name == "Test"
     assert result.age == 25
     assert result.tags == ["tag1", "tag2"]
@@ -107,12 +107,12 @@ def test_complete_structured_fallback_to_json_mode(structured_client):
     structured_client.llm.complete = MagicMock(return_value=mock_response)
 
     result = structured_client.complete_structured(
-        output_model=TestModel,
+        output_model=StructuredOutputTestModel,
         system="You are a test assistant",
         user="Generate test data"
     )
 
-    assert isinstance(result, TestModel)
+    assert isinstance(result, StructuredOutputTestModel)
     assert result.name == "Test"
     assert result.age == 25
 
@@ -131,12 +131,12 @@ def test_complete_structured_with_nested_model(structured_client):
     structured_client.llm.complete = MagicMock(return_value=mock_response)
 
     result = structured_client.complete_structured(
-        output_model=TestModelNested,
+        output_model=NestedStructuredOutputModel,
         system="Test",
         user="Test"
     )
 
-    assert isinstance(result, TestModelNested)
+    assert isinstance(result, NestedStructuredOutputModel)
     assert result.title == "Test"
     assert result.inner.value == "nested"
 
@@ -153,7 +153,7 @@ def test_complete_structured_validation_error(structured_client):
 
     with pytest.raises(ValidationError):
         structured_client.complete_structured(
-            output_model=TestModel,
+            output_model=StructuredOutputTestModel,
             system="Test",
             user="Test"
         )
@@ -171,7 +171,7 @@ def test_complete_structured_json_decode_error(structured_client):
 
     with pytest.raises(ValidationError):
         structured_client.complete_structured(
-            output_model=TestModel,
+            output_model=StructuredOutputTestModel,
             system="Test",
             user="Test"
         )
@@ -186,12 +186,12 @@ def test_complete_structured_with_markdown_code_block(structured_client):
     structured_client.llm.complete = MagicMock(return_value=mock_response)
 
     result = structured_client.complete_structured(
-        output_model=TestModel,
+        output_model=StructuredOutputTestModel,
         system="Test",
         user="Test"
     )
 
-    assert isinstance(result, TestModel)
+    assert isinstance(result, StructuredOutputTestModel)
     assert result.name == "Test"
     assert result.age == 25
 
@@ -206,7 +206,7 @@ def test_complete_structured_llm_api_error(structured_client):
 
     with pytest.raises(LLMAPIError):
         structured_client.complete_structured(
-            output_model=TestModel,
+            output_model=StructuredOutputTestModel,
             system="Test",
             user="Test"
         )

@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from api.utils.logger import get_logger
 
-from .models import UserRun
+from .models import UserRun, utc_now_naive
 from .session import SessionLocal
 
 logger = get_logger("db.user_runs")
@@ -38,7 +37,7 @@ def upsert_user_run(
                 user_id=user_id,
                 kind=kind,
                 status=status,
-                created_at=datetime.utcnow(),
+                created_at=utc_now_naive(),
             )
             db.add(row)
         row.user_id = user_id
@@ -52,7 +51,7 @@ def upsert_user_run(
             row.result_url = result_url
         if metadata is not None:
             row.meta_data = metadata
-        row.updated_at = datetime.utcnow()
+        row.updated_at = utc_now_naive()
         db.commit()
         db.refresh(row)
         return row.to_dict()

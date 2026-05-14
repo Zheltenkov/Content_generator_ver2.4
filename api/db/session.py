@@ -118,13 +118,33 @@ def get_db_session() -> Generator[Session, None, None]:
         db.close()
 
 
-def init_db() -> None:
+def should_auto_create_tables() -> bool:
+    """Return whether runtime metadata.create_all is allowed for this process."""
+    explicit = os.getenv("DB_AUTO_CREATE_TABLES")
+    if explicit is not None:
+        return explicit.strip().lower() in {"1", "true", "yes", "on"}
+
+    environment = os.getenv("APP_ENV", os.getenv("ENV", "")).strip().lower()
+    if environment in {"dev", "development", "local", "test", "testing"}:
+        return True
+
+    return os.getenv("RELOAD", "false").strip().lower() == "true"
+
+
+def init_db(auto_create: bool | None = None) -> None:
     """
-    Инициализирует базу данных (создает таблицы).
+    Validate database availability and optionally create tables in local/dev mode.
+
+    Production schema changes must be applied through Alembic migrations. Runtime
+    create_all is intentionally gated to prevent silent schema drift.
     """
     from .models import Base
     try:
-        Base.metadata.create_all(bind=engine)
+        create_tables = should_auto_create_tables() if auto_create is None else auto_create
+        if create_tables:
+            Base.metadata.create_all(bind=engine)
+        else:
+            check_database_connection()
         set_database_status(True)
     except Exception as exc:
         set_database_status(False, exc)

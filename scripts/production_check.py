@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import importlib
 import secrets
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -23,6 +22,11 @@ LLM_ENV_KEYS = {
 }
 SECRET_KEY_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 OPTIONAL_EMPTY_DEFAULT_KEYS = {"MERMAID_CLI_PATH", "METHODOLOGY_HUMAN_CHECKPOINTS", "REDIS_URL"}
+OPTIONAL_MISSING_ENV_KEYS = {
+    "LLM_BUDGET_USD_PER_ROLE",
+    "METHODOLOGY_ASSISTANT_MODEL",
+    "OBSERVABILITY_EXPORTERS",
+}
 STALE_KEY_PREFIXES = ("RAG_",)
 KNOWN_STALE_KEYS = {"ACCESS_PASSWORD", "OPENAI_USE_RESPONSES"}
 GENERATED_SECRET_KEYS = {"JWT_SECRET_KEY"}
@@ -107,6 +111,24 @@ def _is_safe_default(key: str, value: str) -> bool:
     return not _is_secret_key(key) and not _is_placeholder(value)
 
 
+def _langfuse_is_requested(env: dict[str, str]) -> bool:
+    exporters = {part.strip().lower() for part in env.get("OBSERVABILITY_EXPORTERS", "").split(",") if part.strip()}
+    return env.get("LANGFUSE_ENABLED", "").lower() == "true" or "langfuse" in exporters
+
+
+def _is_optional_missing_key(key: str, env: dict[str, str]) -> bool:
+    """Return True for optional provider/config keys that may be absent locally."""
+    if key in OPTIONAL_MISSING_ENV_KEYS:
+        return True
+    if key.startswith(("DEEPSEEK_", "GIGACHAT_")):
+        return True
+    if key.startswith("OPENAI_") and key.endswith("_MODEL"):
+        return True
+    if key.startswith("LANGFUSE_") and not _langfuse_is_requested(env):
+        return True
+    return False
+
+
 def check_env_files(
     report: CheckReport,
     project_root: Path,
@@ -150,7 +172,8 @@ def check_env_files(
         if generated_keys:
             report.ok(f"Generated missing production secrets in .env: {', '.join(generated_keys)}")
 
-    missing_keys = sorted(set(example) - set(env))
+    missing_keys_all = sorted(set(example) - set(env))
+    missing_keys = [key for key in missing_keys_all if not _is_optional_missing_key(key, env)]
     if missing_keys:
         safe_missing = [key for key in missing_keys if _is_safe_default(key, example[key])]
         unsafe_missing = sorted(set(missing_keys) - set(safe_missing))
@@ -162,8 +185,8 @@ def check_env_files(
             report.ok(f"Appended safe missing defaults to .env: {', '.join(safe_missing)}")
         if unsafe_missing:
             report.warn(f".env is missing keys that need manual values: {', '.join(unsafe_missing)}")
-        elif not write_missing_defaults:
-            report.warn(f".env is missing keys: {', '.join(missing_keys)}")
+        elif safe_missing:
+            report.ok(f".env relies on documented code defaults for {len(safe_missing)} optional keys")
 
     stale_keys = sorted(
         key

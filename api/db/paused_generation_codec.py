@@ -9,11 +9,12 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from content_gen.agents.flow import FlowExecutionStep
 from content_gen.observability import CompatibilityEvent
+from content_gen.workflow.flow_runner import FlowExecutionStep
 
 _TYPE_KEY = "__paused_type__"
 _DATA_KEY = "data"
+_NON_SERIALIZABLE_CONTEXT_KEYS = {"observability_sink"}
 
 
 def serialize_value(value: Any) -> Any:
@@ -75,7 +76,10 @@ def _hydrate_value(value: Any, events: list[CompatibilityEvent]) -> Any:
                 )
             )
             return b""
-    if type_name == "content_gen.agents.flow:FlowExecutionStep":
+    if type_name in {
+        "content_gen.agents.flow:FlowExecutionStep",
+        "content_gen.workflow.flow_runner:FlowExecutionStep",
+    }:
         payload = dict(data)
         payload.pop("step_index", None)
         try:
@@ -121,7 +125,12 @@ def _hydrate_value(value: Any, events: list[CompatibilityEvent]) -> Any:
 
 def serialize_context(context: dict[str, Any]) -> dict[str, Any]:
     """Serialize mutable flow context for durable pause/resume."""
-    return serialize_value(context)
+    safe_context = {
+        key: value
+        for key, value in context.items()
+        if key not in _NON_SERIALIZABLE_CONTEXT_KEYS
+    }
+    return serialize_value(safe_context)
 
 
 def hydrate_context(payload: dict[str, Any]) -> dict[str, Any]:

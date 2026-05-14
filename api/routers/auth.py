@@ -181,16 +181,10 @@ async def login(
         ).count()
     except Exception as e:
         logger.error(f"❌ Ошибка при проверке активных сессий: {e}", exc_info=True)
-        # Если таблица не существует, пытаемся создать её
-        try:
-            from api.db.models import Base
-            from api.db.session import engine
-            Base.metadata.create_all(bind=engine)
-            logger.info("✅ Таблицы БД созданы")
-            active_sessions = 0
-        except Exception as create_error:
-            logger.error(f"❌ Ошибка при создании таблиц БД: {create_error}", exc_info=True)
-            active_sessions = 0
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Схема БД не готова для пользовательских сессий. Выполните Alembic migrations.",
+        ) from e
 
     # Если превышен лимит, закрываем самые старые неактивные сессии
     if active_sessions >= MAX_ACTIVE_SESSIONS_PER_USER:
@@ -260,41 +254,10 @@ async def login(
         db.rollback()
         # Логируем ошибку с деталями
         logger.error(f"⚠️ Ошибка при сохранении сессии в БД: {e}", exc_info=True)
-
-        # Пытаемся создать таблицы, если их нет
-        try:
-            from api.db.models import Base
-            from api.db.session import engine
-            Base.metadata.create_all(bind=engine)
-            logger.info("✅ Таблицы БД созданы, повторная попытка сохранения сессии")
-
-            # Повторная попытка сохранения
-            try:
-                session = UserSession(
-                    user_id=user_id,
-                    user_id_fk=user.id,
-                    username=user.username,
-                    session_token=session_token,
-                    token_hash=token_hash,
-                    started_at=datetime.utcnow(),
-                    last_activity=datetime.utcnow(),
-                    ip_address=ip_address,
-                    user_agent=user_agent,
-                    is_active="true"
-                )
-                db.add(session)
-                db.commit()
-                db.refresh(session)
-                session_id = session.id
-                logger.info(f"✅ Пользователь {user.email} успешно авторизован после создания таблиц (session_id={session_id})")
-            except Exception as retry_error:
-                logger.error(f"❌ Ошибка при повторной попытке сохранения сессии: {retry_error}", exc_info=True)
-                session_id = 0
-        except Exception as create_error:
-            logger.error(f"❌ Ошибка при создании таблиц БД: {create_error}", exc_info=True)
-            # В случае ошибки БД все равно возвращаем токен, но с session_id=0
-            session_id = 0
-            logger.warning("⚠️ Сессия не сохранена в БД, но токен выдан (session_id=0)")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Не удалось сохранить пользовательскую сессию. Проверьте миграции и состояние БД.",
+        ) from e
 
     return LoginResponse(
         access_token=access_token,

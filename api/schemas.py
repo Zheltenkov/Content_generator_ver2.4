@@ -29,8 +29,9 @@ class GenerateStartResponse(BaseModel):
 class GenerationStatusResponse(BaseModel):
     """Ответ с статусом генерации."""
     request_id: str
-    status: str  # pending, in_progress, needs_review, completed, failed
+    status: str  # pending, in_progress, needs_review, interrupted, completed, failed
     error: str | None = None
     result: dict[str, Any] | None = None
     warnings: list[str] | None = None
     methodology: dict[str, Any] | None = None
+    workflow: dict[str, Any] | None = None

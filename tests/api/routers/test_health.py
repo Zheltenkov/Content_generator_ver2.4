@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 from api.routers.health import router
 
 # Создаем тестовое приложение
-test_app = FastAPI()
-test_app.include_router(router)
+health_app = FastAPI()
+health_app.include_router(router)
 
 
 class TestHealthCheck:
@@ -20,7 +20,7 @@ class TestHealthCheck:
     @pytest.fixture
     def client(self):
         """Тестовый клиент."""
-        return TestClient(test_app)
+        return TestClient(health_app)
 
     @pytest.fixture
     def mock_db(self):

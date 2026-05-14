@@ -153,6 +153,7 @@ def record_paused_generation_change_request(
     user_id: str,
     change_request: dict[str, Any],
     conflicts: list[dict[str, Any]] | None = None,
+    assistant_command: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Record a bounded methodologist change request without resuming the flow."""
     db = SessionLocal()
@@ -164,15 +165,18 @@ def record_paused_generation_change_request(
         )
         if session is None or session.status != "needs_review":
             return None
+        details = {
+            "change_request": convert_numpy_types(change_request),
+            "conflicts": convert_numpy_types(conflicts or []),
+        }
+        if assistant_command:
+            details["assistant_command"] = convert_numpy_types(assistant_command)
         _append_review_action(
             session,
             "changes_requested",
             user_id=user_id,
             comment=str(change_request.get("instruction") or ""),
-            details={
-                "change_request": convert_numpy_types(change_request),
-                "conflicts": convert_numpy_types(conflicts or []),
-            },
+            details=details,
         )
         session.updated_at = datetime.utcnow()
         runtime = _session_to_runtime_dict(session)

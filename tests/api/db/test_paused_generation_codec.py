@@ -21,7 +21,7 @@ def test_paused_generation_codec_roundtrips_typed_context() -> None:
         tasks_count=3,
         complexity="medium",
         level_index=1,
-        level_source="test",
+        level_source="audience_only",
         rationale="rationale",
         explanation="explanation",
         curriculum_context={},
@@ -60,6 +60,32 @@ def test_paused_generation_codec_roundtrips_steps() -> None:
     assert hydrated[0].node_id == "context"
     assert hydrated[0].status == "paused"
     assert hydrated[0].issues == ["needs review"]
+
+
+def test_paused_generation_codec_hydrates_new_flow_step_type_name() -> None:
+    hydrated = hydrate_context(
+        {
+            "step": {
+                "__paused_type__": "content_gen.workflow.flow_runner:FlowExecutionStep",
+                "data": {
+                    "node_id": "practice",
+                    "node_name": "Practice",
+                    "status": "paused",
+                    "duration_ms": 5.0,
+                    "issues": ["checkpoint"],
+                },
+            }
+        }
+    )
+
+    assert isinstance(hydrated["step"], FlowExecutionStep)
+    assert hydrated["step"].node_id == "practice"
+
+
+def test_paused_generation_codec_drops_runtime_observability_sink() -> None:
+    serialized = serialize_context({"markdown": "# README", "observability_sink": object()})
+
+    assert serialized == {"markdown": "# README"}
 
 
 def test_paused_generation_codec_records_unknown_type_compatibility_event() -> None:
