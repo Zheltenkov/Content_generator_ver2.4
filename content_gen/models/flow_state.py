@@ -8,7 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from content_gen.methodology.models import StageRepairResult, StageReviewResult
 
-from .schemas import Annotation, IntroSection, PracticeTask, ProjectSpec, TheoryPart
+from .schemas import Annotation, IntroSection, ProjectSpec, TheoryPart
 
 
 class ProjectContextBundle(BaseModel):

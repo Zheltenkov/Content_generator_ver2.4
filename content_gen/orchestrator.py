@@ -20,7 +20,6 @@ _log_executor = ThreadPoolExecutor(max_workers=2)
 # Кэш последних фаз для дедупликации (request_id -> last_phase)
 _last_phase_cache: dict[str, str] = {}
 
-from .agents.flow import AgentFlowRunner, FlowExecutionStep, FlowNodeOutput, load_flow_definition
 from .agents.task_planner import TaskPlanner
 from .exceptions import ContentGenerationError
 from .flow_handlers import GenerationFlowHandlers
@@ -38,12 +37,13 @@ from .methodology.repair import MethodologyRepairController
 from .models.flow_state import ProjectFlowState
 from .models.result import OrchestratorResult
 from .generation_runtime import GenerationRuntimeContainer
-from .observability import LLMTraceRecorder
+from .observability import LLMTraceRecorder, UnifiedTraceSink, build_default_observability_exporters
 from .node_executor_bundle import GenerationNodeExecutorBundle
 from .node_services import SectionContextRecorder
 from .result_assembly import ResultAssembler
 from .utils.cancellation import CancellationToken
 from .utils.progress import ProgressTracker
+from .workflow.flow_runner import AgentFlowRunner, FlowExecutionStep, FlowNodeOutput, load_flow_definition
 
 
 class Orchestrator:
@@ -60,6 +60,10 @@ class Orchestrator:
         progress_tracker: ProgressTracker = None,
         methodology_progress_callback: Callable[[dict[str, Any]], None] | None = None,
         human_approval_enabled: bool | None = None,
+        workflow_checkpoint_callback: Callable[[dict[str, Any]], None] | None = None,
+        workflow_node_started_callback: Callable[[dict[str, Any]], None] | None = None,
+        run_id: str | None = None,
+        user_id: str | None = None,
     ):
         """
         Инициализация оркестратора.
@@ -70,8 +74,17 @@ class Orchestrator:
             progress_tracker: Трекер прогресса генерации
             methodology_progress_callback: Callback для live-снимков автоматических проверок методолога
             human_approval_enabled: Явно включает/выключает human-in-the-loop checkpoint'ы
+            workflow_checkpoint_callback: Callback для durable checkpoint'ов узлов
+            workflow_node_started_callback: Callback для durable текущего узла
+            run_id: Durable run id for observability correlation
+            user_id: Durable user id for observability correlation
         """
-        self.llm_trace_recorder = LLMTraceRecorder()
+        self.observability_sink = UnifiedTraceSink(
+            run_id=run_id,
+            user_id=user_id,
+            exporters=build_default_observability_exporters(),
+        )
+        self.llm_trace_recorder = LLMTraceRecorder(sink=self.observability_sink)
         self.raw_llm = llm_client
         self.llm = ObservedLLMClient(
             llm_client,
@@ -87,6 +100,7 @@ class Orchestrator:
             cancellation_token=self.cancellation_token,
             progress_tracker=self.progress_tracker
         )
+        self.runtime.observability_sink = self.observability_sink
         self.node_executors = GenerationNodeExecutorBundle.from_runtime(self.runtime)
 
         # Агенты, используемые в run_v2 для извлечения данных
@@ -131,6 +145,8 @@ class Orchestrator:
             cancellation_token=self.cancellation_token,
             progress_tracker=self.progress_tracker,
             stage_review_hook=self._review_stage,
+            workflow_checkpoint_hook=workflow_checkpoint_callback,
+            workflow_node_started_hook=workflow_node_started_callback,
         )
 
     def _log_phase(self, phase: str, agent: str = ""):
@@ -210,6 +226,7 @@ class Orchestrator:
         state = ProjectFlowState.from_initial_input(raw_input, track_files)
         context = state.to_context()
         context["llm_traces"] = self.llm_trace_recorder.events
+        context["observability_sink"] = self.observability_sink
         return context
 
     def _review_stage(self, node, context: dict[str, Any], _output: FlowNodeOutput) -> list[str]:
@@ -345,6 +362,22 @@ class Orchestrator:
             previous_steps=previous_steps,
         )
 
+    def resume_from_workflow_checkpoint(
+        self,
+        context: dict[str, Any],
+        start_index: int,
+        previous_steps: list[FlowExecutionStep] | None = None,
+    ) -> OrchestratorResult:
+        """Continue from a durable workflow checkpoint without methodology-specific edits."""
+        state = context.get("state")
+        if hasattr(state, "sync_from_context"):
+            state.sync_from_context(context)
+        return self._run_flow_from_context(
+            context,
+            start_index=max(0, int(start_index or 0)),
+            previous_steps=previous_steps,
+        )
+
     def _run_flow_from_context(
         self,
         context: dict[str, Any],
@@ -354,6 +387,7 @@ class Orchestrator:
         """Run or resume the configured flow over an existing mutable context."""
         try:
             context["llm_traces"] = self.llm_trace_recorder.events
+            context["observability_sink"] = self.observability_sink
             registry = self.flow_handlers.registry()
             steps = self.flow_runner.run(
                 context,
@@ -362,7 +396,9 @@ class Orchestrator:
                 previous_steps=previous_steps,
             )
             context["llm_traces"] = self.llm_trace_recorder.events
-            return self.flow_result_finalizer.finalize(context, steps)
+            result = self.flow_result_finalizer.finalize(context, steps)
+            self.observability_sink.flush()
+            return result
         except Exception as exc:
             # Проверяем, не была ли это отмена
             from .utils.cancellation import CancelledError

@@ -3,7 +3,8 @@
 # =============================================================================
 # Исполняемый конфиг для рантайма: content_gen/config/flow.yaml (без комментариев).
 # Этот файл — справочный; описание нод, входов/выходов и переходов для карты процессов.
-# Рантайм: AgentFlowRunner (content_gen/agents/flow.py).
+# Рантайм: AgentFlowRunner (content_gen/workflow/flow_runner.py).
+# Старый content_gen/agents/flow.py остается compatibility shim для paused sessions.
 # =============================================================================
 
 flows:

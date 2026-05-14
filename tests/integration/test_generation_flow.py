@@ -79,7 +79,7 @@ def test_orchestrator_flow_logs_versions(monkeypatch):
         tasks_count=3,
         complexity="medium",
         level_index=1,
-        level_source="test",
+        level_source="audience_only",
         rationale="rationale",
         explanation="expl",
         curriculum_context={"graph_available": True, "skills_to_prepare": ["Skill3"]},

@@ -28,9 +28,15 @@ def test_get_agent_config_reads_yaml_and_caches(monkeypatch):
         json.dumps(
             {
                 "version": "9.9.9",
+                "owner": "methodology",
+                "input_schema": "DemoInput",
                 "llm": {"temperature": 0.2},
                 "prompts": {
-                    "system": {"type": "file", "path": "prompts/system.txt"},
+                    "system": {
+                        "type": "file",
+                        "path": "prompts/system.txt",
+                        "output_schema": "SystemPromptOutput",
+                    },
                     "user": {"type": "inline", "value": "Hello {skill}"},
                 },
             }
@@ -50,4 +56,23 @@ def test_get_agent_config_reads_yaml_and_caches(monkeypatch):
     assert cfg1.get_prompt("system") == "System prompt for {language}"
     assert cfg1.get_prompt("user") == "Hello {skill}"
     assert loader.get_loaded_agent_versions() == {"demo": "9.9.9"}
+
+    system_record = cfg1.get_prompt_record("system")
+    assert system_record.prompt_id == "demo.system"
+    assert system_record.version == "9.9.9"
+    assert system_record.owner == "methodology"
+    assert system_record.input_schema == "DemoInput"
+    assert system_record.output_schema == "SystemPromptOutput"
+    assert len(system_record.prompt_hash) == 16
+
+    trace_kwargs = cfg1.prompt_trace_kwargs("system", "user", output_schema="DemoOutput")
+    assert trace_kwargs["prompt_id"] == "demo.system+demo.user"
+    assert trace_kwargs["prompt_version"] == "9.9.9"
+    assert trace_kwargs["prompt_owner"] == "methodology"
+    assert trace_kwargs["prompt_input_schema"] == "DemoInput"
+    assert trace_kwargs["prompt_output_schema"] == "DemoOutput"
+    assert len(trace_kwargs["prompt_hash"]) == 16
+
+    registry = loader.build_prompt_registry(["demo"])
+    assert sorted(registry) == ["demo.system", "demo.user"]
 

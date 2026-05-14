@@ -15,6 +15,7 @@ from api.utils.result_cache import (
 )
 from content_gen.exceptions import ContentGenerationError
 
+from .generation_workflow_service import GenerationWorkflowService
 from .methodology_review_artifacts import methodology_human_review_enabled
 
 
@@ -29,12 +30,14 @@ class MethodologyPausePersister:
         methodology_getter: Callable[[str], dict[str, Any] | None] = get_generation_methodology,
         paused_saver: Callable[..., Any] = save_paused_generation_session,
         log_writer: Callable[..., Awaitable[Any]] = write_log_async,
+        workflow_service: GenerationWorkflowService | None = None,
     ) -> None:
         self._status_setter = status_setter
         self._error_store = error_store
         self._methodology_getter = methodology_getter
         self._paused_saver = paused_saver
         self._log_writer = log_writer
+        self._workflow_service = workflow_service or GenerationWorkflowService()
 
     async def store_methodology_pause(
         self,
@@ -54,6 +57,11 @@ class MethodologyPausePersister:
             self._error_store(
                 request_id,
                 "Методологический gate остановил генерацию, но resume-state не был сохранен.",
+            )
+            self._workflow_service.mark_failed(
+                request_id=request_id,
+                user_id=user_id,
+                error="Методологический gate остановил генерацию, но resume-state не был сохранен.",
             )
             return False
 
@@ -90,4 +98,17 @@ class MethodologyPausePersister:
         )
         self._status_setter(request_id, "needs_review")
         self._error_store(request_id, user_friendly_message)
+        resume_from_node = None
+        if isinstance(flow_steps, list) and flow_steps:
+            last_step = flow_steps[-1]
+            if isinstance(last_step, dict):
+                resume_from_node = last_step.get("node_id")
+            else:
+                resume_from_node = getattr(last_step, "node_id", None)
+        self._workflow_service.mark_needs_review(
+            request_id=request_id,
+            user_id=user_id,
+            resume_from_node=str(resume_from_node) if resume_from_node else None,
+            metadata={"resume_from_index": resume_from_index, "methodology_error_type": error.context.get("error_type")},
+        )
         return True

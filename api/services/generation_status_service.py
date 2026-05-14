@@ -10,6 +10,7 @@ from api.schemas import GenerationStatusResponse
 from content_gen.utils.markdown_display_normalizer import normalize_markdown_display_blocks
 
 from .generation_errors import GenerationServiceError
+from .generation_workflow_service import GenerationWorkflowService
 
 
 class GenerationStatusService:
@@ -28,6 +29,7 @@ class GenerationStatusService:
         paused_loader: Callable[[str], dict[str, Any] | None],
         log_writer: Callable[..., Awaitable[Any]],
         logger: Any,
+        workflow_service: GenerationWorkflowService | None = None,
     ) -> None:
         self._status_getter = status_getter
         self._status_setter = status_setter
@@ -39,10 +41,12 @@ class GenerationStatusService:
         self._paused_loader = paused_loader
         self._log_writer = log_writer
         self._logger = logger
+        self._workflow_service = workflow_service or GenerationWorkflowService()
 
     async def get_status(self, request_id: str) -> GenerationStatusResponse:
         """Return current status and result payload when generation is complete."""
         status = self._status_getter(request_id)
+        workflow = await asyncio.to_thread(self._workflow_service.get, request_id)
 
         if status is None:
             paused_session = await asyncio.to_thread(self._paused_loader, request_id)
@@ -51,17 +55,21 @@ class GenerationStatusService:
                 self._status_setter(request_id, status)
                 if paused_session.get("methodology"):
                     self._methodology_setter(request_id, paused_session["methodology"])
+            elif workflow:
+                status = self._public_status_from_workflow(str(workflow.get("status") or "pending"))
+                self._status_setter(request_id, status)
             else:
                 raise GenerationServiceError(404, "Запрос генерации не найден")
 
         if status == "completed":
-            return self._completed_response(request_id, status)
+            return self._completed_response(request_id, status, workflow=workflow)
         if status == "failed":
             return GenerationStatusResponse(
                 request_id=request_id,
                 status=status,
                 error=self._error_getter(request_id) or "Неизвестная ошибка",
                 methodology=self._methodology_getter(request_id),
+                workflow=workflow,
             )
         if status == "needs_review":
             return GenerationStatusResponse(
@@ -69,6 +77,7 @@ class GenerationStatusService:
                 status=status,
                 error=self._error_getter(request_id) or "Требуется ручная методологическая проверка",
                 methodology=self._methodology_getter(request_id),
+                workflow=workflow,
             )
         if status == "cancelled":
             return GenerationStatusResponse(
@@ -76,22 +85,42 @@ class GenerationStatusService:
                 status=status,
                 error=self._error_getter(request_id) or "Генерация была остановлена пользователем",
                 methodology=self._methodology_getter(request_id),
+                workflow=workflow,
+            )
+        if status == "interrupted":
+            return GenerationStatusResponse(
+                request_id=request_id,
+                status=status,
+                error=(
+                    self._error_getter(request_id)
+                    or (str(workflow.get("error")) if isinstance(workflow, dict) and workflow.get("error") else None)
+                    or "Процесс генерации был прерван. Запуск можно восстановить командой resume."
+                ),
+                methodology=self._methodology_getter(request_id),
+                workflow=workflow,
             )
         return GenerationStatusResponse(
             request_id=request_id,
             status=status,
             methodology=self._methodology_getter(request_id),
+            workflow=workflow,
         )
 
     async def cancel(self, request_id: str, user_id: str) -> dict[str, Any]:
         """Cancel active generation task and record the user action."""
         status = self._status_getter(request_id)
+        workflow = await asyncio.to_thread(self._workflow_service.get, request_id)
+        if status is None and workflow:
+            status = self._public_status_from_workflow(str(workflow.get("status") or "pending"))
+            self._status_setter(request_id, status)
         if status is None:
             raise GenerationServiceError(404, "Запрос генерации не найден")
         if status in ("completed", "failed", "cancelled"):
             raise GenerationServiceError(400, f"Невозможно остановить генерацию: статус уже {status}")
-        if not self._task_canceller(request_id):
+        cancelled_task = self._task_canceller(request_id)
+        if not cancelled_task and not workflow:
             raise GenerationServiceError(500, "Не удалось остановить генерацию")
+        self._workflow_service.mark_cancelled(request_id=request_id, user_id=user_id)
 
         self._logger.info("🛑 Генерация остановлена пользователем %s: request_id=%s", user_id, request_id)
         await self._log_writer(
@@ -104,7 +133,13 @@ class GenerationStatusService:
         )
         return {"success": True, "message": "Генерация успешно остановлена"}
 
-    def _completed_response(self, request_id: str, status: str) -> GenerationStatusResponse:
+    def _completed_response(
+        self,
+        request_id: str,
+        status: str,
+        *,
+        workflow: dict[str, Any] | None,
+    ) -> GenerationStatusResponse:
         cached = self._result_getter(request_id)
         if not cached:
             self._logger.warning(
@@ -115,6 +150,7 @@ class GenerationStatusService:
                 request_id=request_id,
                 status="failed",
                 error="Результат генерации истек или был удален",
+                workflow=workflow,
             )
 
         report_json = cached.get("report_json")
@@ -124,6 +160,7 @@ class GenerationStatusService:
                 request_id=request_id,
                 status="failed",
                 error="Результат генерации поврежден",
+                workflow=workflow,
             )
         if isinstance(report_json, dict):
             report_json = dict(report_json)
@@ -148,4 +185,20 @@ class GenerationStatusService:
                 if isinstance(report_json, dict)
                 else cached.get("methodology")
             ),
+            workflow=workflow,
         )
+
+    @staticmethod
+    def _public_status_from_workflow(status: str) -> str:
+        """Keep public API status compatible while workflow has richer states."""
+        if status in {"created"}:
+            return "pending"
+        if status in {"running", "node_completed", "resuming"}:
+            return "in_progress"
+        if status == "needs_review":
+            return "needs_review"
+        if status == "interrupted":
+            return "interrupted"
+        if status in {"completed", "failed", "cancelled"}:
+            return status
+        return "pending"

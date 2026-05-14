@@ -2,18 +2,17 @@ from types import SimpleNamespace
 
 from content_gen.generation_runtime import GenerationRuntimeContainer
 import content_gen.phase_executors as phase_executors
+from content_gen.context_phase_executor import ContextPhaseExecutor
 from content_gen.models.readme_document import ReadmeDocument
 from content_gen.node_executor_bundle import GenerationNodeExecutorBundle
 from content_gen.practice_phase_executor import PracticePhaseExecutor
 from content_gen.phase_executors import (
-    ContextPhaseExecutor,
     EvaluationPhaseExecutor,
-    PracticePhaseExecutor,
     QualityPhaseExecutor,
-    StructurePhaseExecutor,
-    TheoryPhaseExecutor,
     TranslationPhaseExecutor,
 )
+from content_gen.structure_phase_executor import StructurePhaseExecutor
+from content_gen.theory_phase_executor import TheoryPhaseExecutor
 
 
 class FakeLLM:
@@ -37,19 +36,23 @@ def test_node_executor_bundle_builds_concrete_executors() -> None:
 
 def test_quality_phase_executor_executes_canonical_quality_logic() -> None:
     class ContentEditor:
-        def ensure_global_coherence(self, markdown, _seed):
-            return markdown
+        def ensure_global_coherence_document(self, document, _seed):
+            return document
 
     class Toc:
-        def build(self, _markdown, language):
+        def build_document(self, _document, language):
             assert language == "ru"
             return SimpleNamespace(toc_md="- [Заключение](#заключение)")
 
-        def inject(self, markdown, toc_md):
-            return f"{markdown}\n{toc_md}"
+        def inject_document(self, document, toc_md, language):
+            return document.with_upserted_section_by_title_fragment(
+                "Содержание",
+                f"## Содержание\n\n{toc_md}",
+                fallback_level=2,
+            )
 
     class Style:
-        def lint(self, _markdown, _language):
+        def lint_document(self, _document, _language):
             return []
 
     runtime = SimpleNamespace(
@@ -69,19 +72,23 @@ def test_quality_phase_executor_executes_canonical_quality_logic() -> None:
 
 def test_quality_phase_executor_returns_typed_document() -> None:
     class ContentEditor:
-        def ensure_global_coherence(self, markdown, _seed):
-            return markdown
+        def ensure_global_coherence_document(self, document, _seed):
+            return document
 
     class Toc:
-        def build(self, _markdown, language):
+        def build_document(self, _document, language):
             assert language == "ru"
             return SimpleNamespace(toc_md="- [Заключение](#заключение)")
 
-        def inject(self, markdown, toc_md):
-            return f"{markdown}\n\n{toc_md}"
+        def inject_document(self, document, toc_md, language):
+            return document.with_upserted_section_by_title_fragment(
+                "Содержание",
+                f"## Содержание\n\n{toc_md}",
+                fallback_level=2,
+            )
 
     class Style:
-        def lint(self, _markdown, _language):
+        def lint_document(self, _document, _language):
             return []
 
     runtime = SimpleNamespace(
@@ -194,7 +201,7 @@ def test_evaluation_phase_executor_executes_canonical_evaluation_logic(monkeypat
         def __init__(self, message):
             self.message = message
 
-        def validate_markdown(self, *_args):
+        def validate_document(self, *_args, **_kwargs):
             return [SimpleNamespace(message=self.message, severity="soft")]
 
     class Rubric:
@@ -202,8 +209,8 @@ def test_evaluation_phase_executor_executes_canonical_evaluation_logic(monkeypat
             self.language = language
             self.llm_client = llm_client
 
-        def score(self, markdown, learning_outcomes):
-            return {"markdown": markdown, "learning_outcomes": learning_outcomes}
+        def score_document(self, readme_document, learning_outcomes):
+            return {"title": readme_document.title, "learning_outcomes": learning_outcomes}
 
     monkeypatch.setattr(phase_executors, "RubricScorer", Rubric)
     monkeypatch.setattr(phase_executors, "criteria_to_json", lambda report: {"report": report})
@@ -219,23 +226,20 @@ def test_evaluation_phase_executor_executes_canonical_evaluation_logic(monkeypat
 
     result = EvaluationPhaseExecutor(runtime).execute(seed, "# md")
 
-    assert result.rubric_json == {"report": {"markdown": "# md", "learning_outcomes": ["LO"]}}
+    assert result.rubric_json == {"report": {"title": "md", "learning_outcomes": ["LO"]}}
     assert [issue["message"] for issue in result.issues] == ["intro", "theory", "practice"]
     assert isinstance(runtime.rubric, Rubric)
 
 
 def test_evaluation_phase_executor_returns_typed_document(monkeypatch) -> None:
     class Validator:
-        def validate_markdown(self, *_args):
+        def validate_document(self, *_args, **_kwargs):
             return []
 
     class Rubric:
         def __init__(self, language, llm_client):
             self.language = language
             self.llm_client = llm_client
-
-        def score(self, markdown, learning_outcomes):
-            return {"markdown": markdown, "learning_outcomes": learning_outcomes}
 
         def score_document(self, readme_document, learning_outcomes):
             return {"title": readme_document.title, "learning_outcomes": learning_outcomes}
@@ -292,7 +296,7 @@ def test_practice_executor_extracts_instruction_and_theory_summary() -> None:
     assert "Риск" in theory_summary
 
 
-def test_practice_executor_renders_practice_and_bonus_blocks() -> None:
+def test_practice_executor_appends_practice_as_typed_document_when_chapter_missing() -> None:
     task = SimpleNamespace(
         title="Собрать артефакт",
         situation="Есть задача",
@@ -305,16 +309,14 @@ def test_practice_executor_renders_practice_and_bonus_blocks() -> None:
         p2p_criteria=["Файл открыт"],
         approach_bullets=["Заполни строки"],
     )
+    document = ReadmeDocument.from_markdown("# README\n\nАннотация.")
     seed = SimpleNamespace(language="ru")
 
-    markdown = PracticePhaseExecutor.render_practice_markdown(
-        "## Глава 3. Практический блок\n\nЧерновик\n\n## Бонус\n\nЧерновик",
-        [task],
-        [task],
-        True,
-        seed,
-    )
+    updated, changed = PracticePhaseExecutor.render_practice_document(document, [task], [task], True, seed)
+    markdown = updated.to_markdown()
 
+    assert changed is True
+    assert "## Глава 3. Практический блок" in markdown
     assert "### Задание 1. Собрать артефакт" in markdown
     assert "### Бонусное задание 1*" in markdown
 

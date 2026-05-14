@@ -1,6 +1,6 @@
 """Тесты кэша результатов генерации."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from unittest.mock import Mock
 
 import pytest
@@ -167,7 +167,7 @@ class TestResultCache:
         if request_id in _result_cache:
             cached = _result_cache[request_id]
             # Устанавливаем старую дату создания
-            cached["created_at"] = (datetime.utcnow() - timedelta(hours=25)).isoformat()
+            cached["created_at"] = (datetime.now(UTC).replace(tzinfo=None) - timedelta(hours=25)).isoformat()
 
         # Очищаем истекшие
         clear_expired()

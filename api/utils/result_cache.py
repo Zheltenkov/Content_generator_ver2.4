@@ -2,7 +2,7 @@
 
 import os
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from api.utils.logger import get_logger
@@ -25,6 +25,11 @@ _generation_owners: dict[str, str] = {}
 
 # Активные задачи генерации для возможности отмены
 _active_generation_tasks: dict[str, Any] = {}
+
+
+def _utc_now() -> datetime:
+    """Return UTC time as a naive datetime for legacy cache comparisons."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 def _normalize_created_at(value: Any) -> datetime | None:
@@ -92,7 +97,7 @@ def store_result(
         "methodology": report_json_clean.get("methodology_gate"),
         "project_seed_payload": convert_numpy_types(project_seed_payload) if project_seed_payload else None,
         "user_id": user_id,
-        "created_at": datetime.utcnow(),
+        "created_at": _utc_now(),
     }
     if user_id:
         _generation_owners[request_id] = user_id
@@ -131,7 +136,7 @@ def get_result(request_id: str) -> dict[str, Any] | None:
         _generation_owners.pop(request_id, None)
         return None
 
-    age = datetime.utcnow() - created_at
+    age = _utc_now() - created_at
     if age > _cache_ttl:
         logger.warning(f"⏰ Результат истек: request_id={request_id}, возраст={age}, TTL={_cache_ttl}")
         del _result_cache[request_id]
@@ -162,7 +167,7 @@ def clear_result(request_id: str) -> None:
 
 def clear_expired() -> None:
     """Очищает истекшие записи из кэша."""
-    now = datetime.utcnow()
+    now = _utc_now()
     expired = [
         request_id for request_id, data in _result_cache.items()
         if (
@@ -341,7 +346,7 @@ def set_translation_job(
     result_links: dict[str, str] | None = None,
 ) -> None:
     """Создаёт или обновляет задачу перевода (status: pending, in_progress, completed, failed)."""
-    now = datetime.utcnow()
+    now = _utc_now()
     if request_id not in _translation_jobs:
         _translation_jobs[request_id] = {"created_at": now}
     job = _translation_jobs[request_id]
@@ -380,7 +385,7 @@ def set_translation_phase(request_id: str, phase: str, progress: float | None = 
         _translation_jobs[request_id]["phase"] = phase
         if progress is not None:
             _translation_jobs[request_id]["progress"] = progress
-        _translation_jobs[request_id]["updated_at"] = datetime.utcnow()
+        _translation_jobs[request_id]["updated_at"] = _utc_now()
 
 
 def get_translation_job(request_id: str) -> dict[str, Any] | None:
@@ -388,7 +393,7 @@ def get_translation_job(request_id: str) -> dict[str, Any] | None:
     if request_id not in _translation_jobs:
         return None
     job = _translation_jobs[request_id]
-    if datetime.utcnow() - job["created_at"] > _translation_ttl:
+    if _utc_now() - job["created_at"] > _translation_ttl:
         del _translation_jobs[request_id]
         return None
     allowed = (

@@ -34,7 +34,7 @@ from .models.phase_results import (
     TranslationPhaseResult,
 )
 from .models.readme_document import ReadmeDocument
-from .observability import FallbackTraceEvent
+from .observability import FallbackTraceEvent, normalize_fallback_trace_event
 from .project_planning import ProjectBlueprintPlanner
 
 logger = logging.getLogger("content_gen.node_services")
@@ -58,8 +58,9 @@ def _merge_runtime_fallback_traces(flow_context: dict[str, Any], runtime_state: 
         return
     existing = flow_context.setdefault("fallback_traces", [])
     for event in runtime_traces:
-        if event not in existing:
-            existing.append(event)
+        normalized = normalize_fallback_trace_event(event).model_dump(mode="json")
+        if normalized not in existing:
+            existing.append(normalized)
 
 
 class SectionContextRecorder:
@@ -235,6 +236,7 @@ class TaskPlanningNodeService:
                     fallback_type="default_task_plan",
                     reason=str(exc),
                     quality_risk="medium",
+                    visible_to_user=True,
                     inputs={
                         "title_seed": getattr(seed, "title_seed", None),
                         "tasks_count": getattr(seed, "tasks_count", None),
@@ -275,6 +277,7 @@ class TaskPlanningNodeService:
                     fallback_type="practice_plan_contract_unavailable",
                     reason=str(exc),
                     quality_risk="medium",
+                    visible_to_user=True,
                     inputs={
                         "title_seed": getattr(seed, "title_seed", None),
                         "task_plan": getattr(task_plan, "as_dict", lambda: None)(),
@@ -336,10 +339,14 @@ class QualityNodeService:
 
     def _merged_fallback_traces(self, context: GenerationContext) -> list[dict[str, Any]]:
         """Merge incoming and runtime fallback traces without duplicating events."""
-        traces = list(context.fallback_traces or [])
+        traces = [
+            normalize_fallback_trace_event(event).model_dump(mode="json")
+            for event in list(context.fallback_traces or [])
+        ]
         for event in list(_runtime_attr(self.runtime_state, "fallback_traces", []) or []):
-            if event not in traces:
-                traces.append(event)
+            normalized = normalize_fallback_trace_event(event).model_dump(mode="json")
+            if normalized not in traces:
+                traces.append(normalized)
         return traces
 
 
@@ -383,7 +390,24 @@ class TranslationNodeService:
     def execute(self, context: GenerationContext, target_language: str | None = None) -> TranslationNodeResult:
         seed = context.require("seed")
         markdown = context.require("markdown")
-        resolved_language = self._normalize_target_language(target_language or context.target_language, seed)
+        raw_target_language = target_language or context.target_language
+        fallback_traces = list(context.fallback_traces or [])
+        if raw_target_language is None:
+            fallback_traces.append(
+                FallbackTraceEvent.from_fallback(
+                    node="translation",
+                    fallback_type="missing_target_language",
+                    reason="target_language is absent; using ru",
+                    quality_risk="low",
+                    visible_to_user=True,
+                    inputs={
+                        "seed_language": getattr(seed, "language", None),
+                        "title_seed": getattr(seed, "title_seed", None),
+                    },
+                    trace={"resolved_target_language": "ru"},
+                ).model_dump(mode="json")
+            )
+        resolved_language = self._normalize_target_language(raw_target_language, seed)
         source_document = ReadmeDocument.from_value(context.readme_document, fallback_markdown=markdown)
         result = self._call_translation(seed, markdown, resolved_language, source_document)
         return TranslationNodeResult(
@@ -392,6 +416,7 @@ class TranslationNodeService:
             seed=seed,
             target_language=resolved_language,
             readme_document=result.readme_document,
+            fallback_traces=fallback_traces,
         )
 
     def _call_translation(

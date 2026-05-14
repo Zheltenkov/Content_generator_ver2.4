@@ -17,6 +17,7 @@ from content_gen.exceptions import ValidationError
 from content_gen.models.schemas import ProjectSeed
 
 from .generation_errors import GenerationServiceError
+from .generation_workflow_service import GenerationWorkflowService
 
 BackgroundRunner = Callable[[str, str, dict[str, Any], list[str], str | None], Awaitable[None]]
 
@@ -34,6 +35,7 @@ class GenerationStartService:
         log_writer: Callable[..., Awaitable[Any]],
         logger: Any,
         request_id_factory: Callable[[], str] | None = None,
+        workflow_service: GenerationWorkflowService | None = None,
     ) -> None:
         self._status_setter = status_setter
         self._error_store = error_store
@@ -42,6 +44,7 @@ class GenerationStartService:
         self._log_writer = log_writer
         self._logger = logger
         self._request_id_factory = request_id_factory or (lambda: str(uuid.uuid4()))
+        self._workflow_service = workflow_service or GenerationWorkflowService()
 
     async def start_from_request(
         self,
@@ -92,6 +95,15 @@ class GenerationStartService:
                 raise GenerationServiceError(400, f"Ошибка валидации данных: {str(exc)}") from exc
 
             project_seed_dict = project_seed.model_dump()
+            self._workflow_service.create(
+                request_id=request_id,
+                user_id=user_id,
+                seed_metadata=self._workflow_seed_metadata(
+                    seed_data,
+                    project_seed_payload=project_seed_dict,
+                    track_paths=[],
+                ),
+            )
             generation_task = asyncio.create_task(
                 self._background_runner(request_id, user_id, project_seed_dict, [], None)
             )
@@ -101,6 +113,11 @@ class GenerationStartService:
             self._logger.error("❌ Ошибка валидации: %s", str(exc))
             self._status_setter(request_id, "failed")
             self._error_store(request_id, f"Ошибка валидации: {str(exc)}")
+            self._workflow_service.mark_failed(
+                request_id=request_id,
+                user_id=user_id,
+                error=f"Ошибка валидации: {str(exc)}",
+            )
             await self._log_writer(
                 request_id=request_id,
                 level="ERROR",
@@ -116,6 +133,11 @@ class GenerationStartService:
             self._logger.error("💥 Неожиданная ошибка при подготовке: %s", str(exc), exc_info=True)
             self._status_setter(request_id, "failed")
             self._error_store(request_id, f"Ошибка при подготовке данных: {str(exc)}")
+            self._workflow_service.mark_failed(
+                request_id=request_id,
+                user_id=user_id,
+                error=f"Ошибка при подготовке данных: {str(exc)}",
+            )
             await self._log_writer(
                 request_id=request_id,
                 level="ERROR",
@@ -171,6 +193,28 @@ class GenerationStartService:
             phase="initialization",
             metadata={"seed_metadata": seed_metadata},
         )
+
+    @staticmethod
+    def _workflow_seed_metadata(
+        seed_data: dict[str, Any],
+        *,
+        project_seed_payload: dict[str, Any] | None = None,
+        track_paths: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Keep only compact seed metadata in the workflow root row."""
+        metadata = mask_dict(
+            {
+                "language": seed_data.get("language"),
+                "track": seed_data.get("track"),
+                "project_type": seed_data.get("project_type"),
+                "audience_level": seed_data.get("audience_level"),
+                "project_title": seed_data.get("title_seed") or seed_data.get("platform_name"),
+                "methodology_human_review": seed_data.get("methodology_human_review", False),
+            }
+        )
+        metadata["project_seed_payload"] = project_seed_payload or dict(seed_data)
+        metadata["track_paths"] = list(track_paths or [])
+        return metadata
 
     @staticmethod
     async def _normalize_track_files(track_files: list[UploadFile] | None) -> list[UploadFile]:

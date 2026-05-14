@@ -6,7 +6,6 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .agents.flow import FlowNodeOutput
 from .agents.task_planner import TaskPlanner
 from .domain_contracts import SectionContextPolicy
 from .models.generation_context import GenerationContext
@@ -24,6 +23,7 @@ from .node_services import (
     TranslationNodeService,
 )
 from .result_assembly import ResultAssembler
+from .workflow.flow_runner import FlowNodeOutput
 
 logger = logging.getLogger("content_gen.flow_handlers")
 
@@ -214,41 +214,35 @@ class GenerationFlowHandlers:
 
     def node_translate(self, context: dict[str, Any]) -> FlowNodeOutput:
         seed = context["seed"]
-        md = context["markdown"]
 
         logger.info("Translate context keys: %s", list(context.keys()))
         logger.info("Translate target_language before normalization: %r", context.get("target_language"))
         logger.info("Translate seed.language=%r", seed.language)
 
-        target_language = context.get("target_language")
-        if target_language is None:
-            logger.error(
-                "target_language is absent in context; seed.language=%r. Using 'ru' fallback.",
-                seed.language,
-            )
-            target_language = "ru"
-        else:
-            target_language = str(target_language) if not isinstance(target_language, str) else target_language
-
-        target_language = target_language.lower().strip() if isinstance(target_language, str) else target_language
+        raw_target_language = context.get("target_language")
+        preview_language = (
+            str(raw_target_language).lower().strip()
+            if raw_target_language is not None
+            else "ru"
+        )
 
         logger.info(
             "Translate target_language='%s' (seed.language=%s, context.target_language=%s)",
-            target_language,
+            preview_language,
             seed.language,
             context.get("target_language"),
         )
 
-        if target_language != "ru":
-            self.log_phase("translate", f"Агент перевода: перевод на {target_language}")
-            logger.info("Starting translation to '%s'", target_language)
+        if preview_language != "ru":
+            self.log_phase("translate", f"Агент перевода: перевод на {preview_language}")
+            logger.info("Starting translation to '%s'", preview_language)
         else:
             self.log_phase("translate", "Агент перевода: пропуск (язык уже русский)")
-            logger.info("Translation skipped because target_language='%s'", target_language)
+            logger.info("Translation skipped because target_language='%s'", preview_language)
 
         result = self._require_service(self.translation_service, "translate").execute(
             GenerationContext.from_flow_context(context),
-            target_language=target_language,
+            target_language=raw_target_language,
         )
         original_md = result.markdown
         translated_md = result.translated_markdown

@@ -129,7 +129,9 @@ def test_task_planning_service_records_fallback_trace_when_planner_fails() -> No
     assert seed.tasks_count is not None
     assert result.fallback_traces[0]["fallback_type"] == "default_task_plan"
     assert result.fallback_traces[0]["quality_risk"] == "medium"
+    assert result.fallback_traces[0]["visible_to_user"] is True
     assert result.fallback_traces[1]["fallback_type"] == "practice_plan_contract_unavailable"
+    assert result.fallback_traces[1]["visible_to_user"] is True
     assert result.updates()["fallback_traces"] == result.fallback_traces
 
 
@@ -187,10 +189,12 @@ def test_quality_service_merges_runtime_fallback_traces() -> None:
         )
     )
 
-    assert result.fallback_traces == [
-        {"node": "task_planning", "fallback_type": "default_task_plan"},
-        {"node": "quality", "fallback_type": "style_guard_markdown_boundary"},
+    assert [(event["node"], event["fallback_type"]) for event in result.fallback_traces] == [
+        ("task_planning", "default_task_plan"),
+        ("quality", "style_guard_markdown_boundary"),
     ]
+    assert all(event["trace_id"] for event in result.fallback_traces)
+    assert all("visible_to_user" in event for event in result.fallback_traces)
     assert result.updates()["fallback_traces"] == result.fallback_traces
 
 
@@ -308,6 +312,30 @@ def test_translation_service_accepts_typed_phase_result() -> None:
     assert result.translated_markdown == "# TRANSLATED"
 
 
+def test_translation_service_records_missing_target_language_fallback() -> None:
+    seed = SimpleNamespace(language="RU", title_seed="Проект")
+
+    def translate(_seed, markdown, target_language, readme_document):
+        assert target_language == "ru"
+        return TranslationPhaseResult(
+            markdown=markdown,
+            translated_markdown=markdown,
+            readme_document=readme_document,
+            translated_readme_document=readme_document,
+        )
+
+    result = TranslationNodeService(translate).execute(
+        GenerationContext(seed=seed, markdown="# README")
+    )
+
+    assert result.target_language == "ru"
+    assert result.fallback_traces[0]["node"] == "translation"
+    assert result.fallback_traces[0]["fallback_type"] == "missing_target_language"
+    assert result.fallback_traces[0]["visible_to_user"] is True
+    assert result.fallback_traces[0]["trace_id"]
+    assert result.updates()["fallback_traces"] == result.fallback_traces
+
+
 def test_practice_service_uses_runtime_state_side_effects() -> None:
     seed = SimpleNamespace(
         title_seed="Проект",
@@ -372,9 +400,9 @@ def test_practice_service_uses_runtime_state_side_effects() -> None:
     assert blueprint.theory_task_map == {"2.1": [1]}
     assert flow_context["issues"] == [{"severity": "soft", "message": "practice note"}]
     assert flow_context["warnings"] == ["warn"]
-    assert flow_context["fallback_traces"] == [
-        {"node": "practice", "fallback_type": "practice_critic_json_object_recovery"}
-    ]
+    assert flow_context["fallback_traces"][0]["node"] == "practice"
+    assert flow_context["fallback_traces"][0]["fallback_type"] == "practice_critic_json_object_recovery"
+    assert flow_context["fallback_traces"][0]["trace_id"]
     assert "practice" in result.section_contexts
     assert "dataset" in result.section_contexts
 

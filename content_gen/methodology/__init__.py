@@ -6,6 +6,11 @@ from .change_request import (
     has_hard_conflicts,
     validate_methodologist_change_request,
 )
+from .assistant import (
+    MethodologyAssistantCommand,
+    MethodologyAssistantCommandParser,
+    MethodologyAssistantParseContext,
+)
 from .checkpoint import HumanApprovalCheckpoint, HumanApprovalCheckpointPolicy, build_requirement_matrix
 from .decision import MethodologyGateDecision, MethodologyGateInterrupt, MethodologyGatePolicy
 from .gate import MethodologyGate
@@ -29,6 +34,9 @@ __all__ = [
     "MethodologyGateInterrupt",
     "MethodologyGatePolicy",
     "MethodologistChangeRequest",
+    "MethodologyAssistantCommand",
+    "MethodologyAssistantCommandParser",
+    "MethodologyAssistantParseContext",
     "MethodologyRuntimeAction",
     "MethodologyRuntimeState",
     "MethodologyStateMachine",

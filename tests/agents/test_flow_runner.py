@@ -186,6 +186,32 @@ def test_flow_runner_resumes_from_saved_index_without_rerunning_previous_node():
     assert [step.node_id for step in steps] == ["b", "c"]
 
 
+def test_flow_runner_emits_workflow_node_and_checkpoint_hooks():
+    started = []
+    checkpoints = []
+    runner = AgentFlowRunner(
+        make_flow_definition(),
+        workflow_node_started_hook=started.append,
+        workflow_checkpoint_hook=checkpoints.append,
+    )
+    context = {}
+    registry = {
+        "start": lambda ctx: FlowNodeOutput(updates={"value": "alpha"}),
+        "middle": lambda ctx: FlowNodeOutput(status="skipped", issues=["manual skip"]),
+        "end": lambda ctx: FlowNodeOutput(updates={"items": [1, 2, 3]}),
+    }
+
+    steps = runner.run(context, registry)
+
+    assert [item["node_id"] for item in started] == ["a", "b", "c"]
+    assert [item["status"] for item in checkpoints] == ["success", "skipped", "success"]
+    assert [item["checkpoint_index"] for item in checkpoints] == [1, 2, 3]
+    assert checkpoints[0]["input_hash"]
+    assert checkpoints[0]["output_artifact"]["value"]["chars"] == 5
+    assert checkpoints[0]["context_snapshot"]["value"] == "alpha"
+    assert [step.status for step in steps] == ["success", "skipped", "success"]
+
+
 def test_flow_runner_detects_cycles():
     nodes = [
         FlowNodeConfig(id="x", name="X", handler="x"),

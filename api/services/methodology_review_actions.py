@@ -116,6 +116,7 @@ class ReviewActionCommandService:
         *,
         user_id: str,
         change_request: MethodologistChangeRequest,
+        assistant_command: JsonDict | None = None,
     ) -> JsonDict:
         """Validate and persist a scoped change request while generation is paused."""
         conflicts = validate_methodologist_change_request(change_request)
@@ -146,6 +147,7 @@ class ReviewActionCommandService:
             user_id=user_id,
             change_request=change_request.model_dump(mode="json"),
             conflicts=conflict_payload,
+            assistant_command=assistant_command,
         )
         if not saved_session:
             raise GenerationServiceError(410, "Состояние продолжения истекло или недоступно")
@@ -164,6 +166,7 @@ class ReviewActionCommandService:
             metadata={
                 "change_request": change_request.model_dump(mode="json"),
                 "conflicts": conflict_payload,
+                "assistant_command": assistant_command or {},
                 "review_actions_count": len(saved_session.get("review_actions") or []),
             },
         )

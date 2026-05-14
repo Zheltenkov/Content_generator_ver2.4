@@ -14,13 +14,13 @@ from .agents.practice import PracticeAgent
 from .agents.practice_critic import PracticeCriticAgent
 from .agents.readability_agent import ReadabilityAgent
 from .agents.regeneration import RegenerationAgent
-from .agents.skeleton import SkeletonAgent
-from .agents.style_guard import StyleGuardAgent
 from .agents.theory import TheoryAgent
 from .agents.theory_enhancement_agent import TheoryEnhancementAgent
 from .agents.title_annotation import TitleAnnotationAgent
-from .agents.toc import TOCAgent
 from .agents.translator import TranslatorAgent
+from .renderers.skeleton import SkeletonRenderer
+from .renderers.toc import TOCRenderer
+from .repair.style_guard import StyleGuardRepair
 from .models.flow_state import ProjectContextBundle
 from .models.schemas import PracticeTask, ProjectContextMeta, TheoryPart
 from .validators.practice import PracticeValidator
@@ -38,10 +38,11 @@ class GenerationRuntimeContainer:
         self.cancellation_token = cancellation_token
         self.progress_tracker = progress_tracker
 
-        # Agents are long-lived dependencies for the current orchestrator instance.
+        # Generation dependencies are grouped by boundary: LLM agents,
+        # deterministic renderers/repair components, and validators.
         self.intent = None
         self.title_annot = TitleAnnotationAgent(self.llm_for("title_annotation", "TitleAnnotationAgent"))
-        self.skeleton = SkeletonAgent()
+        self.skeleton = SkeletonRenderer()
         self.intro = IntroRulesAgent(self.llm_for("skeleton", "IntroRulesAgent"))
         self.theory = TheoryAgent(self.llm_for("theory", "TheoryAgent"))
         self.theory_enhancement = TheoryEnhancementAgent(self.llm_for("theory", "TheoryEnhancementAgent"))
@@ -52,8 +53,8 @@ class GenerationRuntimeContainer:
         self.readability_agent = ReadabilityAgent(self.llm_for("theory", "ReadabilityAgent"))
         self.practice = PracticeAgent(self.llm_for("practice", "PracticeAgent"))
         self.dataset_generator = DatasetGeneratorAgent(self.llm_for("practice", "DatasetGeneratorAgent"))
-        self.toc = TOCAgent()
-        self.style = StyleGuardAgent()
+        self.toc = TOCRenderer()
+        self.style = StyleGuardRepair()
         self.practice_critic = PracticeCriticAgent(self.llm_for("practice", "PracticeCriticAgent"))
         self.translator = TranslatorAgent(self.llm_for("translate", "TranslatorAgent"))
         self.regeneration = RegenerationAgent(self.llm_for("repair", "RegenerationAgent"))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -28,13 +29,14 @@ from content_gen.exceptions import (
     LLMTimeoutError,
     ValidationError,
 )
-from content_gen.llm.cached_client import CachedLLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.models.schemas import ProjectSeed
 from content_gen.orchestrator import Orchestrator
 
 from .generation_failure_handler import GenerationFailureHandler
 from .generation_pause_persistence import MethodologyPausePersister
 from .generation_result_persistence import GenerationResultPersister
+from .generation_workflow_service import GenerationWorkflowService
 from .methodology_review_artifacts import methodology_human_review_enabled
 
 logger = get_logger("generation")
@@ -64,6 +66,7 @@ class GenerationResumeService:
         result_persister: GenerationResultPersister | None = None,
         pause_persister: MethodologyPausePersister | None = None,
         failure_handler: GenerationFailureHandler | None = None,
+        workflow_service: GenerationWorkflowService | None = None,
     ) -> None:
         self._status_getter = status_getter
         self._status_setter = status_setter
@@ -71,11 +74,12 @@ class GenerationResumeService:
         self._task_unregister = task_unregister
         self._paused_completed_marker = paused_completed_marker
         self._llm_factory = llm_factory or (
-            lambda: CachedLLMClient(enable_cache=True, enable_batching=True)
+            lambda: create_llm_client(enable_cache=True, enable_batching=True)
         )
         self._orchestrator_cls = orchestrator_cls
         self._temp_cleanup = temp_cleanup
         self._completed_saver = completed_saver
+        self._workflow_service = workflow_service or GenerationWorkflowService()
         self._result_persister = result_persister or GenerationResultPersister(
             status_setter=status_setter,
             error_store=error_store,
@@ -89,12 +93,14 @@ class GenerationResumeService:
             methodology_getter=methodology_getter,
             paused_saver=paused_saver,
             log_writer=log_writer,
+            workflow_service=self._workflow_service,
         )
         self._failure_handler = failure_handler or GenerationFailureHandler(
             status_setter=status_setter,
             error_store=error_store,
             log_writer=log_writer,
             pause_persister=self._pause_persister,
+            workflow_service=self._workflow_service,
         )
 
     async def save_completed_generation(
@@ -148,6 +154,7 @@ class GenerationResumeService:
             set_request_id(request_id)
             set_user_id(user_id)
             self._status_setter(request_id, "in_progress")
+            self._workflow_service.mark_running(request_id=request_id, user_id=user_id)
 
             logger.info("🔍 _run_generation_background: язык из project_seed_dict: %r", project_seed_dict.get("language"))
             project_seed = ProjectSeed(**project_seed_dict)
@@ -161,17 +168,26 @@ class GenerationResumeService:
                 self._build_orchestrator(
                     human_review_enabled=bool(project_seed.methodology_human_review),
                     request_id=request_id,
+                    user_id=user_id,
                 ).run,
                 raw_input=project_seed.model_dump(),
                 track_files=track_paths,
             )
 
-            await self._save_completed_result(
+            saved = await self._save_completed_result(
                 request_id=request_id,
                 user_id=user_id,
                 project_seed_payload=project_seed.model_dump(),
                 result=result,
             )
+            if saved:
+                self._workflow_service.mark_completed(request_id=request_id, user_id=user_id)
+            else:
+                self._workflow_service.mark_failed(
+                    request_id=request_id,
+                    user_id=user_id,
+                    error="Результат генерации не был сохранен",
+                )
         except ValidationError as exc:
             await self._failure_handler.handle_validation_error(request_id, user_id, exc)
         except (LLMTimeoutError, LLMRateLimitError) as exc:
@@ -210,6 +226,7 @@ class GenerationResumeService:
             set_request_id(request_id)
             set_user_id(user_id)
             self._status_setter(request_id, "in_progress")
+            self._workflow_service.mark_resuming(request_id=request_id, user_id=user_id, comment=review_comment)
 
             context = paused_session["context"]
             self._attach_review_actions(context, paused_session, review_comment, user_id)
@@ -221,6 +238,7 @@ class GenerationResumeService:
                 self._build_orchestrator(
                     human_review_enabled=human_review_enabled,
                     request_id=request_id,
+                    user_id=user_id,
                 ).resume_from_pause,
                 context=context,
                 resume_from_index=int(paused_session.get("resume_from_index", 0)),
@@ -234,7 +252,14 @@ class GenerationResumeService:
                 result=result,
             )
             if saved:
+                self._workflow_service.mark_completed(request_id=request_id, user_id=user_id)
                 await asyncio.to_thread(self._paused_completed_marker, request_id)
+            else:
+                self._workflow_service.mark_failed(
+                    request_id=request_id,
+                    user_id=user_id,
+                    error="Результат продолжения генерации не был сохранен",
+                )
         except ContentGenerationError as exc:
             await self._failure_handler.handle_resume_content_error(
                 request_id=request_id,
@@ -250,6 +275,95 @@ class GenerationResumeService:
                 phase="resume_unexpected_error",
                 message_prefix="Неожиданная ошибка продолжения генерации",
                 error_prefix="Ошибка продолжения генерации",
+            )
+        finally:
+            self._task_unregister(request_id)
+
+    async def run_workflow_command_background(
+        self,
+        request_id: str,
+        user_id: str,
+        *,
+        command: str,
+        node_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        """Execute a durable workflow command such as retry_node or regenerate_section."""
+        payload = dict(payload or {})
+        try:
+            if command == "cancel":
+                self._status_setter(request_id, "cancelled")
+                self._workflow_service.mark_cancelled(request_id=request_id, user_id=user_id)
+                return
+            if command == "retry_node" and node_id:
+                self._workflow_service.mark_retry_node(
+                    request_id=request_id,
+                    user_id=user_id,
+                    node_id=node_id,
+                    reason=str(payload.get("reason") or "") or None,
+                )
+            elif command == "regenerate_section":
+                self._workflow_service.mark_regenerate_section(
+                    request_id=request_id,
+                    user_id=user_id,
+                    section=str(payload.get("section") or node_id or ""),
+                    payload=payload,
+                )
+            else:
+                self._workflow_service.mark_resuming(
+                    request_id=request_id,
+                    user_id=user_id,
+                    comment=str(payload.get("comment") or "") or None,
+                )
+
+            session = self._workflow_service.build_recovery_session(
+                request_id=request_id,
+                command=command,
+                node_id=node_id,
+                payload=payload,
+            )
+            if not session:
+                raise ContentGenerationError(
+                    "Durable workflow session not found",
+                    context={"phase": "workflow_command", "request_id": request_id},
+                )
+
+            set_request_id(request_id)
+            set_user_id(user_id)
+            self._status_setter(request_id, "in_progress")
+            self._workflow_service.mark_running(request_id=request_id, user_id=user_id)
+            result = await self._run_recovery_session(request_id, user_id, session)
+            project_seed_payload = session.get("project_seed") or session.get("raw_input") or {}
+            saved = await self._save_completed_result(
+                request_id=request_id,
+                user_id=user_id,
+                project_seed_payload=project_seed_payload,
+                result=result,
+            )
+            if saved:
+                self._workflow_service.mark_completed(request_id=request_id, user_id=user_id)
+            else:
+                self._workflow_service.mark_failed(
+                    request_id=request_id,
+                    user_id=user_id,
+                    error="Результат workflow-команды не был сохранен",
+                )
+        except ContentGenerationError as exc:
+            await self._failure_handler.handle_content_generation_error(
+                request_id=request_id,
+                user_id=user_id,
+                project_seed_dict=payload,
+                track_paths=[],
+                error=exc,
+            )
+        except Exception as exc:  # noqa: BLE001
+            await self._failure_handler.handle_unexpected_error(
+                request_id,
+                user_id,
+                exc,
+                phase="workflow_command_error",
+                message_prefix="Неожиданная ошибка workflow-команды",
+                error_prefix="Ошибка workflow-команды",
             )
         finally:
             self._task_unregister(request_id)
@@ -277,18 +391,86 @@ class GenerationResumeService:
             result=result,
         )
 
-    def _build_orchestrator(self, *, human_review_enabled: bool, request_id: str) -> Orchestrator:
+    def _build_orchestrator(self, *, human_review_enabled: bool, request_id: str, user_id: str) -> Orchestrator:
         """Create an orchestrator with optional methodology progress callback."""
         llm_client = self._llm_factory()
+        configure_context = getattr(llm_client, "configure_run_context", None)
+        if callable(configure_context):
+            configure_context(user_id=user_id, run_id=request_id)
         methodology_callback = (
             (lambda payload: self._methodology_setter(request_id, payload))
             if human_review_enabled
             else None
         )
-        return self._orchestrator_cls(
-            llm_client,
-            methodology_progress_callback=methodology_callback,
-            human_approval_enabled=human_review_enabled,
+        orchestrator_kwargs = {
+            "methodology_progress_callback": methodology_callback,
+            "human_approval_enabled": human_review_enabled,
+            "run_id": request_id,
+            "user_id": user_id,
+            "workflow_checkpoint_callback": (
+                lambda payload: self._workflow_service.record_node_checkpoint(
+                    request_id=request_id,
+                    user_id=user_id,
+                    payload=payload,
+                )
+            ),
+            "workflow_node_started_callback": (
+                lambda payload: self._workflow_service.mark_node_running(
+                    request_id=request_id,
+                    user_id=user_id,
+                    payload=payload,
+                )
+            ),
+        }
+        try:
+            signature = inspect.signature(self._orchestrator_cls)
+            supports_kwargs = any(
+                parameter.kind == inspect.Parameter.VAR_KEYWORD
+                for parameter in signature.parameters.values()
+            )
+            if not supports_kwargs:
+                orchestrator_kwargs = {
+                    key: value for key, value in orchestrator_kwargs.items() if key in signature.parameters
+                }
+        except (TypeError, ValueError):
+            pass
+        return self._orchestrator_cls(llm_client, **orchestrator_kwargs)
+
+    async def _run_recovery_session(
+        self,
+        request_id: str,
+        user_id: str,
+        session: dict[str, Any],
+    ) -> Any:
+        """Run an orchestrator from a recovered context or from the original seed."""
+        context = session.get("context")
+        if isinstance(context, dict):
+            raw_input = context.get("raw_input") if isinstance(context.get("raw_input"), dict) else {}
+            human_review_enabled = methodology_human_review_enabled(
+                raw_input or session.get("project_seed") or {},
+                context,
+            )
+            return await asyncio.to_thread(
+                self._build_orchestrator(
+                    human_review_enabled=human_review_enabled,
+                    request_id=request_id,
+                    user_id=user_id,
+                ).resume_from_workflow_checkpoint,
+                context=context,
+                start_index=int(session.get("start_index") or 0),
+                previous_steps=session.get("previous_steps") or [],
+            )
+
+        raw_input = session.get("raw_input") if isinstance(session.get("raw_input"), dict) else {}
+        project_seed = ProjectSeed(**raw_input)
+        return await asyncio.to_thread(
+            self._build_orchestrator(
+                human_review_enabled=bool(project_seed.methodology_human_review),
+                request_id=request_id,
+                user_id=user_id,
+            ).run,
+            raw_input=project_seed.model_dump(),
+            track_files=session.get("track_paths") or [],
         )
 
     @staticmethod

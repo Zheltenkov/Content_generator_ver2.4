@@ -1,13 +1,8 @@
-"""Backward-compatible AgentFlow imports.
-
-Runtime flow execution lives in :mod:`content_gen.workflow.flow_runner`.
-This module stays import-compatible for paused sessions, tests and older
-callers that still import ``content_gen.agents.flow``.
-"""
+"""Workflow runtime contracts for content generation."""
 
 from __future__ import annotations
 
-from ..workflow.flow_runner import (
+from .flow_runner import (
     AgentFlowRunner,
     FlowDefinition,
     FlowEdgeConfig,

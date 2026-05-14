@@ -7,7 +7,7 @@ import copy
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from content_gen.llm.cached_client import CachedLLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.methodology import ScopedRevisionExecutor, build_section_target_registry
 
 from .generation_errors import GenerationServiceError
@@ -37,7 +37,7 @@ class ScopedRevisionPreviewService:
         self._record_preview = record_preview
         self._log_writer = log_writer
         self._llm_factory = llm_factory or (
-            lambda: CachedLLMClient(enable_cache=True, enable_batching=True)
+            lambda: create_llm_client(default_role="critic", enable_cache=True, enable_batching=True)
         )
         self._revision_executor_cls = revision_executor_cls
 
@@ -47,7 +47,11 @@ class ScopedRevisionPreviewService:
         active_change_ids = change_action_ids(active_review_actions, start_index=active_start_index)
         preview_context = copy.deepcopy(paused_session.get("context") or {})
         preview_context["methodology_review_actions"] = list(paused_session.get("review_actions") or [])
-        executor = self._revision_executor_cls(self._llm_factory())
+        llm_client = self._llm_factory()
+        configure_context = getattr(llm_client, "configure_run_context", None)
+        if callable(configure_context):
+            configure_context(user_id=user_id, run_id=request_id)
+        executor = self._revision_executor_cls(llm_client)
         results = await asyncio.to_thread(
             executor.apply_pending_change_requests,
             preview_context,

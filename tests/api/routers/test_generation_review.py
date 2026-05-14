@@ -5,7 +5,7 @@ import pytest
 from fastapi import HTTPException
 
 from api.routers import generation
-from api.routers.generation import MethodologyReviewActionRequest
+from api.routers.generation import MethodologyAssistantCommandRequest, MethodologyReviewActionRequest
 from content_gen.methodology import MethodologistChangeRequest
 
 
@@ -234,6 +234,63 @@ async def test_request_methodology_changes_records_review_action(monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_methodology_assistant_command_records_simplify_change(monkeypatch) -> None:
+    calls = {"status": None, "error": None, "saved": None}
+    markdown = (
+        "# Проект\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "### Задание 1. Анализ рисков\n\n"
+        "Слишком сложная задача."
+    )
+    paused = {
+        "user_id": "user_1",
+        "context": {
+            "markdown": markdown,
+            "human_approval_checkpoint": {
+                "id": "practice-review",
+                "stage": "practice",
+                "node_id": "practice",
+                "artifact": {},
+            },
+        },
+        "review_actions": [],
+    }
+
+    async def fake_log(**_kwargs):
+        return None
+
+    def fake_record(_request_id, **kwargs):
+        calls["saved"] = kwargs
+        return {
+            **paused,
+            "review_actions": [{"action": "changes_requested", "details": {"change_request": kwargs["change_request"]}}],
+        }
+
+    monkeypatch.setattr(generation, "get_generation_status", lambda _request_id: "needs_review")
+    monkeypatch.setattr(generation, "load_paused_generation_session", lambda _request_id: paused)
+    monkeypatch.setattr(generation, "record_paused_generation_change_request", fake_record)
+    monkeypatch.setattr(generation, "set_generation_status", lambda _request_id, status: calls.__setitem__("status", status))
+    monkeypatch.setattr(generation, "store_generation_error", lambda _request_id, error: calls.__setitem__("error", error))
+    monkeypatch.setattr(generation, "write_log_async", fake_log)
+
+    response = await generation.run_methodology_assistant_command(
+        "req-1",
+        MethodologyAssistantCommandRequest(message="Упрости задачу 1 и оставь один измеримый результат"),
+        user={"id": "user_1"},
+    )
+
+    assert response["success"] is True
+    assert response["assistant_command"]["command"] == "simplify_task"
+    assert response["assistant_command"]["checkpoint_id"] == "practice-review"
+    assert calls["saved"]["change_request"]["target_stage"] == "practice"
+    assert calls["saved"]["change_request"]["scope"] == "task_only"
+    assert calls["saved"]["assistant_command"]["command"] == "simplify_task"
+    assert calls["saved"]["assistant_command"]["checkpoint_id"] == "practice-review"
+    assert "Упрости выбранную практическую задачу" in calls["saved"]["change_request"]["instruction"]
+    assert calls["status"] == "needs_review"
+
+
+@pytest.mark.asyncio
 async def test_request_methodology_changes_blocks_hard_conflict(monkeypatch) -> None:
     calls = {"recorded": False}
     paused = {"user_id": "user_1", "review_actions": []}
@@ -396,7 +453,7 @@ async def test_preview_methodology_changes_persists_revision_diff(monkeypatch) -
 
     monkeypatch.setattr(generation, "get_generation_status", lambda _request_id: "needs_review")
     monkeypatch.setattr(generation, "load_paused_generation_session", lambda _request_id: paused)
-    monkeypatch.setattr(generation, "CachedLLMClient", lambda **_kwargs: FakeRevisionLLM())
+    monkeypatch.setattr(generation, "create_llm_client", lambda **_kwargs: FakeRevisionLLM())
     monkeypatch.setattr(generation, "record_paused_generation_preview", fake_record)
     monkeypatch.setattr(generation, "write_log_async", fake_log)
 
@@ -736,7 +793,7 @@ async def test_e2e_paused_flow_request_preview_approve_resume_final_report(monke
     monkeypatch.setattr(generation, "mark_paused_generation_diff_approved", fake_mark_diff)
     monkeypatch.setattr(generation, "mark_paused_generation_approved", fake_mark_approved)
     monkeypatch.setattr(generation, "mark_paused_generation_completed", lambda _request_id: captured.__setitem__("completed", True))
-    monkeypatch.setattr(generation, "CachedLLMClient", lambda **_kwargs: FakeRevisionLLM())
+    monkeypatch.setattr(generation, "create_llm_client", lambda **_kwargs: FakeRevisionLLM())
     monkeypatch.setattr(generation, "Orchestrator", FakeOrchestrator)
     monkeypatch.setattr(generation, "_save_completed_generation", fake_save_completed_generation)
     monkeypatch.setattr(generation, "register_generation_task", lambda _request_id, task: captured.__setitem__("task", task))

@@ -6,15 +6,10 @@ import logging
 import re
 from typing import Any
 
-from .context_phase_executor import ContextPhaseExecutor
 from .generation_runtime import GenerationRuntimeContainer
 from .models.phase_results import EvaluationPhaseResult, QualityPhaseResult, TranslationPhaseResult
 from .models.readme_document import ReadmeDocument
 from .models.schemas import ProjectSeed
-from .observability import FallbackTraceEvent, record_runtime_fallback_traces
-from .practice_phase_executor import PracticePhaseExecutor
-from .structure_phase_executor import StructurePhaseExecutor
-from .theory_phase_executor import TheoryPhaseExecutor
 from .utils.markdown_display_normalizer import normalize_markdown_display_blocks
 from .utils.markdown_helpers import clean_duplicate_chapter_headers
 from .utils.rubric_export import criteria_to_json
@@ -43,13 +38,13 @@ class QualityPhaseExecutor:
         document = self._run_content_editor(seed, document)
         document = self._ensure_final_section_document(seed, document, story_map_contract=story_map_contract)
 
-        logger.info("🔄 Phase 4 | TOCAgent")
+        logger.info("🔄 Phase 4 | TOCRenderer")
         document = self._run_toc(seed, document)
 
         md = clean_duplicate_chapter_headers(document.to_markdown(), seed.language)
         document = ReadmeDocument.from_markdown(md)
 
-        logger.info("🔄 Phase 4 | StyleGuardAgent")
+        logger.info("🔄 Phase 4 | StyleGuardRepair")
         document = self._run_style(seed, document)
 
         final_markdown = normalize_markdown_display_blocks(document.to_markdown())
@@ -63,94 +58,35 @@ class QualityPhaseExecutor:
         seed: ProjectSeed,
         readme_document: ReadmeDocument,
     ) -> ReadmeDocument:
-        """Run content editor through the typed contract when available."""
+        """Run content editor through the typed README contract."""
         editor = self.runtime.content_editor
-        ensure_document = getattr(editor, "ensure_global_coherence_document", None)
-        if callable(ensure_document):
-            result = ensure_document(readme_document, seed)
-            return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
-
-        md = normalize_markdown_display_blocks(
-            editor.ensure_global_coherence(readme_document.to_markdown(), seed)
-        )
-        self._record_fallback(
-            fallback_type="content_editor_markdown_boundary",
-            reason="content editor does not expose ensure_global_coherence_document",
-            quality_risk="low",
-            inputs={"title": readme_document.title, "markdown_chars": len(readme_document.to_markdown())},
-        )
-        return ReadmeDocument.from_markdown(md, fallback_title=readme_document.title)
+        result = editor.ensure_global_coherence_document(readme_document, seed)
+        return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
 
     def _run_toc(
         self,
         seed: ProjectSeed,
         readme_document: ReadmeDocument,
     ) -> ReadmeDocument:
-        """Rebuild and inject TOC through typed TOC methods when available."""
+        """Rebuild and inject TOC through typed TOC methods."""
         toc_agent = self.runtime.toc
-        build_document = getattr(toc_agent, "build_document", None)
-        inject_document = getattr(toc_agent, "inject_document", None)
-        if callable(build_document) and callable(inject_document):
-            toc_res = build_document(readme_document, language=seed.language)
-            result = inject_document(readme_document, toc_res.toc_md, language=seed.language)
-            return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
-
-        md = readme_document.to_markdown()
-        toc_res = toc_agent.build(md, language=seed.language)
-        md = normalize_markdown_display_blocks(toc_agent.inject(md, toc_res.toc_md))
-        return ReadmeDocument.from_markdown(md, fallback_title=readme_document.title)
+        toc_res = toc_agent.build_document(readme_document, language=seed.language)
+        result = toc_agent.inject_document(readme_document, toc_res.toc_md, language=seed.language)
+        return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
 
     def _run_style(
         self,
         seed: ProjectSeed,
         readme_document: ReadmeDocument,
     ) -> ReadmeDocument:
-        """Run style guard through a typed document contract with legacy fallback."""
+        """Run style guard through the typed README contract."""
         style = self.runtime.style
-        lint_document = getattr(style, "lint_document", None)
-        issues_style = (
-            lint_document(readme_document, seed.language)
-            if callable(lint_document)
-            else style.lint(readme_document.to_markdown(), seed.language)
-        )
+        issues_style = style.lint_document(readme_document, seed.language)
         if not issues_style:
             return readme_document
 
-        rewrite_document = getattr(style, "rewrite_document", None)
-        if callable(rewrite_document):
-            result = rewrite_document(readme_document, seed.language)
-            return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
-
-        md = normalize_markdown_display_blocks(style.rewrite(readme_document.to_markdown(), seed.language))
-        self._record_fallback(
-            fallback_type="style_guard_markdown_boundary",
-            reason="style guard does not expose rewrite_document",
-            quality_risk="low",
-            inputs={"title": readme_document.title, "markdown_chars": len(readme_document.to_markdown())},
-        )
-        return ReadmeDocument.from_markdown(md, fallback_title=readme_document.title)
-
-    def _record_fallback(
-        self,
-        *,
-        fallback_type: str,
-        reason: str,
-        quality_risk: str,
-        inputs: dict[str, Any],
-    ) -> None:
-        """Store quality-phase compatibility fallbacks in the runtime trace."""
-        record_runtime_fallback_traces(
-            self.runtime,
-            [
-                FallbackTraceEvent.from_fallback(
-                    node="quality",
-                    fallback_type=fallback_type,
-                    reason=reason,
-                    quality_risk=quality_risk,
-                    inputs=inputs,
-                )
-            ],
-        )
+        result = style.rewrite_document(readme_document, seed.language)
+        return ReadmeDocument.from_value(result, fallback_markdown=readme_document.to_markdown())
 
     def _ensure_final_section_document(
         self,
@@ -229,39 +165,24 @@ class EvaluationPhaseExecutor:
         )
 
     def _validate_intro(self, markdown: str, readme_document: ReadmeDocument) -> list[Any]:
-        """Run the typed intro validator with Markdown-boundary fallback."""
-        validator = self.runtime.intro_validator
-        validate_document = getattr(validator, "validate_document", None)
-        if callable(validate_document):
-            return validate_document(readme_document)
-        return validator.validate_markdown(markdown)
+        """Run the typed intro validator."""
+        return self.runtime.intro_validator.validate_document(readme_document)
 
     def _validate_theory(self, markdown: str, readme_document: ReadmeDocument) -> list[Any]:
-        """Run the typed theory validator with Markdown-boundary fallback."""
-        validator = self.runtime.theory_validator
-        validate_document = getattr(validator, "validate_document", None)
-        if callable(validate_document):
-            return validate_document(readme_document)
-        return validator.validate_markdown(markdown)
+        """Run the typed theory validator."""
+        return self.runtime.theory_validator.validate_document(readme_document)
 
     def _validate_practice(self, markdown: str, readme_document: ReadmeDocument, seed: ProjectSeed) -> list[Any]:
-        """Run the typed practice validator with Markdown-boundary fallback."""
-        validator = self.runtime.practice_validator
-        validate_document = getattr(validator, "validate_document", None)
-        if callable(validate_document):
-            return validate_document(
-                readme_document,
-                language=seed.language,
-                tasks_count_expected=seed.tasks_count,
-            )
-        return validator.validate_markdown(markdown, seed.language, seed.tasks_count)
+        """Run the typed practice validator."""
+        return self.runtime.practice_validator.validate_document(
+            readme_document,
+            language=seed.language,
+            tasks_count_expected=seed.tasks_count,
+        )
 
     def _score_rubric(self, markdown: str, readme_document: ReadmeDocument, seed: ProjectSeed) -> Any:
-        """Run typed rubric scoring when available while keeping scorer doubles compatible."""
-        score_document = getattr(self.runtime.rubric, "score_document", None)
-        if callable(score_document):
-            return score_document(readme_document, learning_outcomes=seed.learning_outcomes)
-        return self.runtime.rubric.score(markdown, learning_outcomes=seed.learning_outcomes)
+        """Run typed rubric scoring."""
+        return self.runtime.rubric.score_document(readme_document, learning_outcomes=seed.learning_outcomes)
 
 
 class TranslationPhaseExecutor:

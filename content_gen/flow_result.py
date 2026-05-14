@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .agents.flow import FlowExecutionStep
 from .exceptions import ContentGenerationError
 from .methodology.trace import MethodologyTraceRecorder
 from .models.result import OrchestratorResult
+from .workflow.flow_runner import FlowExecutionStep
 
 
 class FlowResultFinalizer:

@@ -17,6 +17,7 @@ from content_gen.exceptions import (
 )
 
 from .generation_pause_persistence import MethodologyPausePersister
+from .generation_workflow_service import GenerationWorkflowService
 
 logger = get_logger("generation")
 
@@ -31,11 +32,13 @@ class GenerationFailureHandler:
         error_store: Callable[[str, str], Any] = store_generation_error,
         log_writer: Callable[..., Awaitable[Any]] = write_log_async,
         pause_persister: MethodologyPausePersister | None = None,
+        workflow_service: GenerationWorkflowService | None = None,
     ) -> None:
         self._status_setter = status_setter
         self._error_store = error_store
         self._log_writer = log_writer
         self._pause_persister = pause_persister
+        self._workflow_service = workflow_service or GenerationWorkflowService()
 
     async def handle_validation_error(self, request_id: str, user_id: str, exc: ValidationError) -> None:
         """Handle deterministic validation failures."""
@@ -50,6 +53,7 @@ class GenerationFailureHandler:
         )
         self._status_setter(request_id, "failed")
         self._error_store(request_id, f"Ошибка валидации: {str(exc)}")
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=f"Ошибка валидации: {str(exc)}")
 
     async def handle_llm_timeout_or_rate_limit(
         self,
@@ -69,12 +73,17 @@ class GenerationFailureHandler:
         )
         self._status_setter(request_id, "failed")
         if isinstance(exc, LLMTimeoutError):
+            message = (
+                "Генерация заняла слишком много времени (таймаут). Попробуйте снова или упростите объём проекта."
+            )
             self._error_store(
                 request_id,
-                "Генерация заняла слишком много времени (таймаут). Попробуйте снова или упростите объём проекта.",
+                message,
             )
         else:
-            self._error_store(request_id, f"Ошибка LLM сервиса: {str(exc)}")
+            message = f"Ошибка LLM сервиса: {str(exc)}"
+            self._error_store(request_id, message)
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=message)
 
     async def handle_llm_api_error(self, request_id: str, user_id: str, exc: LLMAPIError) -> None:
         """Handle non-timeout LLM provider API failures."""
@@ -87,7 +96,9 @@ class GenerationFailureHandler:
             metadata={"error_type": type(exc).__name__, "error_message": str(exc), "context": exc.context},
         )
         self._status_setter(request_id, "failed")
-        self._error_store(request_id, f"Ошибка LLM API: {str(exc)}")
+        message = f"Ошибка LLM API: {str(exc)}"
+        self._error_store(request_id, message)
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=message)
 
     async def handle_content_generation_error(
         self,
@@ -129,6 +140,7 @@ class GenerationFailureHandler:
         )
         self._status_setter(request_id, "failed")
         self._error_store(request_id, user_friendly_message)
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=user_friendly_message)
 
     async def handle_resume_content_error(
         self,
@@ -154,6 +166,7 @@ class GenerationFailureHandler:
 
         self._status_setter(request_id, "failed")
         self._error_store(request_id, str(error))
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=str(error))
         await self._log_writer(
             request_id=request_id,
             level="ERROR",
@@ -194,6 +207,7 @@ class GenerationFailureHandler:
         )
         self._status_setter(request_id, "failed")
         self._error_store(request_id, user_friendly_message)
+        self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=user_friendly_message)
 
     @staticmethod
     def friendly_openai_error(error_message: str, *, default: str | None = None) -> str:

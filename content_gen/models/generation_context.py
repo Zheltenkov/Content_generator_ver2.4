@@ -171,14 +171,18 @@ class TranslationNodeResult(TypedNodeOutput):
     seed: Any
     target_language: str
     readme_document: ReadmeDocument | None = None
+    fallback_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     def updates(self) -> dict[str, Any]:
-        return {
+        updates = {
             "markdown": self.markdown,
             "translated_markdown": self.translated_markdown,
             "seed": self.seed,
             "readme_document": self.readme_document,
         }
+        if self.fallback_traces:
+            updates["fallback_traces"] = self.fallback_traces
+        return updates
 
 
 class PracticeNodeResult(TypedNodeOutput):

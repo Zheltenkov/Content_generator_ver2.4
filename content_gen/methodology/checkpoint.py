@@ -6,9 +6,9 @@ import hashlib
 import json
 import os
 import re
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..utils.markdown_display_normalizer import normalize_markdown_display_blocks
 from .decision import MethodologyGateInterrupt
@@ -26,6 +26,18 @@ class HumanApprovalCheckpoint(BaseModel):
     allowed_targets: list[str] = Field(default_factory=list)
     artifact: dict[str, Any] = Field(default_factory=dict)
     artifact_hash: str = ""
+
+
+class RequirementMatrixItem(BaseModel):
+    """Strict UI contract for methodology requirement matrix rows."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+    id: str = Field(min_length=1, max_length=80)
+    title: str = Field(min_length=1, max_length=120)
+    status: Literal["pass", "fail"]
+    passed: bool
+    evidence: str = Field(min_length=1, max_length=500)
 
 
 class HumanApprovalCheckpointPolicy:
@@ -558,13 +570,13 @@ def _truncate_text(text: str, limit: int) -> str:
 
 
 def _matrix_item(item_id: str, title: str, passed: bool, evidence: str) -> dict[str, Any]:
-    return {
-        "id": item_id,
-        "title": title,
-        "status": "pass" if passed else "fail",
-        "passed": passed,
-        "evidence": evidence,
-    }
+    return RequirementMatrixItem(
+        id=item_id,
+        title=title,
+        status="pass" if passed else "fail",
+        passed=bool(passed),
+        evidence=evidence,
+    ).model_dump(mode="json")
 
 
 def _has_markdown_label(text: str, label: str) -> bool:

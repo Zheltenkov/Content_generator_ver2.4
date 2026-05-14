@@ -1,10 +1,10 @@
 """Endpoint для генерации контента."""
 
 import asyncio
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -27,22 +27,24 @@ from api.services.generation_errors import GenerationServiceError
 from api.services.generation_resume_service import GenerationResumeService
 from api.services.generation_start_service import GenerationStartService
 from api.services.generation_status_service import GenerationStatusService
-from api.services.methodology_review_service import (
-    build_methodology_review_state as _build_methodology_review_state,
-    change_action_ids as _change_action_ids,
+from api.services.methodology_review_artifacts import (
     checkpoint_payload_hash as _checkpoint_payload_hash,
     context_preview_markdown as _context_preview_markdown,
-    current_review_action_slice as _current_review_action_slice,
     is_final_checkpoint_payload as _is_final_checkpoint_payload,
-    latest_review_action as _latest_review_action,
     markdown_outline as _markdown_outline,
     markdown_section as _markdown_section,
     markdown_subsections as _markdown_subsections,
     methodology_human_review_enabled as _methodology_human_review_enabled,
-    preview_hash as _preview_hash,
     refresh_checkpoint_artifact as _refresh_checkpoint_artifact,
+)
+from api.services.methodology_review_service import MethodologyReviewService
+from api.services.methodology_review_state import (
+    build_methodology_review_state as _build_methodology_review_state,
+    change_action_ids as _change_action_ids,
+    current_review_action_slice as _current_review_action_slice,
+    latest_review_action as _latest_review_action,
+    preview_hash as _preview_hash,
     revision_results_for_action_ids as _revision_results_for_action_ids,
-    MethodologyReviewService,
 )
 from api.utils.logger import get_logger
 from api.utils.result_cache import (
@@ -63,7 +65,7 @@ from api.utils.result_cache import (
 
 logger = get_logger("generation")
 from content_gen.exceptions import ContentGenerationError
-from content_gen.llm.cached_client import CachedLLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.methodology import (
     MethodologistChangeRequest,
     ScopedRevisionExecutor,
@@ -78,6 +80,21 @@ class MethodologyReviewActionRequest(BaseModel):
     """Решение методолога для paused generation."""
 
     comment: str | None = None
+
+
+class MethodologyAssistantCommandRequest(BaseModel):
+    """Free-form methodology chat message that is parsed into a typed command."""
+
+    message: str = Field(min_length=1, max_length=4000)
+    selected_target_id: str | None = Field(default=None, max_length=300)
+
+
+class WorkflowCommandRequest(BaseModel):
+    """Durable workflow command for node-level recovery operations."""
+
+    command: Literal["cancel", "resume", "retry_node", "regenerate_section"]
+    node_id: str | None = Field(default=None, max_length=120)
+    payload: dict[str, Any] = Field(default_factory=dict)
 
 
 def _dashboard_title(seed_data: dict[str, Any] | None, report_json: dict[str, Any] | None) -> str:
@@ -215,7 +232,7 @@ def _generation_resume_service() -> GenerationResumeService:
         paused_saver=save_paused_generation_session,
         paused_completed_marker=mark_paused_generation_completed,
         log_writer=write_log_async,
-        llm_factory=lambda: CachedLLMClient(enable_cache=True, enable_batching=True),
+        llm_factory=lambda: create_llm_client(enable_cache=True, enable_batching=True),
         orchestrator_cls=Orchestrator,
         completed_saver=_save_completed_generation,
     )
@@ -261,7 +278,8 @@ def _methodology_review_service() -> MethodologyReviewService:
         task_registrar=register_generation_task,
         resume_background=_resume_generation_background,
         log_writer=write_log_async,
-        llm_factory=lambda: CachedLLMClient(enable_cache=True, enable_batching=True),
+        workflow_command_background=_workflow_command_background,
+        llm_factory=lambda: create_llm_client(default_role="critic", enable_cache=True, enable_batching=True),
         revision_executor_cls=ScopedRevisionExecutor,
     )
 
@@ -362,6 +380,23 @@ async def _resume_generation_background(
         user_id=user_id,
         paused_session=paused_session,
         review_comment=review_comment,
+    )
+
+
+async def _workflow_command_background(
+    request_id: str,
+    user_id: str,
+    command: str,
+    node_id: str | None,
+    payload: dict[str, Any],
+) -> None:
+    """Router-level adapter for durable workflow commands."""
+    await _generation_resume_service().run_workflow_command_background(
+        request_id=request_id,
+        user_id=user_id,
+        command=command,
+        node_id=node_id,
+        payload=payload,
     )
 
 
@@ -545,6 +580,25 @@ async def request_methodology_changes(
         _raise_generation_error(error)
 
 
+@router.post("/generate/review/{request_id}/assistant-command")
+async def run_methodology_assistant_command(
+    request_id: str,
+    request: MethodologyAssistantCommandRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Parse a methodologist chat message and apply the resulting checkpoint command."""
+    user_id = user.get("id", "anonymous")
+    try:
+        return await _methodology_review_service().run_assistant_command(
+            request_id,
+            user_id=user_id,
+            message=request.message,
+            selected_target_id=request.selected_target_id,
+        )
+    except GenerationServiceError as error:
+        _raise_generation_error(error)
+
+
 @router.post("/generate/cancel/{request_id}")
 async def cancel_generation_endpoint(
     request_id: str,
@@ -566,3 +620,41 @@ async def cancel_generation_endpoint(
         return response
     except GenerationServiceError as error:
         _raise_generation_error(error)
+
+
+@router.post("/generate/workflow/{request_id}/command", response_model=GenerateStartResponse)
+async def submit_generation_workflow_command(
+    request_id: str,
+    request: WorkflowCommandRequest,
+    user: dict = Depends(get_current_user),
+):
+    """Submit a durable workflow command: resume, retry_node or regenerate_section."""
+    user_id = user.get("id", "anonymous")
+    if request.command == "cancel":
+        try:
+            await _generation_status_service().cancel(request_id, user_id=user_id)
+            return GenerateStartResponse(request_id=request_id, status="cancelled")
+        except GenerationServiceError as error:
+            _raise_generation_error(error)
+
+    set_generation_status(request_id, "in_progress")
+    task = asyncio.create_task(
+        _workflow_command_background(
+            request_id,
+            user_id,
+            request.command,
+            request.node_id,
+            request.payload,
+        )
+    )
+    register_generation_task(request_id, task)
+    await asyncio.to_thread(
+        upsert_user_run,
+        request_id=request_id,
+        user_id=user_id,
+        kind="generation",
+        status="resuming",
+        title="Генерация README",
+        result_url=f"/api/v1/download/{request_id}",
+    )
+    return GenerateStartResponse(request_id=request_id, status="in_progress")
