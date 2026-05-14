@@ -28,7 +28,15 @@
     </script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
-    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260513-translate-cleanup">
+    <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-buttons.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
+    <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-translation.css?v=20260514-split">
     <script src="/static/js/utils/sanitize.js"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
     <script src="/static/js/utils/modal.js?v=20260508-polish-ui"></script>
@@ -223,7 +231,7 @@
                             <span id="translationVideoProgressPct">72 %</span>
                         </div>
                     </div>
-                    <p class="translate-video-hint">MP4, WebM, MOV, AVI, MKV. До 100 МБ.</p>
+                    <p class="translate-video-hint">MP4, WebM, MOV, AVI, MKV. До 100 MB.</p>
                 </div>
 
                 <aside class="translate-video-options">
@@ -273,7 +281,16 @@
         </section>
     </main>
 
-    <script src="/static/js/main.js?v=20260513-translate-cleanup"></script>
+    <script src="/static/js/modules/markdownRendering.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationRunView.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationPolling.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
+    <script src="/static/js/modules/curriculumForm.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationFormState.js?v=20260514-split"></script>
+    <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
+    <script src="/static/js/modules/translationPage.js?v=20260514-split"></script>
+    <script src="/static/js/main.js?v=20260514-split"></script>
     <script>
         (function () {
             const token = localStorage.getItem('auth_token');

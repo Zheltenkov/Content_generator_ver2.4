@@ -169,6 +169,19 @@
                         <button class="btn" type="button" id="methodologyPreviewChangesBtn">Показать изменения</button>
                         <button class="btn btn-danger" type="button" id="methodologyRejectBtn">Остановить</button>
                     </div>
+                    <div class="methodology-assistant-box">
+                        <div class="methodology-form-title">Методолог-ассистент</div>
+                        <div class="methodology-form-hint">
+                            Напишите решение обычным языком: продолжить, упростить задачу, добавить пример или исправить непройденные критерии.
+                        </div>
+                        <div class="methodology-assistant-feed" id="methodologyAssistantFeed">
+                            <div class="methodology-assistant-message system">Я привяжу сообщение к текущему checkpoint и выбранному блоку.</div>
+                        </div>
+                        <div class="methodology-assistant-input-row">
+                            <textarea id="methodologyAssistantInput" rows="3" placeholder="Например: упрости задачу 2 и добавь шаг с визуализацией"></textarea>
+                            <button class="btn" type="button" id="methodologyAssistantSubmitBtn">Отправить</button>
+                        </div>
+                    </div>
                     <div class="methodology-change-form" id="methodologyChangeRequestForm" style="display: none;">
                         <div class="methodology-form-title">Запрос правки</div>
                         <div class="methodology-form-hint">
@@ -249,6 +262,7 @@
         document.getElementById('methodologyToggleChangeRequestBtn')?.addEventListener('click', toggleChangeRequestForm);
         document.getElementById('methodologyPreviewChangesBtn')?.addEventListener('click', previewChanges);
         document.getElementById('methodologyRejectBtn')?.addEventListener('click', reject);
+        document.getElementById('methodologyAssistantSubmitBtn')?.addEventListener('click', submitAssistantCommand);
         document.getElementById('methodologySubmitChangeRequestBtn')?.addEventListener('click', requestChanges);
         document.getElementById('methodologyCancelChangeRequestBtn')?.addEventListener('click', toggleChangeRequestForm);
         document.getElementById('methodologyTargetSelect')?.addEventListener('change', applySelectedTarget);
@@ -476,6 +490,7 @@
         const simpleButtons = [
             'methodologyToggleChangeRequestBtn',
             'methodologyRejectBtn',
+            'methodologyAssistantSubmitBtn',
             'methodologySubmitChangeRequestBtn',
         ];
 
@@ -1041,6 +1056,107 @@
         }
     }
 
+    function commandLabel(command) {
+        return {
+            approve: 'продолжить генерацию',
+            request_changes: 'запросить правку',
+            simplify_task: 'упростить задачу',
+            add_example: 'добавить пример',
+            fix_failed_criteria: 'исправить непройденные критерии',
+            regenerate_section: 'перегенерировать раздел',
+        }[command] || command || 'команда';
+    }
+
+    function appendAssistantMessage(role, text, details = '') {
+        const feed = document.getElementById('methodologyAssistantFeed');
+        if (!feed) return;
+        const item = document.createElement('div');
+        item.className = `methodology-assistant-message ${role}`;
+        const html = `<div>${esc(text)}</div>${details ? `<small>${esc(details)}</small>` : ''}`;
+        if (window.sanitize) {
+            window.sanitize.safeSetHTML(item, html);
+        } else {
+            item.innerHTML = html;
+        }
+        feed.appendChild(item);
+        feed.scrollTop = feed.scrollHeight;
+    }
+
+    function mergeReviewStateFromResponse(responseData) {
+        currentReviewState = {
+            ...(currentReviewState || {}),
+            review_actions: responseData.review_actions || currentReviewState?.review_actions || [],
+            review_state: responseData.review_state || currentReviewState?.review_state,
+            requires_diff_approval: responseData.requires_diff_approval ?? currentReviewState?.requires_diff_approval,
+            pending_change_ids: responseData.pending_change_ids || currentReviewState?.pending_change_ids || [],
+            preview_action_ids: responseData.preview_action_ids || currentReviewState?.preview_action_ids || [],
+            approved_action_ids: responseData.approved_action_ids || currentReviewState?.approved_action_ids || [],
+            diff_approvable_action_ids: responseData.diff_approvable_action_ids || currentReviewState?.diff_approvable_action_ids || [],
+            target_registry: responseData.target_registry || currentReviewState?.target_registry || {},
+            checkpoint: responseData.checkpoint || currentReviewState?.checkpoint || {},
+        };
+        renderReviewState(currentReviewState);
+    }
+
+    async function submitAssistantCommand() {
+        const requestId = pendingRequestId || config.getCurrentRequestId();
+        if (!requestId) return;
+        const input = document.getElementById('methodologyAssistantInput');
+        const message = input?.value?.trim() || '';
+        if (!message) {
+            appendAssistantMessage('system', 'Напишите команду или правку для текущего checkpoint.');
+            return;
+        }
+        const selectedTargetId = document.getElementById('methodologyTargetSelect')?.value || '';
+        appendAssistantMessage('user', message);
+        if (input) input.value = '';
+        try {
+            setReviewBusy(true);
+            const response = await fetch(`${config.apiUrl}/generate/review/${requestId}/assistant-command`, {
+                method: 'POST',
+                headers: {
+                    ...config.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    message,
+                    selected_target_id: selectedTargetId || null,
+                })
+            });
+            const responseData = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const detail = responseData.detail || {};
+                if (response.status === 409 && Array.isArray(detail.conflicts)) {
+                    appendAssistantMessage('system', detail.message || 'Команда конфликтует с hard rules.', detail.conflicts.map(item => item.code || item.message).join(', '));
+                    renderChangeFeedback(detail.message || 'Запрос конфликтует с hard rules.', detail.conflicts, 'error');
+                    return;
+                }
+                throw new Error(errorMessage(detail, response.status));
+            }
+
+            const parsed = responseData.assistant_command || {};
+            const targetText = parsed.target_id || parsed.target_selector || parsed.target_stage || 'текущий checkpoint';
+            appendAssistantMessage('system', `Распознано: ${commandLabel(parsed.command)}.`, `Цель: ${targetText}`);
+            if (parsed.command === 'approve' && responseData.status === 'in_progress') {
+                hideActions();
+                config.onApproved(requestId, message);
+                return;
+            }
+            mergeReviewStateFromResponse(responseData);
+            renderChangeFeedback(responseData.message || 'Команда сохранена как правка методолога.', responseData.conflicts || [], 'info');
+            fetchReviewState(requestId);
+            if (responseData.change_request) {
+                config.onChangeRequested(requestId, responseData.change_request, responseData);
+            }
+        } catch (error) {
+            console.error('Ошибка команды методолога:', error);
+            appendAssistantMessage('system', `Не удалось выполнить команду: ${error.message}`);
+            config.onError(`Не удалось выполнить команду методолога: ${error.message}`);
+        } finally {
+            setReviewBusy(false);
+        }
+    }
+
     async function requestChanges() {
         const requestId = pendingRequestId || config.getCurrentRequestId();
         if (!requestId) return;
@@ -1072,17 +1188,7 @@
                 throw new Error(message);
             }
             renderChangeFeedback(responseData.message || 'Запрос правок сохранен. Генерация остается на паузе.', responseData.conflicts || [], 'info');
-            currentReviewState = {
-                ...(currentReviewState || {}),
-                review_actions: responseData.review_actions || currentReviewState?.review_actions || [],
-                review_state: responseData.review_state || currentReviewState?.review_state,
-                requires_diff_approval: responseData.requires_diff_approval ?? currentReviewState?.requires_diff_approval,
-                pending_change_ids: responseData.pending_change_ids || currentReviewState?.pending_change_ids || [],
-                preview_action_ids: responseData.preview_action_ids || [],
-                approved_action_ids: responseData.approved_action_ids || [],
-                target_registry: responseData.target_registry || currentReviewState?.target_registry || {},
-            };
-            renderReviewState(currentReviewState);
+            mergeReviewStateFromResponse(responseData);
             fetchReviewState(requestId);
             config.onChangeRequested(requestId, payload, responseData);
         } catch (error) {

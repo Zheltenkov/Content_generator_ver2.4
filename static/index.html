@@ -58,7 +58,17 @@
     <!-- Polyfill.io удален: современные браузеры поддерживают ES6+ нативно -->
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
-    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260513-fluid-cleanup">
+    <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-buttons.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
+    <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-methodology.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-generate.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-metrics.css?v=20260514-split3">
     <!-- Утилиты для UI -->
     <script src="/static/js/utils/sanitize.js?v=20260429-review-split"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
@@ -425,7 +435,7 @@
                             <span id="generationRunPercent">0%</span>
                         </div>
                         <div class="generation-run-title-block">
-                            <div class="generation-run-kicker">Этап <span id="generationRunStageIndex">1</span> из <span id="generationRunStageTotal">10</span></div>
+                            <div class="generation-run-kicker">Этап <span id="generationRunStageIndex">1</span> из <span id="generationRunStageTotal">9</span></div>
                             <h2 id="generationRunTitle">Инициализация пайплайна</h2>
                             <p id="generationRunSubtitle">Подготавливаем контекст и проверяем входные параметры.</p>
                         </div>
@@ -444,10 +454,9 @@
                             <li class="generation-pipeline-step pending" data-run-stage="theory"><span>04</span><div><strong>Генерация теории</strong><small>разделы, примеры, визуальные блоки</small></div><em>ожидает</em></li>
                             <li class="generation-pipeline-step pending" data-run-stage="practice"><span>05</span><div><strong>Генерация практики</strong><small>задачи, p2p-критерии, материалы</small></div><em>ожидает</em></li>
                             <li class="generation-pipeline-step pending" data-run-stage="quality"><span>06</span><div><strong>Проверка качества</strong><small>структура, связность, полнота</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="antiplagiarism"><span>07</span><div><strong>Антиплагиат</strong><small>контроль копипасты и повторов</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="evaluation"><span>08</span><div><strong>Оценка по критериям</strong><small>rubric, замечания, score</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="translation"><span>09</span><div><strong>Перевод</strong><small id="generationRunTranslationHint">пропускается — целевой язык RU</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="assembly"><span>10</span><div><strong>Сборка результата</strong><small>README, отчёты, архив</small></div><em>ожидает</em></li>
+                            <li class="generation-pipeline-step pending" data-run-stage="evaluation"><span>07</span><div><strong>Оценка по критериям</strong><small>rubric, замечания, score</small></div><em>ожидает</em></li>
+                            <li class="generation-pipeline-step pending" data-run-stage="translation"><span>08</span><div><strong>Перевод</strong><small id="generationRunTranslationHint">пропускается — целевой язык RU</small></div><em>ожидает</em></li>
+                            <li class="generation-pipeline-step pending" data-run-stage="assembly"><span>09</span><div><strong>Сборка результата</strong><small>README, отчёты, архив</small></div><em>ожидает</em></li>
                         </ol>
                     </div>
 
@@ -658,7 +667,17 @@
         </div>
     </aside>
     
+    <script src="/static/js/modules/markdownRendering.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationRunView.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationPolling.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
+    <script src="/static/js/modules/curriculumForm.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationFormState.js?v=20260514-split"></script>
+    <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
+    <script src="/static/js/modules/translationPage.js?v=20260514-split"></script>
+    <script src="/static/js/modules/methodologyAssistantChat.js?v=20260514-split"></script>
     <script src="/static/js/modules/methodologyPanel.js?v=20260512-stage-review"></script>
-    <script src="/static/js/main.js?v=20260512-stage-review"></script>
+    <script src="/static/js/main.js?v=20260514-split"></script>
 </body>
 </html>

@@ -1,0 +1,44 @@
+﻿/* Methodology review and assistant shared styles. */
+
+body.s21-product .methodology-review-workspace {
+  color: var(--s21-ink-2) !important;
+}
+
+body.s21-product .methodology-review-workspace,
+body.s21-product .methodology-review-main,
+body.s21-product .methodology-review-toolbar,
+body.s21-product .methodology-generated-block,
+body.s21-product .methodology-markdown-viewer,
+body.s21-product .methodology-context-details,
+body.s21-product .methodology-history-details,
+body.s21-product .methodology-checkpoint-card {
+  background: var(--s21-surface) !important;
+  border: 1px solid var(--s21-border) !important;
+  border-radius: var(--s21-radius-lg) !important;
+  box-shadow: var(--s21-shadow-2) !important;
+}
+
+body.s21-product .methodology-review-workspace {
+  margin-bottom: 16px;
+  padding: 16px !important;
+}
+
+body.s21-product .methodology-summary-value,
+body.s21-product .methodology-review-title,
+body.s21-product .methodology-artifact-title,
+body.s21-product .methodology-generated-heading,
+body.s21-product .methodology-form-title,
+body.s21-product .methodology-active-section-title,
+body.s21-product .methodology-structure-title {
+  color: var(--s21-ink) !important;
+}
+
+body.s21-product .methodology-summary-label,
+body.s21-product .methodology-stage-meta,
+body.s21-product .methodology-form-hint,
+body.s21-product .methodology-field-hint,
+body.s21-product .methodology-artifact-text,
+body.s21-product .methodology-structure-hint {
+  color: var(--s21-muted) !important;
+}
+
