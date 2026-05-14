@@ -17,23 +17,25 @@ Content Generator использует оркестрацию через `AgentF
 1. `context`
    Фаза собирает `ProjectSeed`, `ProjectContextMeta`, `ContextAnalysisResult` и `ProjectContextBundle` из входного seed и контекста учебного плана.
 2. `task_planning`
-   Определение числа задач и сложности.
-3. `skeleton`
+   Определение числа задач, сложности и контрактов story/practice/artifact chain.
+3. `title_annotation`
+   Генерация названия и аннотации как отдельного reviewable артефакта.
+4. `skeleton`
    Создание каркаса README.
-4. `theory`
+5. `theory`
    Генерация теории с проверками и локальными repair-pass.
-5. `practice`
+6. `practice`
    Генерация практики.
-6. `global_quality`
+7. `global_quality`
    Глобальная редактура и доводка.
-7. `antiplag`
-   Проверка на плагиат.
 8. `evaluation`
    Рубрическая оценка.
 9. `translate`
    Перевод после оценки.
 10. `finalize`
    Сбор результата, архивных артефактов и метаданных.
+
+Каждый runtime-узел имеет единый операционный контракт в `content_gen/config/node_contracts.yaml`: role, входы/выходы flow context, prompt/config version, model_role, validators, repair/fallback policy и observability tags.
 
 ## Роли Компонентов
 
@@ -69,7 +71,6 @@ Production-значимые агенты:
 - `TitleAnnotationAgent`
 - `ContentEditorAgent`
 - `StyleGuardAgent`
-- `AntiPlagiarismAgent`
 - `TranslatorAgent`
 - `RegenerationAgent`
 

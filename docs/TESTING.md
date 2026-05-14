@@ -219,10 +219,12 @@ addopts =
     --strict-markers
     --tb=short
     --disable-warnings
+    -p no:cacheprovider
 markers =
     unit: Unit тесты
     integration: Интеграционные тесты
     slow: Медленные тесты (требуют LLM API)
+    asyncio: Асинхронные тесты
 ```
 
 **Ключевые опции**:
@@ -230,6 +232,7 @@ markers =
 - `--strict-markers` — строгая проверка маркеров
 - `--tb=short` — короткий traceback
 - `--disable-warnings` — отключение предупреждений
+- `-p no:cacheprovider` — отключение pytest cache provider, чтобы Windows temp cache не создавал нестабильные `PytestCacheWarning`
 
 #### unittest.mock
 
@@ -266,7 +269,7 @@ pytest.ini / pyproject.toml
 @pytest.fixture
 def mock_llm_client():
     """Создает мок LLM клиента."""
-    client = Mock(spec=LLMClient)
+    client = Mock()
     client.complete = MagicMock(return_value='{"result": "test"}')
     return client
 ```

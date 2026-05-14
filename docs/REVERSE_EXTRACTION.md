@@ -478,10 +478,10 @@ prompts:
 
 ```python
 from content_gen.reverse_extraction import ReverseExtractionOrchestrator
-from content_gen.llm.client import LLMClient
+from content_gen.llm.factory import create_llm_client
 
 # Инициализация
-llm = LLMClient()
+llm = create_llm_client(default_role="reverse_extraction")
 extraction_orchestrator = ReverseExtractionOrchestrator(llm)
 
 # Извлечение данных

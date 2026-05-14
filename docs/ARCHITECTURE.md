@@ -22,7 +22,9 @@ Content Generator построен на модульной архитектур�
 Оркестратор управляет полным пайплайном генерации контента через явный AgentFlow:
 
 - Flow описывается в `content_gen/config/flow.yaml` (`context → … → finalize`)
+- Операционный контракт каждой ноды описывается в `content_gen/config/node_contracts.yaml`: `node_id`, `role`, I/O context keys, prompt/config version, `model_role`, validators, repair/fallback policies и observability tags
 - `AgentFlowRunner` выполняет узлы по графу, логирует `flow_trace` (step_index, node, status, duration)
+- `AgentFlowRunner` прикладывает `node_contracts.yaml` к `NodeTraceEvent.metadata`, поэтому trace одного запуска показывает не только факт выполнения, но и ожидаемые validators/repair/fallback правила
 - `GenerationFlowHandlers` владеет registry и реализацией concrete node handlers (`context`, `theory`, `practice`, `finalize` и т.д.)
 - `run_v2()` запускает Flow, а `FlowResultFinalizer` проверяет наличие результата, собирает `flow_trace` и передает его в `MethodologyTraceRecorder`
 - После ключевых узлов запускается `MethodologyGate`: deterministic stage review с `StageReviewResult`, который сохраняется в `report_json.methodology_reviews` и `methodology_summary`
@@ -58,6 +60,35 @@ Content Generator построен на модульной архитектур�
 - инкапсулирует технические helpers для issue serialization и hard-failure detection.
 
 `Orchestrator` не держит phase wrappers: основная логика нод находится в `GenerationFlowHandlers`.
+
+### Node Contracts
+
+**Файл:** `content_gen/config/node_contracts.yaml`
+
+Node contract — это единый паспорт runtime-узла. Он связывает данные, которые раньше приходилось искать в `flow.yaml`, agent configs, prompts, validators и model registry:
+
+- `input_schema` / `output_schema` должны совпадать с I/O в `flow.yaml`;
+- `prompt_id` / `prompt_version` фиксируют версию prompt/config policy для observability и offline eval;
+- `model_role` указывает роль из `config/model_registry.yaml`;
+- `validators`, `repair_policy`, `fallback_policy` описывают критерий завершения и безопасную деградацию;
+- `observability_tags` попадают в trace metadata.
+
+Синхронизация защищена тестом `tests/content_gen/test_node_contracts.py`: новый узел нельзя добавить в flow без явного контракта, а drift по входам/выходам падает в тестах.
+
+### Durable Workflow Recovery
+
+**Файлы:** `content_gen/workflow_state.py`, `api/services/generation_workflow_service.py`, `api/db/generation_workflow_db.py`
+
+Workflow state хранится в PostgreSQL и является источником recovery после падения процесса:
+
+- root row `generation_workflow_states` хранит статус, текущую ноду, команды и исходный `project_seed_payload`;
+- каждый checkpoint в `generation_workflow_checkpoints` хранит `input_hash`, compact `output_artifact`, `context_snapshot`, validation, retry count и duration;
+- `AgentFlowRunner` эмитит checkpoint index по позиции узла в flow, а не по локальному списку шагов, поэтому retry idempotent на уровне node;
+- `GenerationWorkflowService.build_recovery_session()` восстанавливает context/previous_steps/start_index из БД;
+- `GenerationResumeService.run_workflow_command_background()` выполняет команды `resume`, `retry_node`, `regenerate_section`, `cancel` через один workflow path.
+- startup reconciliation переводит активные workflow прошлого процесса в `interrupted`, чтобы API не показывал мертвую задачу как живую; восстановление запускается явной workflow command.
+
+Для методологического режима это означает, что human-in-the-loop pause больше не обязан жить в памяти процесса: после restart можно восстановить контекст из последнего checkpoint или из paused-session payload.
 
 ### FlowResultFinalizer
 
@@ -99,7 +130,6 @@ Content Generator построен на модульной архитектур�
 #### Агенты валидации и качества:
 
 - **`StyleGuardAgent`** — проверка стиля и тона
-- **`AntiPlagiarismAgent`** — проверка на плагиат
 - **`TranslatorAgent`** — перевод на целевой язык
 
 ### 3. Validators (Валидаторы)
@@ -199,13 +229,12 @@ FastAPI приложение с REST API:
 6. **Phase 4**: Quality
    - Глобальные проверки качества
    - Улучшение читаемости, стиля
-7. **Phase 5**: Anti-plagiarism & Translation
-   - Проверка на плагиат
-   - Перевод на целевой язык
-8. **Phase 6**: Final Scoring
+7. **Phase 5**: Final Scoring
    - Оценка по всем критериям через `RubricScorer`
    - Формирование отчета
-9. **Результат** → Markdown + JSON отчет
+8. **Phase 6**: Translation
+   - Перевод выполняется только если целевой язык отличается от русского
+9. **Finalize & Export** → Markdown + JSON отчет + архив
 
 ## Валидация
 
@@ -303,8 +332,7 @@ FastAPI приложение с REST API:
 - `ReverseExtractionOrchestrator` — координация всех агентов
 
 **API Endpoints:**
-- `POST /api/v1/reverse-extract/extract` — извлечение данных из README
-- `GET /api/v1/reverse-extract/download/{file_id}` — скачивание Excel
+- Обратное извлечение осталось внутренним service-layer компонентом для README improvement; отдельные публичные `/reverse-extract/*` endpoints удалены из MVP API.
 
 **Особенности:**
 - Использует `StructuredLLMClient` для гарантированного парсинга
@@ -350,7 +378,7 @@ result = structured_client.complete_structured(
 ## Масштабируемость
 
 - Асинхронная обработка (FastAPI)
-- Кэширование LLM запросов (`CachedLLMClient`)
+- Кэширование LLM запросов внутри `LLMGateway`
 - Batch processing для эмбеддингов
 - Structured outputs для гарантированного соответствия схеме
 
@@ -379,5 +407,5 @@ result = structured_client.complete_structured(
 - Добавлять новые агенты (наследование от базового класса) — см. [AGENTS.md](AGENTS.md)
 - Добавлять новые checker'ы (модульная структура) — см. [CRITERIA.md](CRITERIA.md)
 - Добавлять новые flow-ноды через `flow.yaml`, `GenerationFlowHandlers` и concrete node service
-- Интегрировать новые LLM провайдеры (через `LLMClient`)
+- Интегрировать новые LLM провайдеры через `LLMGateway` / LiteLLM и `config/model_registry.yaml`
 - Расширять контекстный слой через `content_gen/curriculum/` и typed-контракты фазы 0

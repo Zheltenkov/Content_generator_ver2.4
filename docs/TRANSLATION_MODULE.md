@@ -225,7 +225,7 @@ Video upload
 | Параллельность видео | `VIDEO_MAX_CONCURRENT_JOBS`; кодовый default 1, в `.env.example` указано 2 |
 | ffmpeg | обязателен для audio extraction и video rendering |
 | OpenAI API key | обязателен для Whisper ASR в текущем pipeline |
-| LLM provider | OpenAI / DeepSeek / Azure / GigaChat через общий LLMClient; subtitle model может переопределяться env |
+| LLM provider | OpenAI / DeepSeek / Azure / GigaChat через `LLMGateway` / LiteLLM; subtitle model может переопределяться env |
 | Cache | LLM cache in-memory или Redis при `REDIS_URL`; result cache in-memory |
 
 Продуктовое следствие: текущий модуль уже подходит для MVP/controlled rollout, но для production-нагрузки с SLA нужны persistent job queue, persistent artifact metadata и более явные retention policies.

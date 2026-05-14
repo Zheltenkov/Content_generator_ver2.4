@@ -28,6 +28,11 @@ DATABASE_URL=postgresql://user:password@localhost:5432/content_generator
 # Логирование и runtime
 LOG_LEVEL=INFO
 DB_ECHO=false
+DB_AUTO_CREATE_TABLES=false
+DB_MAINTENANCE_BATCH_SIZE=500
+LOG_RETENTION_DAYS=1
+WORKFLOW_STATE_RETENTION_DAYS=14
+PAUSED_SESSION_RETENTION_DAYS=14
 HOST=0.0.0.0
 PORT=8000
 RELOAD=false
@@ -43,10 +48,22 @@ JWT_EXPIRATION_HOURS=24
 OPENAI_API_KEY=your-api-key-here
 OPENAI_MODEL=gpt-4.1-mini
 
+# Опциональные LLM-провайдеры
+# DeepSeek/GigaChat/Langfuse и role-specific *_MODEL ключи можно не добавлять,
+# если соответствующий provider/exporter не используется. Runtime возьмет
+# code defaults из model registry и включит provider только при наличии credentials.
+
 # Другие настройки
 ACTIVITY_UPDATE_INTERVAL_SECONDS=60
 ENABLE_EMAIL=false
 ```
+
+Проверка готовности `python scripts/production_check.py` различает обязательные значения и optional defaults:
+
+- обязательны `DATABASE_URL`, `JWT_SECRET_KEY` и хотя бы один production LLM key (`OPENAI_API_KEY` или `AZURE_OPENAI_API_KEY`);
+- `DEEPSEEK_*` и `GIGACHAT_*` могут отсутствовать, пока эти providers не используются;
+- `LANGFUSE_*` может отсутствовать, пока `LANGFUSE_ENABLED=false` и `OBSERVABILITY_EXPORTERS` не содержит `langfuse`;
+- non-secret runtime параметры вроде `LLM_TIMEOUT_SECONDS` или retention/budget defaults могут оставаться только в `.env.example`, если устраивают значения по умолчанию в коде.
 
 ---
 
@@ -98,38 +115,21 @@ psql -h localhost -U content_user -d content_generator
 # DATABASE_URL=postgresql://content_user:your_password@localhost:5432/content_generator
 ```
 
-### Шаг 4: Создание миграций для новых таблиц
+### Шаг 4: Применение миграций БД
 
 ```bash
 # 1. Проверьте текущее состояние миграций
 alembic current
 
-# 2. Создайте новую миграцию для таблиц generation_results, rubric_results, report_results
-alembic revision --autogenerate -m "add_generation_results_tables"
-
-# 3. Проверьте созданный файл миграции
-# Он должен быть в migrations/versions/004_add_generation_results_tables.py
-# Убедитесь, что там есть создание всех трех таблиц:
-# - generation_results
-# - rubric_results  
-# - report_results
-
-# 4. Примените миграцию
+# 2. Примените все миграции проекта
 alembic upgrade head
 
-# 5. Проверьте, что миграция применена
+# 3. Проверьте, что миграция применена
 alembic current
 ```
 
-> ⚠️ После обновления кода убедитесь, что выполнена ревизия `004_add_config_versions_and_practice_critic.py`, добавляющая новые JSON-поля в `generation_results`. Команда: `alembic upgrade head`.
-
-**Важно:** Если миграция не создалась автоматически (alembic не увидел изменения), создайте её вручную:
-
-```bash
-alembic revision -m "add_generation_results_tables"
-```
-
-Затем отредактируйте созданный файл в `migrations/versions/` и добавьте код создания таблиц (см. пример ниже).
+> ⚠️ В production приложение не должно создавать таблицы через `create_all()` на старте.
+> Держите `DB_AUTO_CREATE_TABLES=false` и применяйте изменения схемы только через Alembic.
 
 ### Шаг 5: Проверка структуры БД
 
@@ -494,32 +494,15 @@ sudo systemctl status content-generator
 
 ## Тестирование после развертывания
 
-### Тестирование Reverse Extraction
+### Тестирование внутреннего Reverse Extraction
 
-**Подробнее:** См. [REVERSE_EXTRACTION.md](REVERSE_EXTRACTION.md) для полного описания системы.
+Reverse Extraction больше не публикуется как отдельный пользовательский API. Он используется как внутренний слой README improvement.
 
-1. **Проверка API endpoint:**
-```bash
-# Извлечение данных из README
-curl -X POST "http://localhost:8000/api/v1/reverse-extract/extract" \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"readme_text": "# Тестовый проект\n\n## Глава 1\n..."}'
-```
-
-2. **Проверка UI:**
-   - Откройте `http://your-server:8000/app/generate`
-   - Найдите секцию "📄 Извлечение данных из README"
-   - Вставьте тестовый README.md
-   - Нажмите "Извлечь данные"
-   - Проверьте, что появилась кнопка "Скачать Excel"
-   - Скачайте и проверьте Excel файл
-
-3. **Проверка конфигов:**
+1. **Проверка конфигов:**
    - Убедитесь, что существуют `content_gen/config/agents/structure_extractor.yaml` и `classifier.yaml`
    - Проверьте, что промпты доступны в `content_gen/prompts/reverse_extraction/`
 
-4. **Проверка thematic_blocks.json:**
+2. **Проверка thematic_blocks.json:**
    - Убедитесь, что файл `thematic_blocks.json` существует в корне проекта
    - Проверьте, что ClassifierAgent может загрузить блоки
 
