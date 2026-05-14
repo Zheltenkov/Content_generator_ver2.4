@@ -13,6 +13,7 @@ from .config.loader import get_loaded_agent_versions
 from .models.readme_document import ReadmeDocument
 from .models.result import OrchestratorResult
 from .models.schemas import Annotation, IntroSection, PracticeTask, ProjectSpec, TheoryPart
+from .observability import build_unified_observability_report, normalize_fallback_trace_event
 from .utils.markdown_display_normalizer import normalize_markdown_display_blocks
 from .utils.mermaid_export import convert_mermaid_blocks
 from .utils.protected_blocks import fix_common_latex_issues_in_md
@@ -152,6 +153,11 @@ class ResultAssembler:
             llm_traces=context.get("llm_traces") or [],
             fallback_traces=context.get("fallback_traces") or [],
             compatibility_events=context.get("compatibility_events") or [],
+            observability=(
+                context["observability_sink"].report()
+                if hasattr(context.get("observability_sink"), "report")
+                else context.get("observability")
+            ),
         )
 
         encoded_assets = self._encode_assets(assets_binary)
@@ -335,7 +341,20 @@ class ResultAssembler:
         llm_traces: list[dict[str, Any]],
         fallback_traces: list[dict[str, Any]],
         compatibility_events: list[dict[str, Any]],
+        observability: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        observability_report = observability or build_unified_observability_report(
+            run_id=None,
+            user_id=None,
+            node_traces=node_traces,
+            llm_traces=llm_traces,
+            fallback_traces=fallback_traces,
+            compatibility_events=compatibility_events,
+        )
+        normalized_fallback_traces = [
+            normalize_fallback_trace_event(event).model_dump(mode="json")
+            for event in fallback_traces
+        ]
         report = {
             "language": seed.language,
             "warnings": warnings,
@@ -358,8 +377,9 @@ class ResultAssembler:
             "readme_document": readme_document.model_dump(mode="json"),
             "node_traces": self._serialize_report_value(node_traces),
             "llm_traces": self._serialize_report_value(llm_traces),
-            "fallback_traces": self._serialize_report_value(fallback_traces),
+            "fallback_traces": self._serialize_report_value(normalized_fallback_traces),
             "compatibility_events": self._serialize_report_value(compatibility_events),
+            "observability": self._serialize_report_value(observability_report),
             "text_stats": self.calculate_text_stats(markdown, seed.language),
             "practice_critic_issues": practice_critic_issues,
             "agent_config_versions": agent_versions,

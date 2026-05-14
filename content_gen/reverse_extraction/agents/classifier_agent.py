@@ -1,4 +1,4 @@
-"""
+﻿"""
 ClassifierAgent - определение метаданных проекта.
 
 Сначала проверяет существующие thematic_blocks, затем использует LLM если не найдено.
@@ -8,8 +8,8 @@ import json
 import logging
 from pathlib import Path
 
-from ...config.loader import get_agent_config
-from ...llm.client import LLMClient
+from ...config.loader import get_agent_config, prompt_trace_kwargs
+from ...agents.base.llm_client import LLMClientProtocol
 from ...llm.structured_output import StructuredLLMClient
 from ..models import ClassificationResult, NormalizedReadme, PartialProjectSeed
 
@@ -21,7 +21,7 @@ class ClassifierAgent:
 
     CONFIG_NAME = "classifier"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация классификатора.
         
@@ -148,6 +148,14 @@ class ClassifierAgent:
         # Получаем классификацию через structured output
         llm_kwargs = self.llm_kwargs.copy()
         llm_kwargs.setdefault("temperature", 0.1)
+        llm_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="ClassificationResult",
+            )
+        )
 
         try:
             result = self.structured_client.complete_structured(
@@ -253,4 +261,3 @@ class ClassifierAgent:
             audience_level=audience_level,
             project_type=project_type
         )
-

@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/enhancement_planner.py
 
 Агент для глобального планирования улучшений контента.
@@ -13,14 +13,15 @@ content_gen/agents/enhancement_planner.py
 from __future__ import annotations
 
 import json
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..config.thresholds import (
     DEFAULT_ENHANCEMENT_BUDGET,
     get_enhancement_config_for_content_type,
 )
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..llm.structured_output import StructuredLLMClient
 from ..models.enhancement_plan import (
     EnhancementBudget,
@@ -38,19 +39,25 @@ from ..utils.logging import safe_print
 class EnhancementPlanLLMResponse(BaseModel):
     """Промежуточная модель для парсинга ответа LLM."""
 
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
     class AnchorHintsData(BaseModel):
-        formula: str = ""
-        table: str = ""
-        diagram: str = ""
+        model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+        formula: str = Field(default="")
+        table: str = Field(default="")
+        diagram: str = Field(default="")
 
     class PartPlanData(BaseModel):
-        part_index: int
-        topic: str
-        formulas: str = "no"  # "must", "nice_to_have", "no"
-        tables: str = "no"
-        diagrams: str = "no"
-        code_examples: str = "no"
-        reasoning: str = ""
+        model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
+        part_index: int = Field(ge=1, le=12)
+        topic: str = Field(min_length=1, max_length=160)
+        formulas: Literal["must", "nice_to_have", "no"] = "no"
+        tables: Literal["must", "nice_to_have", "no"] = "no"
+        diagrams: Literal["must", "nice_to_have", "no"] = "no"
+        code_examples: Literal["must", "nice_to_have", "no"] = "no"
+        reasoning: str = Field(default="", max_length=800)
         anchor_hints: AnchorHintsData | None = None
 
     per_part: list[PartPlanData] = Field(
@@ -158,7 +165,7 @@ PLANNING_TMPL = """Построй глобальный план улучшени
 class EnhancementPlanner:
     """Агент для глобального планирования улучшений контента."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         self.structured_client = StructuredLLMClient(llm)
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 TasksExtractor - детальное извлечение и анализ практических задач из README.
 
 Специализируется на точном подсчете задач и их структурировании.
@@ -9,8 +9,8 @@ import re
 
 from pydantic import BaseModel, Field
 
-from ...config.loader import get_agent_config
-from ...llm.client import LLMClient
+from ...config.loader import get_agent_config, prompt_trace_kwargs
+from ...agents.base.llm_client import LLMClientProtocol
 from ...llm.structured_output import StructuredLLMClient
 from ..models import NormalizedReadme
 
@@ -39,7 +39,7 @@ class TasksExtractor:
 
     CONFIG_NAME = "tasks_extractor"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация экстрактора задач.
         
@@ -86,6 +86,14 @@ class TasksExtractor:
         # Получаем извлеченные данные через structured output
         llm_kwargs = self.llm_kwargs.copy()
         llm_kwargs.setdefault("temperature", 0.1)
+        llm_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="TasksExtractionResult",
+            )
+        )
 
         try:
             result = self.structured_client.complete_structured(
@@ -188,4 +196,3 @@ class TasksExtractor:
             tasks_count=final_count,
             confidence="low"
         )
-

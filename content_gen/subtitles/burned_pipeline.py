@@ -16,7 +16,7 @@ from collections.abc import Callable
 from pathlib import Path
 import logging
 
-from content_gen.llm.client import resolve_llm_provider
+from content_gen.llm.model_registry import resolve_configured_provider
 from content_gen.subtitles.pipeline import build_srt, build_vtt, extract_audio
 from content_gen.subtitles.pipeline import transcribe as openai_whisper_transcribe
 
@@ -34,7 +34,7 @@ _whisper_model_cache = None
 
 def _resolve_subtitle_translate_model() -> str | None:
     """Resolve optional subtitle translation model without leaking OpenAI defaults to other providers."""
-    provider = resolve_llm_provider()
+    provider = resolve_configured_provider()
     provider_override = os.getenv(f"{provider.upper()}_TRANSLATE_SUBTITLES_MODEL", "").strip()
     if provider_override:
         return provider_override
@@ -726,9 +726,14 @@ def run_burned_subs_pipeline(
     output_dir: директория для сохранения файлов (уже создана под request_id).
     Возвращает словарь с ключами: video_path, vtt_path, srt_path, ass_path, transcript_path, segments.
     """
-    from content_gen.llm.cached_client import CachedLLMClient
+    from content_gen.llm.factory import create_llm_client
     if llm_client is None:
-        llm_client = CachedLLMClient(model=_resolve_subtitle_translate_model(), enable_cache=True, enable_batching=True)
+        llm_client = create_llm_client(
+            model=_resolve_subtitle_translate_model(),
+            default_role="translator",
+            enable_cache=True,
+            enable_batching=True,
+        )
     video_path = Path(video_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Объединенный агент улучшения теории (EnhancementPlanner + TheoryEnhancementManager).
 
 Фасадный агент, который объединяет планирование и применение улучшений
@@ -6,7 +6,7 @@
 """
 
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.enhancement_plan import EnhancementExecutionLog, EnhancementPlan
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.logging import safe_print
@@ -25,7 +25,7 @@ class TheoryEnhancementAgent:
     - QualityGate: проверка качества выполнения плана
     """
 
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: LLMClientProtocol):
         """
         Инициализация агента улучшения теории.
         

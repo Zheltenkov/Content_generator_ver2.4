@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/enhancement_manager.py
 
 Менеджер для координации агентов улучшения контента теории.
@@ -10,7 +10,7 @@ content_gen/agents/enhancement_manager.py
 Принимает решения на основе анализа темы и навыков.
 """
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.enhancement_models import FormulaItem, TableItem, VisualItem
 from ..models.enhancement_plan import EnhancementExecutionLog, EnhancementPlan, ImportanceLevel
 from ..models.schemas import ProjectSeed, TheoryPart
@@ -23,7 +23,7 @@ from .formula_table import FormulaTableAgent
 class TheoryEnhancementManager:
     """Менеджер для координации агентов улучшения контента теории."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         self.code_agent = CodeExampleAgent(llm)
         self.formula_agent = FormulaTableAgent(llm)

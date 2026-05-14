@@ -8,7 +8,12 @@ from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
 from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import clean_markdown_prose_for_counting
-from .document_utils import chapter_content
+from .document_utils import (
+    chapter_prose_text,
+    document_paragraphs,
+    intro_content_without_instruction,
+    practice_brief_from_document,
+)
 from .similarity import SimilarityCalculator
 
 
@@ -35,7 +40,6 @@ class Section3Checker:
         - Отбрасываем совсем короткие куски (например, одиночные слова/фразы).
         - Отбрасываем чистые заголовки (#, ##, ###).
         """
-        import re
         # Режем по пустым строкам
         raw_paragraphs = re.split(r'\n\s*\n', md)
         paragraphs: list[str] = []
@@ -73,6 +77,16 @@ class Section3Checker:
             return 0.0, []
 
         # Используем оптимизированный метод для последовательных сравнений
+        return self.similarity_calc.compute_sequential_similarities(paragraphs, use_batch_embedding=True)
+
+    def _paragraph_coherence_document(self, document: ReadmeDocument) -> tuple[float, list[float]]:
+        """Compute coherence from typed prose blocks without rendering the whole README."""
+        paragraphs = document_paragraphs(
+            document,
+            min_length=THRESHOLDS.get("paragraph_min_length", 40),
+        )
+        if len(paragraphs) < 2:
+            return 0.0, []
         return self.similarity_calc.compute_sequential_similarities(paragraphs, use_batch_embedding=True)
 
     @staticmethod
@@ -119,6 +133,81 @@ class Section3Checker:
             )
         return "\n\n".join(blocks)
 
+    def _check_narrative_focus_parts(
+        self,
+        *,
+        context_parts: dict[str, str],
+        project_ids: list[str],
+    ) -> tuple[bool, list[str], dict[str, object], bool]:
+        """Check narrative focus over prepared context from legacy Markdown or typed document."""
+        if not any(context_parts.values()):
+            return False, ["Недостаточно контекста для проверки нарратива"], {"context_parts": context_parts}, False
+
+        details: dict[str, object] = {
+            "context_parts": context_parts,
+            "project_ids": project_ids,
+            "mode": "script",
+        }
+        if len(project_ids) > 1:
+            return False, [f"В тексте смешаны разные project_id: {', '.join(project_ids[:5])}"], details, False
+
+        if not self.llm:
+            comments = [] if all(context_parts.values()) else ["Не все главы содержат проверяемый narrative context"]
+            return not comments, comments, details, False
+
+        try:
+            prompt = f"""Проверь, сохраняет ли проект единый нарративный фокус.
+
+Требования:
+- один рабочий кейс/продукт/проект должен проходить через введение, теорию и практику;
+- статическая инструкция не учитывается как нарратив;
+- внешние примеры допустимы только как короткие примеры, но не должны подменять основной кейс;
+- чужие учебные направления, чужой project_id или случайные технологии считаются drift.
+
+Введение:
+{context_parts["intro"]}
+
+Теория:
+{context_parts["theory"]}
+
+Практика:
+{context_parts["practice"]}
+
+Верни только JSON:
+{{
+  "has_unified_focus": true/false,
+  "anchors": ["повторяющиеся смысловые якоря"],
+  "drift": ["что выбивается из основного кейса"],
+  "reason": "краткое объяснение"
+}}"""
+
+            response = self.llm.complete(
+                system="Ты эксперт по анализу образовательных текстов.",
+                user=prompt,
+                response_format="json_object",
+                temperature=0.1
+            )
+
+            json_start = response.find("{")
+            json_end = response.rfind("}") + 1
+            if json_start >= 0 and json_end > json_start:
+                data = json.loads(response[json_start:json_end])
+                ok = bool(data.get("has_unified_focus", False))
+                details.update({
+                    "mode": "hybrid",
+                    "anchors": data.get("anchors", []),
+                    "drift": data.get("drift", []),
+                    "reason": data.get("reason", ""),
+                })
+                comments = [] if ok else [
+                    data.get("reason") or "Проект не сохраняет единый рабочий кейс между главами"
+                ]
+                return ok, comments, details, True
+        except Exception as exc:
+            details["ai_error"] = str(exc)
+
+        return False, ["Не удалось подтвердить единый narrative focus"], details, True
+
     def _check_narrative_focus(self, md: str) -> tuple[bool, list[str], dict[str, object], bool]:
         """Проверяет, что главы удерживают один рабочий кейс и не утекают в чужие контексты."""
         chapter_1 = self._extract_chapter(md, 1)
@@ -134,173 +223,43 @@ class Section3Checker:
             "theory": theory[:2200],
             "practice": practice[:1800],
         }
-        if not any(context_parts.values()):
-            return False, ["Недостаточно контекста для проверки нарратива"], {"context_parts": context_parts}, False
-
         project_ids = sorted(set(re.findall(r"\b[A-Za-zА-Яа-я]{2,}\d+_[A-Za-zА-Яа-я0-9_]+\b", md)))
-        details: dict[str, object] = {
-            "context_parts": context_parts,
-            "project_ids": project_ids,
-            "mode": "script",
-        }
-        if len(project_ids) > 1:
-            return False, [f"В тексте смешаны разные project_id: {', '.join(project_ids[:5])}"], details, False
-
-        if not self.llm:
-            comments = [] if intro and theory and practice else ["Не все главы содержат проверяемый narrative context"]
-            return not comments, comments, details, False
-
-        try:
-            prompt = f"""Проверь, сохраняет ли проект единый нарративный фокус.
-
-Требования:
-- один рабочий кейс/продукт/проект должен проходить через введение, теорию и практику;
-- статическая инструкция не учитывается как нарратив;
-- внешние примеры допустимы только как короткие примеры, но не должны подменять основной кейс;
-- чужие учебные направления, чужой project_id или случайные технологии считаются drift.
-
-Введение:
-{context_parts["intro"]}
-
-Теория:
-{context_parts["theory"]}
-
-Практика:
-{context_parts["practice"]}
-
-Верни только JSON:
-{{
-  "has_unified_focus": true/false,
-  "anchors": ["повторяющиеся смысловые якоря"],
-  "drift": ["что выбивается из основного кейса"],
-  "reason": "краткое объяснение"
-}}"""
-
-            response = self.llm.complete(
-                system="Ты эксперт по анализу образовательных текстов.",
-                user=prompt,
-                response_format="json_object",
-                temperature=0.1
-            )
-
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                data = json.loads(response[json_start:json_end])
-                ok = bool(data.get("has_unified_focus", False))
-                details.update({
-                    "mode": "hybrid",
-                    "anchors": data.get("anchors", []),
-                    "drift": data.get("drift", []),
-                    "reason": data.get("reason", ""),
-                })
-                comments = [] if ok else [
-                    data.get("reason") or "Проект не сохраняет единый рабочий кейс между главами"
-                ]
-                return ok, comments, details, True
-        except Exception as exc:
-            details["ai_error"] = str(exc)
-
-        return False, ["Не удалось подтвердить единый narrative focus"], details, True
+        return self._check_narrative_focus_parts(context_parts=context_parts, project_ids=project_ids)
 
     def _check_narrative_focus_document(
         self,
         document: ReadmeDocument,
     ) -> tuple[bool, list[str], dict[str, object], bool]:
         """Typed version of the narrative focus check using parsed chapter sections."""
-        md = document.to_markdown()
-        chapter_1 = chapter_content(document, 1)
-        chapter_2 = chapter_content(document, 2)
-        chapter_3 = chapter_content(document, 3)
+        chapter_2 = chapter_prose_text(document, 2)
+        chapter_3 = chapter_prose_text(document, 3)
 
-        intro = clean_markdown_prose_for_counting(self._strip_instruction(chapter_1))
+        intro = clean_markdown_prose_for_counting(intro_content_without_instruction(document))
         theory = clean_markdown_prose_for_counting(chapter_2)
-        practice = clean_markdown_prose_for_counting(self._extract_practice_brief(chapter_3) or chapter_3)
+        practice = clean_markdown_prose_for_counting(practice_brief_from_document(document) or chapter_3)
 
         context_parts = {
             "intro": intro[:1200],
             "theory": theory[:2200],
             "practice": practice[:1800],
         }
-        if not any(context_parts.values()):
-            return False, ["Недостаточно контекста для проверки нарратива"], {"context_parts": context_parts}, False
+        project_text = "\n\n".join(context_parts.values())
+        project_ids = sorted(set(re.findall(r"\b[A-Za-zА-Яа-я]{2,}\d+_[A-Za-zА-Яа-я0-9_]+\b", project_text)))
+        return self._check_narrative_focus_parts(context_parts=context_parts, project_ids=project_ids)
 
-        project_ids = sorted(set(re.findall(r"\b[A-Za-zА-Яа-я]{2,}\d+_[A-Za-zА-Яа-я0-9_]+\b", md)))
-        details: dict[str, object] = {
-            "context_parts": context_parts,
-            "project_ids": project_ids,
-            "mode": "script",
-        }
-        if len(project_ids) > 1:
-            return False, [f"В тексте смешаны разные project_id: {', '.join(project_ids[:5])}"], details, False
-
-        if not self.llm:
-            comments = [] if intro and theory and practice else ["Не все главы содержат проверяемый narrative context"]
-            return not comments, comments, details, False
-
-        try:
-            prompt = f"""Проверь, сохраняет ли проект единый нарративный фокус.
-
-Требования:
-- один рабочий кейс/продукт/проект должен проходить через введение, теорию и практику;
-- статическая инструкция не учитывается как нарратив;
-- внешние примеры допустимы только как короткие примеры, но не должны подменять основной кейс;
-- чужие учебные направления, чужой project_id или случайные технологии считаются drift.
-
-Введение:
-{context_parts["intro"]}
-
-Теория:
-{context_parts["theory"]}
-
-Практика:
-{context_parts["practice"]}
-
-Верни только JSON:
-{{
-  "has_unified_focus": true/false,
-  "anchors": ["повторяющиеся смысловые якоря"],
-  "drift": ["что выбивается из основного кейса"],
-  "reason": "краткое объяснение"
-}}"""
-
-            response = self.llm.complete(
-                system="Ты эксперт по анализу образовательных текстов.",
-                user=prompt,
-                response_format="json_object",
-                temperature=0.1
-            )
-
-            json_start = response.find("{")
-            json_end = response.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                data = json.loads(response[json_start:json_end])
-                ok = bool(data.get("has_unified_focus", False))
-                details.update({
-                    "mode": "hybrid",
-                    "anchors": data.get("anchors", []),
-                    "drift": data.get("drift", []),
-                    "reason": data.get("reason", ""),
-                })
-                comments = [] if ok else [
-                    data.get("reason") or "Проект не сохраняет единый рабочий кейс между главами"
-                ]
-                return ok, comments, details, True
-        except Exception as exc:
-            details["ai_error"] = str(exc)
-
-        return False, ["Не удалось подтвердить единый narrative focus"], details, True
-
-    def check(self, md: str, *, document: ReadmeDocument | None = None) -> list[CriteriaItem]:
-        """Проверяет раздел 3: Единый сторителлинг (3.1-3.2)."""
+    def _build_items(
+        self,
+        *,
+        average_similarity: float,
+        pairwise_scores: list[float],
+        narrative_result: tuple[bool, list[str], dict[str, object], bool],
+    ) -> list[CriteriaItem]:
+        """Build Section 3 rubric items from prepared typed or Markdown analysis inputs."""
         items = []
 
         safe_print("    🔗 3.1: Проверка когерентности текста (SBERT между абзацами)...", flush=True)
 
-        # --- 3.1: Когерентность между соседними абзацами ---
-        avg_sim, sims = self._paragraph_coherence(md)
-
-        if not sims:
+        if not pairwise_scores:
             items.append(CriteriaItem(
                 id="3.1",
                 title="Проверка когерентности (связности) текста",
@@ -309,38 +268,38 @@ class Section3Checker:
                 score=0,
                 comments=["Недостаточно абзацев для оценки (нужно ≥ 2 содержательных абзаца)"],
                 parent_id="3",
-                details={"average_similarity": avg_sim, "pairwise_scores": sims},
-                strictness=StrictnessLevel.SOFT  # Quality-метрика, не блокирует прохождение
+                details={"average_similarity": average_similarity, "pairwise_scores": pairwise_scores},
+                strictness=StrictnessLevel.SOFT,
             ))
         else:
-            # Порог можно вынести в THRESHOLDS["coherence_sbert_threshold"]
             threshold = max(0.5, THRESHOLDS.get("coherence_sbert_threshold", 0.5))
             eps = 1e-6
-
             items.append(CriteriaItem(
                 id="3.1",
                 title="Проверка когерентности (связности) текста",
                 description=f"Средний SBERT-score между соседними абзацами ≥ {threshold}",
                 check_method=CheckMethod.SBERT if self.similarity_calc.embedding_function else CheckMethod.SCRIPT,
-                score=1 if avg_sim + eps >= threshold else 0,
-                comments=[] if avg_sim + eps >= threshold else [
-                    f"Низкая когерентность: средний score {avg_sim:.2f} (< {threshold})"
+                score=1 if average_similarity + eps >= threshold else 0,
+                comments=[] if average_similarity + eps >= threshold else [
+                    f"Низкая когерентность: средний score {average_similarity:.2f} (< {threshold})"
                 ],
                 parent_id="3",
                 details={
-                    "average_similarity": avg_sim,
+                    "average_similarity": average_similarity,
                     "threshold": threshold,
-                    "pairwise_scores": sims
-                }
+                    "pairwise_scores": pairwise_scores,
+                },
             ))
 
-        safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 3.1: Связность {items[-1].details.get('average_similarity', 0):.2f} (порог: {items[-1].details.get('threshold', 0)})", flush=True)
+        safe_print(
+            f"      {'✅' if items[-1].score == 1 else '❌'} 3.1: "
+            f"Связность {items[-1].details.get('average_similarity', 0):.2f} "
+            f"(порог: {items[-1].details.get('threshold', 0)})",
+            flush=True,
+        )
 
         safe_print("    🔗 3.2: Проверка единого нарративного фокуса (hybrid)...", flush=True)
-        if document is not None:
-            narrative_ok, narrative_comments, narrative_details, used_ai = self._check_narrative_focus_document(document)
-        else:
-            narrative_ok, narrative_comments, narrative_details, used_ai = self._check_narrative_focus(md)
+        narrative_ok, narrative_comments, narrative_details, used_ai = narrative_result
         items.append(CriteriaItem(
             id="3.2",
             title="Проверка единого нарративного фокуса",
@@ -356,6 +315,25 @@ class Section3Checker:
 
         return items
 
+    def check(self, md: str, *, document: ReadmeDocument | None = None) -> list[CriteriaItem]:
+        """Проверяет раздел 3: Единый сторителлинг (3.1-3.2)."""
+        if document is not None:
+            average_similarity, pairwise_scores = self._paragraph_coherence_document(document)
+            narrative_result = self._check_narrative_focus_document(document)
+        else:
+            average_similarity, pairwise_scores = self._paragraph_coherence(md)
+            narrative_result = self._check_narrative_focus(md)
+        return self._build_items(
+            average_similarity=average_similarity,
+            pairwise_scores=pairwise_scores,
+            narrative_result=narrative_result,
+        )
+
     def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
         """Проверяет раздел 3 по typed README document tree."""
-        return self.check(document.to_markdown(), document=document)
+        average_similarity, pairwise_scores = self._paragraph_coherence_document(document)
+        return self._build_items(
+            average_similarity=average_similarity,
+            pairwise_scores=pairwise_scores,
+            narrative_result=self._check_narrative_focus_document(document),
+        )

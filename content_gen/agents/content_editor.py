@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/content_editor.py
 
 Агент-редактор для устранения дублирования контента и улучшения связности теории.
@@ -13,8 +13,8 @@ content_gen/agents/content_editor.py
 
 import re
 
-from ..config.loader import get_agent_config
-from ..llm.client import LLMClient
+from ..config.loader import get_agent_config, prompt_trace_kwargs
+from .base.llm_client import LLMClientProtocol
 from ..models.readme_document import ReadmeDocument, ReadmeSection
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.markdown_block_contract import MarkdownBlockContract
@@ -37,7 +37,7 @@ class ContentEditorAgent:
 
     CONFIG_NAME = "content_editor"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         self.config = get_agent_config(self.CONFIG_NAME)
         self.llm_kwargs = self.config.llm.to_kwargs() if self.config.llm else {}
@@ -106,6 +106,7 @@ class ContentEditorAgent:
 
             llm_kwargs = self.llm_kwargs.copy()
             llm_kwargs.setdefault("temperature", 0.1)
+            llm_kwargs.update(prompt_trace_kwargs(self.config, "system", "edit_template", output_schema="TheoryPart.body"))
             edited_body = self.llm.complete(
                 system=system_prompt,
                 user=user_prompt,
@@ -177,6 +178,9 @@ class ContentEditorAgent:
 
             llm_kwargs = self.llm_kwargs.copy()
             llm_kwargs.setdefault("temperature", 0.2)
+            llm_kwargs.update(
+                prompt_trace_kwargs(self.config, "system", "coherence_template", output_schema="TheoryPart.body")
+            )
             improved_body = self.llm.complete(
                 system=system_prompt,
                 user=user_prompt,
@@ -576,6 +580,7 @@ class ContentEditorAgent:
 """
             llm_kwargs = self.llm_kwargs.copy()
             llm_kwargs.setdefault("temperature", 0.2)
+            llm_kwargs.update(prompt_trace_kwargs(self.config, "system", output_schema="chapter_bridge"))
             bridge_text = self.llm.complete(
                 system=system_prompt,
                 user=user_prompt,

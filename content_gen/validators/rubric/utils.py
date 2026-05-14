@@ -18,6 +18,14 @@ class TaskBlock:
     title: str
     body: str
     artifact_paths: list[str] | None = None
+    has_action_block: bool = False
+    has_expected_result_block: bool = False
+    has_submission_block: bool = False
+    situation: str = ""
+    goal: str = ""
+    approach: str = ""
+    expected_result: str = ""
+    criteria_items: list[str] | None = None
 
 
 def tokens(text: str, lang: str) -> list[str]:

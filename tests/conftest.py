@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, Mock
 
 import pytest
 
-from content_gen.llm.client import LLMClient
+from content_gen.agents.base.llm_client import LLMClientProtocol
 
 
 # На некоторых Windows-контурах системный TEMP недоступен для pytest tmp_path.
@@ -40,7 +40,7 @@ def pytest_pyfunc_call(pyfuncitem):
 @pytest.fixture
 def mock_llm_client():
     """Создает мок LLM клиента."""
-    client = Mock(spec=LLMClient)
+    client = Mock(spec=LLMClientProtocol)
     client.complete = MagicMock(return_value='{"result": "test"}')
     return client
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
-import uuid
 import zipfile
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -32,7 +31,7 @@ from api.utils.improvement_cache import (
 )
 from api.utils.logger import get_logger
 from api.utils.result_cache import get_generation_error, get_generation_status, get_result, set_generation_status
-from content_gen.llm.client import LLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.models.schemas import ProjectSeed
 from content_gen.project_seed_provider import ProjectSeedProvider
 from content_gen.reverse_extraction.models import ClassificationResult, PartialProjectSeed
@@ -101,10 +100,12 @@ class ReadmeImprovementService:
     def __init__(
         self,
         *,
-        llm_factory: Callable[[], LLMClient] | None = None,
+        llm_factory: Callable[[], Any] | None = None,
         log_writer: Callable[..., Any] = write_log_async,
     ) -> None:
-        self._llm_factory = llm_factory or LLMClient
+        self._llm_factory = llm_factory or (
+            lambda: create_llm_client(default_role="planner", enable_cache=True, enable_batching=True)
+        )
         self._log_writer = log_writer
 
     async def extract_for_improvement(
@@ -144,6 +145,9 @@ class ReadmeImprovementService:
             )
 
         llm_client = self._llm_factory()
+        configure_context = getattr(llm_client, "configure_run_context", None)
+        if callable(configure_context):
+            configure_context(user_id=command.user_id, run_id=command.request_id)
         orchestrator = ReverseExtractionOrchestrator(llm_client)
         partial_seed, classification, _normalized_readme, metadata = await asyncio.to_thread(
             orchestrator.extract_data_only,

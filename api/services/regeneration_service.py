@@ -13,8 +13,8 @@ from api.utils.logger import get_logger
 from api.utils.result_cache import get_result
 from content_gen.agents.content_editor import ContentEditorAgent
 from content_gen.agents.regeneration import RegenerationAgent
-from content_gen.agents.style_guard import StyleGuardAgent
-from content_gen.llm.client import LLMClient
+from content_gen.repair.style_guard import StyleGuardRepair
+from content_gen.llm.factory import create_llm_client
 from content_gen.project_seed_provider import ProjectSeedProvider
 from content_gen.utils.latex_validator import build_latex_agent_hint, collect_latex_issues
 from content_gen.utils.rubric_export import convert_numpy_types, criteria_to_json
@@ -141,12 +141,14 @@ class RegenerationService:
     def __init__(
         self,
         *,
-        llm_factory: Callable[[], LLMClient] | None = None,
+        llm_factory: Callable[[], Any] | None = None,
         cache_getter: Callable[[str], dict[str, Any] | None] = get_result,
         db_updater: Callable[..., Any] = update_regeneration_result,
         log_writer: Callable[..., Any] = write_log_async,
     ) -> None:
-        self._llm_factory = llm_factory or LLMClient
+        self._llm_factory = llm_factory or (
+            lambda: create_llm_client(default_role="repair", enable_cache=True, enable_batching=True)
+        )
         self._cache_getter = cache_getter
         self._db_updater = db_updater
         self._log_writer = log_writer
@@ -156,6 +158,9 @@ class RegenerationService:
         await self._log_start(command)
 
         llm_client = self._llm_factory()
+        configure_context = getattr(llm_client, "configure_run_context", None)
+        if callable(configure_context):
+            configure_context(user_id=command.user_id, run_id=command.request_id)
         regen_agent = RegenerationAgent(llm_client)
 
         original_cached = self._load_original_cached(command.original_request_id)
@@ -268,7 +273,7 @@ class RegenerationService:
     async def _apply_quality_checks(
         self,
         *,
-        llm_client: LLMClient,
+        llm_client: Any,
         markdown: str,
         seed: Any,
         language: str,
@@ -287,12 +292,12 @@ class RegenerationService:
             logger.warning("⚠️ Ошибка при применении ContentEditor: %s", exc)
 
         try:
-            style_guard = StyleGuardAgent()
+            style_guard = StyleGuardRepair()
             issues_style = await asyncio.to_thread(style_guard.lint, markdown, language)
             if issues_style:
                 logger.info("🔄 Найдено %s проблем стиля, применяем исправления", len(issues_style))
                 markdown = await asyncio.to_thread(style_guard.rewrite, markdown, language)
-                logger.info("✅ StyleGuardAgent применён")
+                logger.info("✅ StyleGuardRepair применён")
             else:
                 logger.info("✅ Проблем стиля не найдено")
         except Exception as exc:
@@ -324,7 +329,7 @@ class RegenerationService:
     async def _score_rubric(
         self,
         *,
-        llm_client: LLMClient,
+        llm_client: Any,
         markdown: str,
         language: str,
         learning_outcomes: list[str],

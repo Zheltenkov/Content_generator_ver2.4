@@ -14,7 +14,7 @@ from ...utils.text_analysis import (
     has_term_definitions,
 )
 from ..messages import theory_section_label
-from .document_utils import chapter_content, section_content, theory_part_sections
+from .document_utils import chapter_prose_text, section_has_label, section_prose_text, theory_part_sections
 
 
 class Chapter2Checker:
@@ -390,15 +390,15 @@ class Chapter2Checker:
             return self.check("", learning_outcomes)
 
         parts = theory_part_sections(document, language=self.lang)
-        ch2_content = chapter_content(document, 2, language=self.lang)
+        ch2_text = chapter_prose_text(document, 2, language=self.lang)
         if not parts:
-            return self.check(ch2_content, learning_outcomes)
-        return self._check_typed_parts(parts, ch2_content, learning_outcomes)
+            return self.check(ch2_text, learning_outcomes)
+        return self._check_typed_parts(parts, ch2_text, learning_outcomes)
 
     def _check_typed_parts(
         self,
         parts: list[Any],
-        ch2_content: str,
+        ch2_text: str,
         learning_outcomes: list[str] | None = None,
     ) -> list[CriteriaItem]:
         """2.4 checks over typed theory sections without regex section splitting."""
@@ -456,7 +456,7 @@ class Chapter2Checker:
         volume_issues: list[str] = []
         volume_lo, volume_hi = THRESHOLDS["theory_words_per_part"]
         for i, part in enumerate(parts, 1):
-            part_main = self._main_theory_text(section_content(part))
+            part_main = self._main_theory_text(section_prose_text(part))
             words_count = count_prose_words(part_main, self.lang)
             if not (volume_lo <= words_count <= volume_hi):
                 volume_issues.append(f"{theory_section_label(i, part.title)}: {words_count} слов (ожидалось {volume_lo}–{volume_hi})")
@@ -473,7 +473,7 @@ class Chapter2Checker:
 
         definitions_issues: list[str] = []
         for i, part in enumerate(parts, 1):
-            part_text = section_content(part)
+            part_text = section_prose_text(part)
             has_defs, found_defs = has_term_definitions(part_text, self.lang, min_definitions=1, require_bold=True)
             safe_print(f"      [2.4.4] {theory_section_label(i, part.title)}: найдено {len(found_defs) if found_defs else 0} определений с жирным выделением", flush=True)
             if has_defs:
@@ -497,7 +497,7 @@ class Chapter2Checker:
         ))
 
         if learning_outcomes:
-            lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_content, learning_outcomes)
+            lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_text, learning_outcomes)
             items.append(CriteriaItem(
                 id="2.4.5",
                 title="Проверка соответствия ЗУНам проекта",
@@ -521,8 +521,8 @@ class Chapter2Checker:
 
         example_issues: list[str] = []
         for i, part in enumerate(parts, 1):
-            part_text = section_content(part)
-            has_example_block = "**Пример:**" in part_text
+            part_text = section_prose_text(part)
+            has_example_block = section_has_label(part, "Пример") or "**Пример:**" in part_text
             has_markers = any(marker in part_text.lower() for marker in ["пример", "ситуация", "кейс", "случай"])
             if not (has_example_block or has_markers):
                 example_issues.append(f"{theory_section_label(i, part.title)}: отсутствует пример/кейс")
@@ -540,7 +540,7 @@ class Chapter2Checker:
         readability_scores: list[float] = []
         readability_issues: list[tuple[int, float]] = []
         for i, part in enumerate(parts, 1):
-            part_main = clean_markdown_prose_for_counting(self._main_theory_text(section_content(part)))
+            part_main = clean_markdown_prose_for_counting(self._main_theory_text(section_prose_text(part)))
             raw_readability = self._calculate_readability(part_main.strip())
             raw_clamped = max(0.0, min(raw_readability, 30.0))
             readability = 50.0 + (80.0 - 50.0) * raw_clamped / 30.0
@@ -572,7 +572,7 @@ class Chapter2Checker:
 
 Название: {part.title}
 Содержание части (первые 500 символов):
-{section_content(part)[:500]}
+{section_prose_text(part)[:500]}
 
 Верни только JSON:
 {{"accurate": true/false}}"""

@@ -9,7 +9,7 @@ import logging
 import re
 from typing import Any
 
-from ..config.loader import get_agent_config
+from ..config.loader import get_agent_config, prompt_trace_kwargs
 from ..models.schemas import ProjectSeed
 from ..recovery import ModelOutputNormalizer
 from .base.agent import BaseAgent
@@ -230,6 +230,14 @@ class TheoryCompletenessAgent(BaseAgent):
             # Получаем дополненную теорию от LLM
             llm_kwargs = self.llm_kwargs.copy()
             llm_kwargs.setdefault("temperature", 0.3)
+            llm_kwargs.update(
+                prompt_trace_kwargs(
+                    self.config,
+                    "system",
+                    "user_template",
+                    output_schema="enhanced_theory_markdown",
+                )
+            )
 
             response = self.llm.complete(
                 system=system_prompt,

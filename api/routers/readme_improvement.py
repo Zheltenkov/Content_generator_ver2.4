@@ -19,7 +19,7 @@ from api.services.readme_improvement_service import (
 from api.utils.logger import get_logger
 from api.utils.logging_context import set_request_id, set_user_id
 from api.utils.result_cache import set_generation_status
-from content_gen.llm.client import LLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.models.schemas import ProjectSeed
 
 router = APIRouter()
@@ -29,7 +29,7 @@ logger = get_logger("readme_improvement")
 def _build_improvement_service() -> ReadmeImprovementService:
     """Build service with route-level dependencies for tests/monkeypatching."""
     return ReadmeImprovementService(
-        llm_factory=LLMClient,
+        llm_factory=lambda: create_llm_client(default_role="planner", enable_cache=True, enable_batching=True),
     )
 
 

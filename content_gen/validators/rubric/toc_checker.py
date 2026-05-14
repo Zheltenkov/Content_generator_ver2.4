@@ -6,7 +6,7 @@ import re
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
 from ...models.readme_document import ReadmeDocument, ReadmeSection
 from ...utils.logging import safe_print
-from .document_utils import section_content, toc_section
+from .document_utils import section_prose_text, toc_section
 from .utils import semantic_similarity as _semantic_similarity
 
 
@@ -550,7 +550,7 @@ class TOCChecker:
         if toc is None:
             return self._toc_failure_items()
 
-        toc_block = section_content(toc)
+        toc_block = section_prose_text(toc)
         links = re.findall(r'\[([^\]]+)\]\(#([^\)]+)\)', toc_block)
         toc_links = [text for text, _anchor in links]
         heading_sections = [
@@ -729,7 +729,7 @@ class TOCChecker:
             if section is None:
                 comments.append(f"Заголовок \"{heading}\": раздел не найден в документе")
                 continue
-            body = section_content(section)
+            body = section_prose_text(section)
             if not body:
                 comments.append(f"Заголовок \"{heading}\": раздел пустой, нет содержания")
                 continue

@@ -1,4 +1,4 @@
-"""
+﻿"""
 Orchestrator - координация всех агентов обратного извлечения.
 
 Выполняет полный пайплайн: нормализация → извлечение → классификация → маппинг → валидация → Excel.
@@ -8,7 +8,7 @@ import io
 import logging
 from typing import Any
 
-from ..llm.client import LLMClient
+from ..agents.base.llm_client import LLMClientProtocol
 from .agents import ClassifierAgent, InputAgent, MapperAgent, StructureExtractor, TasksExtractor, ValidatorAgent
 from .excel_writer import ExcelWriterTool
 from .models import ClassificationResult, NormalizedReadme, PartialProjectSeed
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class ReverseExtractionOrchestrator:
     """Оркестратор для обратного извлечения данных из README."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация оркестратора.
         

@@ -5,7 +5,11 @@ import re
 from ...models.criteria_models import CheckMethod, CriteriaItem
 from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
-from .document_utils import chapter_content, section_content, toc_section
+from .document_utils import (
+    section_content_size,
+    section_prose_text,
+    toc_section,
+)
 
 
 class Section1Checker:
@@ -314,7 +318,7 @@ class Section1Checker:
         safe_print(f"      {'✅' if items[-1].score == 1 else '❌'} 1.2: {items[-1].title}", flush=True)
 
         toc = toc_section(document)
-        toc_lines = [line.strip() for line in section_content(toc).splitlines() if line.strip()]
+        toc_lines = [line.strip() for line in section_prose_text(toc).splitlines() if line.strip()]
         items.append(CriteriaItem(
             id="1.3",
             title="Проверка наличия блока с оглавлением",
@@ -334,7 +338,7 @@ class Section1Checker:
             item_id="1.4",
             title="Проверка наличия блока с введением и инструкцией",
             description="Есть не пустой блок ## Глава 1. Введение и инструкция",
-            content=chapter_content(document, 1),
+            content_size=section_content_size(document.chapter_section(1)),
             missing_comment="Нет блока «Глава 1. Введение и инструкция»",
             short_comment="Блок Главы 1 пуст или слишком короткий",
         )
@@ -343,7 +347,7 @@ class Section1Checker:
             item_id="1.5",
             title="Проверка наличия теоретического блока",
             description="Есть не пустой блок ## Глава 2. Теоретический блок",
-            content=chapter_content(document, 2),
+            content_size=section_content_size(document.chapter_section(2)),
             missing_comment="Нет блока «Глава 2. Теоретический блок»",
             short_comment="Блок Главы 2 пуст или слишком короткий",
         )
@@ -352,7 +356,7 @@ class Section1Checker:
             item_id="1.6",
             title="Проверка наличия практического блока",
             description="Есть не пустой блок ## Глава 3. Практический блок",
-            content=chapter_content(document, 3),
+            content_size=section_content_size(document.chapter_section(3)),
             missing_comment="Нет блока «Глава 3. Практический блок»",
             short_comment="Блок Главы 3 пуст или слишком короткий",
         )
@@ -366,17 +370,17 @@ class Section1Checker:
         item_id: str,
         title: str,
         description: str,
-        content: str,
+        content_size: int,
         missing_comment: str,
         short_comment: str,
     ) -> None:
         """Append one typed chapter-presence criterion."""
-        if content and len(content) > 50:
+        if content_size > 50:
             score = 1
             comments: list[str] = []
         else:
             score = 0
-            comments = [short_comment if content else missing_comment]
+            comments = [short_comment if content_size else missing_comment]
         items.append(CriteriaItem(
             id=item_id,
             title=title,

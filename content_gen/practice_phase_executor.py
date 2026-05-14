@@ -4,18 +4,13 @@ import logging
 import re
 from typing import Any
 
+from .config.loader import prompt_trace_kwargs
 from .generation_runtime import GenerationRuntimeContainer
 from .models.phase_results import PracticePhaseResult
 from .models.readme_document import ReadmeDocument, ReadmeSection
 from .models.schemas import PracticeTask, ProjectSeed
 from .observability import record_runtime_fallback_traces
 from .recovery import ModelOutputNormalizer
-from .readme_document_pipeline import (
-    replace_readme_chapter_body,
-    replace_readme_chapter_children_document,
-    update_readme_bonus_section_children_document,
-    update_readme_bonus_section_document,
-)
 from .utils.text_analysis import extract_defined_terms
 from .utils.markdown_helpers import extract_chapter_content
 from .validators.practice_checks import PracticeChecks
@@ -209,11 +204,6 @@ def _render_public_task_section(task: Any, index: int, next_task: Any | None, *,
     )
 
 
-def _render_public_task(task: Any, index: int, next_task: Any | None, *, bonus: bool = False) -> str:
-    """Legacy Markdown wrapper for one public practice task."""
-    return _render_public_task_section(task, index, next_task, bonus=bonus).to_markdown() + "\n"
-
-
 def _render_practice_sections(tasks: list[Any]) -> list[ReadmeSection]:
     """Render practice tasks into typed README sections."""
     return [
@@ -232,31 +222,12 @@ def _render_bonus_sections(tasks: list[Any]) -> list[ReadmeSection]:
     return [_render_public_task_section(task, i, None, bonus=True) for i, task in enumerate(tasks, 1)]
 
 
-def _render_bonus_block(tasks: list[Any]) -> str:
-    """Render optional bonus tasks with the same contract blocks as practice tasks."""
-    return "\n\n".join(section.to_markdown() for section in _render_bonus_sections(tasks))
-
-
-def _replace_bonus_content(md: str, bonus_block: str, language: str) -> str:
-    """Replace or remove the optional bonus section without touching Chapter 3."""
-    patterns = {
-        "ru": r"\n##\s+Бонус[^\n]*\n.*\Z",
-        "en": r"\n##\s+Bonus[^\n]*\n.*\Z",
-        "kg": r"\n##\s+Бонус[^\n]*\n.*\Z",
-    }
-    pattern = patterns.get(language, patterns["ru"])
-    if not bonus_block.strip():
-        return re.sub(pattern, "", md, flags=re.S)
-
-    def _replace(match: re.Match[str]) -> str:
-        header_match = re.match(r"\n(##[^\n]*\n)", match.group(0))
-        header = header_match.group(1) if header_match else "## Бонус\n"
-        return f"\n{header}\n{bonus_block.strip()}\n"
-
-    updated, count = re.subn(pattern, _replace, md, count=1, flags=re.S)
-    if count:
-        return updated
-    return f"{md.rstrip()}\n\n## Бонус\n\n{bonus_block.strip()}\n"
+def _practice_chapter_title(language: str) -> str:
+    """Return the canonical public title for Chapter 3 when a skeleton is incomplete."""
+    normalized = (language or "ru").casefold().strip()
+    if normalized == "en":
+        return "Chapter 3. Practice block"
+    return "Глава 3. Практический блок"
 
 
 def _build_theory_summary(orchestrator, md: str, language: str) -> tuple[str, int, int]:
@@ -364,18 +335,14 @@ class PracticePhaseExecutor:
         self.validate_practice(practice_res, seed, issues)
         bonus_tasks = self.generate_bonus_tasks(seed, generate_bonus, section_context, issues, warnings)
         dataset_files = self.generate_dataset_files(practice_res, seed)
-        readme_document, changed = self.render_practice_document(
+        readme_document, _ = self.render_practice_document(
             ReadmeDocument.from_markdown(markdown),
             practice_res.tasks,
             bonus_tasks,
             generate_bonus,
             seed,
         )
-        if changed:
-            markdown = readme_document.to_markdown()
-        else:
-            markdown = self.render_practice_markdown(markdown, practice_res.tasks, bonus_tasks, generate_bonus, seed)
-            readme_document = ReadmeDocument.from_markdown(markdown)
+        markdown = readme_document.to_markdown()
         return PracticePhaseResult(
             markdown=markdown,
             readme_document=readme_document,
@@ -513,10 +480,14 @@ class PracticePhaseExecutor:
             regen_prompt = self._build_regeneration_prompt(task, task_idx, issue_descriptions, theory_summary, seed)
             try:
                 system_prompt = self.runtime.practice.config.get_prompt("system").format(language=seed.language)
+                regen_kwargs = {"temperature": 0.3}
+                regen_kwargs.update(
+                    prompt_trace_kwargs(self.runtime.practice.config, "system", output_schema="PracticeTask")
+                )
                 regen_md = self.runtime.practice.llm.complete(
                     system=system_prompt,
                     user=regen_prompt,
-                    temperature=0.3,
+                    **regen_kwargs,
                 )
                 if self._apply_regenerated_task(task, regen_md, seed, task_idx, theory_summary):
                     logger.info(f"✅ Задача {task_idx} успешно регенерирована")
@@ -855,33 +826,36 @@ SJM / кейс:
         seed: ProjectSeed,
     ) -> tuple[ReadmeDocument, bool]:
         """Render practice and optional bonus blocks into a typed README document."""
-        updated, changed = replace_readme_chapter_children_document(
-            readme_document,
+        practice_sections = _render_practice_sections(tasks)
+        updated, changed = readme_document.with_replaced_chapter_children(
             3,
-            _render_practice_sections(tasks),
+            practice_sections,
             language=seed.language,
         )
         if not changed:
-            return readme_document, False
-        if generate_bonus:
-            updated = update_readme_bonus_section_children_document(
-                updated,
-                _render_bonus_sections(bonus_tasks),
-                language=seed.language,
+            updated = readme_document.model_copy(deep=True)
+            updated.sections.append(
+                ReadmeSection(
+                    title=_practice_chapter_title(seed.language),
+                    level=2,
+                    children=practice_sections,
+                )
             )
-        return updated, True
-
-    @staticmethod
-    def render_practice_markdown(
-        markdown: str,
-        tasks: list[Any],
-        bonus_tasks: list[Any],
-        generate_bonus: bool,
-        seed: ProjectSeed,
-    ) -> str:
-        """Render final practice and optional bonus blocks into markdown."""
-        practice_block = _render_practice_block(tasks)
-        markdown = replace_readme_chapter_body(markdown, 3, practice_block, language=seed.language)
         if generate_bonus:
-            markdown = _replace_bonus_content(markdown, _render_bonus_block(bonus_tasks), seed.language)
-        return markdown
+            bonus_children = _render_bonus_sections(bonus_tasks)
+            bonus_fragment = "Bonus" if (seed.language or "ru").casefold().strip() == "en" else "Бонус"
+            if bonus_children:
+                existing = updated.section_by_title_fragment(bonus_fragment)
+                bonus_section = ReadmeSection(
+                    title=existing.title if existing else bonus_fragment,
+                    level=2,
+                    children=[child.model_copy(deep=True) for child in bonus_children],
+                )
+                updated = updated.with_upserted_section_by_title_fragment(
+                    bonus_fragment,
+                    bonus_section,
+                    fallback_level=2,
+                )
+            else:
+                updated, _ = updated.without_section_by_title_fragment(bonus_fragment)
+        return updated, True

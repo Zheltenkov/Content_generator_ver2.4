@@ -40,8 +40,7 @@ class TheoryValidator:
             )
 
         for i, section in enumerate(part_sections):
-            blk = section.to_markdown()
-            main = section.body.split("**Пример:**", 1)[0]
+            main = section.body_before_label("Пример")
             words = count_words(main, "ru")
             plo, phi = THRESHOLDS["theory_words_per_part"]
             if words < plo or words > phi:
@@ -52,13 +51,13 @@ class TheoryValidator:
                         f"Длина раздела 2.{i + 1} = {words} слов (ожидалось {plo}–{phi}).",
                     )
                 )
-            if "**Пример:**" not in blk:
+            if not section.has_label("Пример"):
                 issues.append(Issue(f"theory.parts[{i}].example", "error", "Нет блока **Пример:**"))
-            if "**Вопросы к практике:**" not in blk:
+            if not section.has_label("Вопросы к практике"):
                 issues.append(
                     Issue(f"theory.parts[{i}].bridge_questions", "error", "Нет блока **Вопросы к практике:**")
                 )
-            if "[LO: нет прямого покрытия]" in blk:
+            if "[LO: нет прямого покрытия]" in section.body_markdown():
                 issues.append(
                     Issue(
                         f"theory.parts[{i}].covers_outcomes",

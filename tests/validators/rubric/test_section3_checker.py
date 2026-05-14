@@ -1,5 +1,6 @@
 import json
 
+from content_gen.models.readme_document import ReadmeDocument
 from content_gen.validators.rubric.section3_checker import Section3Checker
 from content_gen.validators.rubric.similarity import SimilarityCalculator
 
@@ -65,3 +66,26 @@ def test_narrative_focus_reports_curriculum_drift() -> None:
     assert item.score == 0
     assert item.details["drift"] == ["DevOps", "Types and data structures"]
     assert "чужой учебный контекст" in item.comments[0].lower()
+
+
+def test_check_uses_typed_document_for_coherence_when_available(monkeypatch) -> None:
+    document = ReadmeDocument.from_markdown(
+        "# Проект\n\n"
+        "Аннотация задает рабочий контекст команды и общий продукт.\n\n"
+        "## Глава 1. Введение\n\n"
+        "Команда продолжает работать над тем же продуктом и уточняет решение.\n\n"
+        "## Глава 2. Теория\n\n"
+        "Теория объясняет тот же рабочий продукт через понятные решения.\n\n"
+        "## Глава 3. Практика\n\n"
+        "Практика просит применить эти решения в том же рабочем продукте."
+    )
+    checker = Section3Checker(SimilarityCalculator())
+    monkeypatch.setattr(
+        checker,
+        "_paragraph_coherence",
+        lambda _md: (_ for _ in ()).throw(AssertionError("Markdown coherence path used")),
+    )
+
+    items = checker.check("НЕ ДОЛЖНО ИСПОЛЬЗОВАТЬСЯ", document=document)
+
+    assert {item.id for item in items} == {"3.1", "3.2"}

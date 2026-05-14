@@ -13,7 +13,7 @@ import re
 from typing import Any
 
 from ..artifact_chain import EvidenceSpec
-from ..config.loader import get_agent_config
+from ..config.loader import get_agent_config, prompt_trace_kwargs
 from ..models.schemas import PracticeTask, ProjectSeed
 from ..practice_contract import is_solution_like_material_ref
 from .base.agent import BaseAgent
@@ -341,11 +341,20 @@ class DatasetGeneratorAgent(BaseAgent):
         ) + evidence_spec_section
 
         try:
+            llm_kwargs = self.llm_kwargs.copy()
+            llm_kwargs.update(
+                prompt_trace_kwargs(
+                    self.config,
+                    "system",
+                    "user_template",
+                    output_schema=f"{file_type}_dataset",
+                )
+            )
             response = self.llm.complete(
                 system=system_prompt,
                 user=user_prompt,
                 response_format="json_object" if file_type == "json" else None,
-                **self.llm_kwargs
+                **llm_kwargs
             )
 
             if not response:

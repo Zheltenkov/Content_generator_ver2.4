@@ -13,15 +13,9 @@ from .models.phase_results import TheoryPhaseResult
 from .models.readme_document import ReadmeDocument, ReadmeSection
 from .models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
 from .observability import record_runtime_fallback_traces
-from .readme_document_pipeline import (
-    replace_readme_chapter_body,
-    replace_readme_chapter_body_document,
-    replace_readme_chapter_children_document,
-)
 from .recovery import ModelOutputNormalizer
 from .utils.cancellation import CancelledError
 from .utils.markdown_display_normalizer import normalize_markdown_display_blocks
-from .utils.markdown_helpers import clean_duplicate_chapter_headers
 
 logger = logging.getLogger("content_gen.theory_phase_executor")
 
@@ -385,25 +379,12 @@ class TheoryPhaseExecutor:
         seed: ProjectSeed,
     ) -> ReadmeDocument:
         """Render theory parts into Chapter 2 of the typed README document."""
-        updated, changed = replace_readme_chapter_children_document(
-            readme_document,
+        updated, changed = readme_document.with_replaced_chapter_children(
             2,
             self._render_theory_sections(parts, seed),
             language=seed.language,
         )
         return updated if changed else readme_document
-
-    def render_markdown(self, markdown: str, parts: list[Any], seed: ProjectSeed) -> str:
-        """Legacy Markdown render wrapper for partial snippets and external callers."""
-        theory_body = self._render_theory_body(parts, seed)
-        markdown = replace_readme_chapter_body(markdown, 2, theory_body, language=seed.language)
-        markdown = normalize_markdown_display_blocks(markdown)
-        markdown = self._remove_duplicate_chapter2_headers(markdown)
-        return clean_duplicate_chapter_headers(markdown, seed.language)
-
-    def _render_theory_body(self, parts: list[Any], seed: ProjectSeed) -> str:
-        """Build the public Chapter 2 body from structured theory parts."""
-        return "\n\n".join(section.to_markdown() for section in self._render_theory_sections(parts, seed))
 
     def _render_theory_sections(self, parts: list[Any], seed: ProjectSeed) -> list[ReadmeSection]:
         """Build typed public Chapter 2 sections from structured theory parts."""
@@ -447,37 +428,6 @@ class TheoryPhaseExecutor:
             clean_body = clean_body.split("**Вопросы к практике:**", 1)[0].strip()
         clean_body = _remove_static_instruction_leaks(clean_body, topic_text=topic_text)
         return normalize_markdown_display_blocks(clean_body.strip())
-
-    @staticmethod
-    def _remove_duplicate_chapter2_headers(markdown: str) -> str:
-        markdown = re.sub(
-            r"(##\s+Глава\s+2[^\n]*\n)\s*\n*\s*\*\*Глава\s+2[^\*]+\*\*\s*\n+",
-            r"\1",
-            markdown,
-            flags=re.MULTILINE,
-        )
-        return re.sub(
-            r"(##\s+Глава\s+2[^\n]*\n)\s*\n*\s*\*\*Глава\s+2\*\*\s*\n+",
-            r"\1",
-            markdown,
-            flags=re.MULTILINE,
-        )
-
-    def apply_completeness_check(
-        self,
-        markdown: str,
-        seed: ProjectSeed,
-        context_meta: ProjectContextMeta,
-        warnings: list[str],
-    ) -> str:
-        """Legacy Markdown wrapper for the typed completeness check."""
-        document = self.apply_completeness_check_document(
-            ReadmeDocument.from_markdown(markdown),
-            seed,
-            context_meta,
-            warnings,
-        )
-        return normalize_markdown_display_blocks(document.to_markdown())
 
     def apply_completeness_check_document(
         self,
@@ -567,39 +517,36 @@ class TheoryPhaseExecutor:
         return extracted_topics, extracted_tools
 
     @staticmethod
-    def _replace_with_enhanced_theory(markdown: str, enhanced_markdown: str, seed: ProjectSeed) -> str:
-        """Replace Chapter 2 with the enhanced theory content when possible."""
-        document = ReadmeDocument.from_markdown(markdown)
-        updated = TheoryPhaseExecutor._replace_with_enhanced_theory_document(
-            document,
-            enhanced_markdown,
-            seed,
-        )
-        return normalize_markdown_display_blocks(updated.to_markdown())
-
-    @staticmethod
     def _replace_with_enhanced_theory_document(
         readme_document: ReadmeDocument,
         enhanced_markdown: str,
         seed: ProjectSeed,
     ) -> ReadmeDocument:
         """Replace Chapter 2 with enhanced theory in a typed README document."""
-        chapter_2_match = re.search(
-            r"(##\s+Глава\s+2[^\n]*\n)(.*?)(?=\n##\s+Глава\s+3|\Z)",
-            enhanced_markdown,
-            re.DOTALL,
-        )
-        if chapter_2_match:
-            chapter_2_content = chapter_2_match.group(2).strip()
-            updated, changed = replace_readme_chapter_body_document(
-                readme_document,
+        enhanced_document = ReadmeDocument.from_markdown(enhanced_markdown)
+        enhanced_chapter = enhanced_document.chapter_section(2, language=seed.language)
+        if enhanced_chapter is not None:
+            updated, changed = readme_document.with_replaced_chapter_children(
                 2,
-                chapter_2_content,
+                enhanced_chapter.children,
+                chapter_body=enhanced_chapter.body,
                 language=seed.language,
             )
             if changed:
                 return updated
-        return ReadmeDocument.from_markdown(enhanced_markdown)
+
+        is_chapter_body_only = not enhanced_document.sections or all(
+            section.level >= 3 for section in enhanced_document.sections
+        )
+        if is_chapter_body_only:
+            updated, changed = readme_document.with_replaced_chapter_body(
+                2,
+                enhanced_markdown,
+                language=seed.language,
+            )
+            if changed:
+                return updated
+        return enhanced_document
 
     def finalize_checks(
         self,

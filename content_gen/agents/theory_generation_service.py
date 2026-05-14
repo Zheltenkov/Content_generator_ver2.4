@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ..config.loader import prompt_trace_kwargs
 from ..domain_contracts import SectionContextPolicy
 from ..models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
 from ..project_planning import render_practice_plan_contract_section
@@ -94,6 +95,14 @@ class TheoryGenerationService:
 
         generation_kwargs = self.llm_kwargs.copy()
         generation_kwargs.setdefault("temperature", 0.2)
+        generation_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="TheoryPart[]",
+            )
+        )
         markdown = self.llm.complete(system=system_prompt, user=user_prompt, **generation_kwargs)
         markdown = strip_theory_chapter_heading(markdown)
         normalization = self.output_normalizer.normalize_theory_markdown(markdown)
@@ -250,8 +259,14 @@ class TheoryGenerationService:
         system_prompt = self.config.get_prompt("system").format(language=seed.language)
 
         if hasattr(self.llm, "complete_batch"):
+            trace_kwargs = prompt_trace_kwargs(self.config, "system", output_schema="theory_example")
             batch_requests = [
-                (system_prompt, build_theory_example_prompt(parts_data[idx]), None, {"temperature": 0.3})
+                (
+                    system_prompt,
+                    build_theory_example_prompt(parts_data[idx]),
+                    None,
+                    {"temperature": 0.3, **trace_kwargs},
+                )
                 for idx in examples_to_generate
             ]
             example_results = self.llm.complete_batch(batch_requests)
@@ -264,7 +279,12 @@ class TheoryGenerationService:
         else:
             for part_idx in examples_to_generate:
                 user_prompt = build_theory_example_prompt(parts_data[part_idx])
-                example_md = self.llm.complete(system=system_prompt, user=user_prompt, temperature=0.3)
+                example_md = self.llm.complete(
+                    system=system_prompt,
+                    user=user_prompt,
+                    temperature=0.3,
+                    **prompt_trace_kwargs(self.config, "system", output_schema="theory_example"),
+                )
                 parts_data[part_idx]["example"] = self.style_rewrite(
                     parse_theory_example_response(example_md),
                     seed.language,
@@ -285,8 +305,14 @@ class TheoryGenerationService:
         system_prompt = self.config.get_prompt("system").format(language=seed.language)
 
         if hasattr(self.llm, "complete_batch"):
+            trace_kwargs = prompt_trace_kwargs(self.config, "system", output_schema="theory_bridge_questions")
             batch_requests = [
-                (system_prompt, build_theory_questions_prompt(parts_data[idx], seed), None, {"temperature": 0.3})
+                (
+                    system_prompt,
+                    build_theory_questions_prompt(parts_data[idx], seed),
+                    None,
+                    {"temperature": 0.3, **trace_kwargs},
+                )
                 for idx in questions_to_generate
             ]
             question_results = self.llm.complete_batch(batch_requests)
@@ -309,6 +335,7 @@ class TheoryGenerationService:
                     system=system_prompt,
                     user=build_theory_questions_prompt(parts_data[part_idx], seed),
                     temperature=0.3,
+                    **prompt_trace_kwargs(self.config, "system", output_schema="theory_bridge_questions"),
                 )
                 questions = parse_theory_questions_response(questions_md)
                 if not self._validate_questions(questions, seed):
@@ -328,7 +355,12 @@ class TheoryGenerationService:
             build_theory_questions_prompt(part_data, seed)
             + "\nУточнение: вопросы должны содержать явную связь с проектом и инструментами."
         )
-        questions_md = self.llm.complete(system=system_prompt, user=fix_prompt, temperature=0.1)
+        questions_md = self.llm.complete(
+            system=system_prompt,
+            user=fix_prompt,
+            temperature=0.1,
+            **prompt_trace_kwargs(self.config, "system", output_schema="theory_bridge_questions"),
+        )
         questions = parse_theory_questions_response(questions_md)
         if self._validate_questions(questions, seed):
             return questions

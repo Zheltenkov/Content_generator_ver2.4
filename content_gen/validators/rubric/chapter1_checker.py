@@ -6,7 +6,7 @@ from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
 from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import count_words
-from .document_utils import chapter_content
+from .document_utils import section_prose_text
 
 
 class Chapter1Checker:
@@ -346,7 +346,18 @@ class Chapter1Checker:
 
     def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
         """2.3: Проверка Главы 1 из typed README document."""
-        return self.check(chapter_content(document, 1, language=self.lang))
+        chapter = document.chapter_section(1, language=self.lang)
+        if chapter is None:
+            return self.check("")
+        child_blocks = [
+            f"### {child.title}\n\n{section_prose_text(child)}".strip()
+            for child in chapter.children
+            if child.title.strip()
+        ]
+        typed_content = "\n\n".join(block for block in child_blocks if block.strip())
+        if not typed_content:
+            typed_content = section_prose_text(chapter)
+        return self.check(typed_content)
 
     @staticmethod
     def _has_contextual_constraints_script(instruction_text: str) -> bool:

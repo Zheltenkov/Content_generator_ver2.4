@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/definitions_agent.py
 
 Агент для проверки и генерации определений терминов в частях теории.
@@ -13,7 +13,7 @@ import re
 import time
 
 from ..exceptions import LLMTimeoutError
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.logging import safe_print
 from ..utils.text_analysis import has_term_definitions
@@ -99,7 +99,7 @@ class DefinitionsAgent:
     Генерирует определения, если их недостаточно.
     """
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация агента.
         

@@ -26,7 +26,7 @@ def _task_plan() -> TaskPlan:
         tasks_count=3,
         complexity="medium",
         level_index=1,
-        level_source="test",
+        level_source="audience_only",
         rationale="test",
         explanation="test",
     )

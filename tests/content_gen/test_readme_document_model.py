@@ -1,3 +1,4 @@
+from content_gen.models.readme_blocks import ReadmeBlockKind
 from content_gen.models.readme_document import ReadmeDocument, ReadmeSection
 
 
@@ -195,3 +196,42 @@ def test_readme_document_extracts_typed_blocks_and_section_metadata() -> None:
     assert [block.kind.value for block in blocks] == ["mermaid", "table", "formula"]
     assert blocks[0].caption == "Процесс проверки"
     assert blocks[0].section_path == ["Проект", "Глава 2. Теоретический блок", "2.1. Процесс"]
+
+
+def test_readme_document_materializes_full_typed_block_model() -> None:
+    document = ReadmeDocument.from_markdown(
+        "# Проект\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "### Задание 1. Артефакт\n\n"
+        "Собери результат.\n\n"
+        "```python\n"
+        "print('ok')\n"
+        "```\n\n"
+        "**Что должно получиться**\n\n"
+        "- [ ] Файл лежит в `repo/part-03/task-01/result.md`.\n"
+        "- [ ] Таблица содержит проверяемые строки.\n\n"
+        "| Поле | Значение |\n"
+        "| --- | --- |\n"
+        "| status | ok |\n"
+    )
+
+    section = document.section_by_title_fragment("Задание 1")
+    assert section is not None
+    blocks = section.content_blocks(recursive=False, include_paragraphs=True)
+    kinds = [block.kind for block in blocks]
+
+    assert kinds == [
+        ReadmeBlockKind.PARAGRAPH,
+        ReadmeBlockKind.CODE,
+        ReadmeBlockKind.PARAGRAPH,
+        ReadmeBlockKind.CRITERIA,
+        ReadmeBlockKind.TABLE,
+    ]
+    assert blocks[1].language == "python"
+    assert blocks[3].items == [
+        "Файл лежит в `repo/part-03/task-01/result.md`.",
+        "Таблица содержит проверяемые строки.",
+    ]
+    assert blocks[4].headers == ["Поле", "Значение"]
+    assert blocks[4].rows == [["status", "ok"]]
+    assert document.block_counts(include_paragraphs=True)["criteria"] == 1

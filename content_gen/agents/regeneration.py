@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/regeneration.py
 
 Агент для перегенерации README на основе комментариев.
@@ -11,7 +11,7 @@ import re
 from dataclasses import dataclass
 
 from ..didactics.composer import compose_didactics_context
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..utils.patch_format import (
     apply_patches,
     parse_patches_from_response,
@@ -130,7 +130,7 @@ REWRITE_USER_TMPL = """Ниже представлен README учебного �
 class RegenerationAgent:
     """Агент для перегенерации README на основе комментариев."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         try:
             self.didactics_context, self.didactics_trace = compose_didactics_context("regeneration")

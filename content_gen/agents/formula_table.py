@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/formula_table.py
 
 Агент для анализа необходимости и генерации формул, таблиц и визуализаций.
@@ -22,7 +22,7 @@ import json
 import re
 from typing import Any
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.enhancement_models import FormulaItem, FormulaTableResult, GenerationResponse, TableItem, VisualItem
 from ..models.schemas import ProjectSeed
 from ..utils.logging import safe_print
@@ -184,7 +184,7 @@ GENERATION_TMPL = """Для темы "{topic}" сгенерируй формул
 class FormulaTableAgent:
     """Агент для анализа и генерации формул, таблиц и визуализаций."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
 
     def _safe_json_extract(self, text: str) -> dict[str, Any] | None:

@@ -1,4 +1,4 @@
-"""Агенты для генерации контента.
+"""LLM-backed generation agents and legacy compatibility imports.
 
 Exports stay lazy so callers can import lightweight agent contracts without
 pulling optional subsystems eagerly.

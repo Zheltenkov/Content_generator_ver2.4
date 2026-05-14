@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/length_agent.py
 
 Агент для проверки и исправления длины частей теории.
@@ -10,11 +10,11 @@ content_gen/agents/length_agent.py
 import re
 
 from ..config.thresholds import THRESHOLDS
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.logging import safe_print
 from ..utils.text_analysis import count_words
-from .style_guard import StyleGuardAgent
+from ..repair.style_guard import StyleGuardRepair
 
 SYSTEM = """Ты — эксперт по редактированию образовательного контента.
 Твоя задача — корректировать длину текста, сохраняя все определения терминов и смысл.
@@ -85,7 +85,7 @@ class LengthAgent:
     текст при необходимости, ОБЯЗАТЕЛЬНО сохраняя все определения терминов.
     """
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация агента.
         
@@ -93,7 +93,7 @@ class LengthAgent:
             llm: LLM клиент для генерации
         """
         self.llm = llm
-        self.style = StyleGuardAgent()
+        self.style = StyleGuardRepair()
 
     def check_length(self, part: TheoryPart, seed: ProjectSeed) -> tuple[bool, int, str]:
         """

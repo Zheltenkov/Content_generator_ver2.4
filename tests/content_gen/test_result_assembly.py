@@ -102,9 +102,11 @@ def test_result_assembler_builds_spec_report_and_assets() -> None:
     assert finalized.result.report_json["llm_traces"] == [
         {"node": "theory", "agent": "TheoryAgent", "input_hash": "def"}
     ]
-    assert finalized.result.report_json["fallback_traces"] == [
-        {"node": "task_planning", "fallback_type": "default_task_plan"}
-    ]
+    fallback_trace = finalized.result.report_json["fallback_traces"][0]
+    assert fallback_trace["node"] == "task_planning"
+    assert fallback_trace["fallback_type"] == "default_task_plan"
+    assert fallback_trace["trace_id"]
+    assert "visible_to_user" in fallback_trace
     assert finalized.result.report_json["compatibility_events"] == [
         {"source": "paused_generation_codec", "compatibility_type": "unknown_paused_type"}
     ]

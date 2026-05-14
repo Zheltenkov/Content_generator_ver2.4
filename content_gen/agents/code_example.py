@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/code_example.py
 
 Агент для генерации примеров кода и заданий на программирование.
@@ -11,7 +11,7 @@ import json
 import re
 
 from ..config.thresholds import CODE_EXAMPLE_CONFIG
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.enhancement_models import CodeExample, CodeGenerationResult, CodeTask
 from ..models.schemas import ProjectSeed
 from ..utils.logging import safe_print
@@ -86,7 +86,7 @@ USER_TMPL = """Ты — эксперт по генерации образова�
 class CodeExampleAgent:
     """Агент для генерации примеров кода и заданий на программирование."""
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
 
     def generate(

@@ -7,7 +7,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .readme_blocks import ReadmeBlock, block_counts as count_readme_blocks, extract_readme_blocks
+from .readme_blocks import (
+    ReadmeBlock,
+    ReadmeBlockKind,
+    block_counts as count_readme_blocks,
+    extract_readme_blocks,
+    materialize_readme_blocks,
+    render_readme_blocks,
+)
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$", flags=re.MULTILINE)
 _FENCE_RE = re.compile(r"^\s*(```+|~~~+)")
@@ -22,12 +29,15 @@ class ReadmeSection(BaseModel):
     title: str
     level: int = Field(ge=1, le=6)
     body: str = ""
+    blocks: list[ReadmeBlock] = Field(default_factory=list)
     children: list["ReadmeSection"] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     def model_post_init(self, __context: Any) -> None:
         """Populate stable section metadata while preserving caller-provided fields."""
-        inferred = self._infer_metadata(self.title, self.level, self.body)
+        if not self.blocks and (self.body or "").strip():
+            self.blocks = materialize_readme_blocks(self.body)
+        inferred = self._infer_metadata(self.title, self.level, self.body, self.blocks)
         metadata = dict(self.metadata or {})
         for key, value in inferred.items():
             metadata.setdefault(key, value)
@@ -36,7 +46,7 @@ class ReadmeSection(BaseModel):
     def to_markdown(self) -> str:
         """Render this section and its children as Markdown."""
         blocks = [f"{'#' * self.level} {self.title}".rstrip()]
-        body = self.body.strip()
+        body = self.body_markdown()
         if body:
             blocks.append(body)
         for child in self.children:
@@ -45,6 +55,16 @@ class ReadmeSection(BaseModel):
                 blocks.append(rendered_child)
         return "\n\n".join(blocks).strip()
 
+    def body_markdown(self) -> str:
+        """Render the section body from typed blocks when they cover the body."""
+        body = (self.body or "").strip()
+        if not self.blocks:
+            return body
+        rendered = render_readme_blocks(self.blocks)
+        if body and not _same_markdown(rendered, body):
+            return body
+        return rendered
+
     def flatten(self) -> list["ReadmeSection"]:
         """Return this section and all descendants in document order."""
         result = [self]
@@ -52,21 +72,50 @@ class ReadmeSection(BaseModel):
             result.extend(child.flatten())
         return result
 
-    def content_blocks(self, *, recursive: bool = True, path: list[str] | None = None) -> list[ReadmeBlock]:
-        """Return typed Mermaid/table/formula blocks from this section."""
+    def content_blocks(
+        self,
+        *,
+        recursive: bool = True,
+        path: list[str] | None = None,
+        include_paragraphs: bool = False,
+    ) -> list[ReadmeBlock]:
+        """Return typed content blocks from this section."""
         section_path = [*(path or []), self.title]
+        source_blocks = self.blocks or extract_readme_blocks(self.body, include_paragraphs=True)
+        if not include_paragraphs:
+            source_blocks = [block for block in source_blocks if block.kind is not ReadmeBlockKind.PARAGRAPH]
         blocks = [
             block.with_section(self.title, section_path)
-            for block in extract_readme_blocks(self.body)
+            for block in source_blocks
         ]
         if recursive:
             for child in self.children:
-                blocks.extend(child.content_blocks(recursive=True, path=section_path))
+                blocks.extend(
+                    child.content_blocks(
+                        recursive=True,
+                        path=section_path,
+                        include_paragraphs=include_paragraphs,
+                    )
+                )
         return blocks
 
-    def block_counts(self, *, recursive: bool = True) -> dict[str, int]:
-        """Return Mermaid/table/formula counts for this section."""
-        return count_readme_blocks(self.content_blocks(recursive=recursive))
+    def block_counts(self, *, recursive: bool = True, include_paragraphs: bool = False) -> dict[str, int]:
+        """Return typed block counts for this section."""
+        return count_readme_blocks(
+            self.content_blocks(recursive=recursive, include_paragraphs=include_paragraphs)
+        )
+
+    def has_label(self, label: str) -> bool:
+        """Return whether this section body has a bold Markdown label."""
+        return bool(self.label_block(label))
+
+    def label_block(self, label: str) -> str:
+        """Return text under a bold label such as ``**Что нужно сделать**``."""
+        return _label_block(self.body_markdown(), label)
+
+    def body_before_label(self, label: str) -> str:
+        """Return body text before the first matching bold label."""
+        return _body_before_label(self.body_markdown(), label)
 
     @classmethod
     def from_markdown(
@@ -103,9 +152,14 @@ class ReadmeSection(BaseModel):
         )
 
     @staticmethod
-    def _infer_metadata(title: str, level: int, body: str) -> dict[str, Any]:
+    def _infer_metadata(
+        title: str,
+        level: int,
+        body: str,
+        blocks: list[ReadmeBlock] | None = None,
+    ) -> dict[str, Any]:
         """Infer stable section metadata from heading, body, and structured blocks."""
-        block_summary = count_readme_blocks(extract_readme_blocks(body or ""))
+        block_summary = count_readme_blocks(blocks or extract_readme_blocks(body or ""))
         metadata: dict[str, Any] = {
             "metadata_schema": "readme_section/v1",
             "slug": ReadmeDocument.slugify(title),
@@ -252,6 +306,7 @@ class ReadmeDocument(BaseModel):
                 document.sections[index] = section.model_copy(
                     update={
                         "body": (chapter_body or "").strip(),
+                        "blocks": materialize_readme_blocks(chapter_body or ""),
                         "children": [child.model_copy(deep=True) for child in children],
                     },
                     deep=True,
@@ -306,16 +361,19 @@ class ReadmeDocument(BaseModel):
                     sections.append({"title": item.title, "markdown": item.to_markdown()})
         return sections
 
-    def content_blocks(self) -> list[ReadmeBlock]:
-        """Return all typed Mermaid/table/formula blocks from the document."""
-        blocks = [block.with_section(self.title, [self.title]) for block in extract_readme_blocks(self.annotation)]
+    def content_blocks(self, *, include_paragraphs: bool = False) -> list[ReadmeBlock]:
+        """Return typed content blocks from the document."""
+        blocks = [
+            block.with_section(self.title, [self.title])
+            for block in extract_readme_blocks(self.annotation, include_paragraphs=include_paragraphs)
+        ]
         for section in self.sections:
-            blocks.extend(section.content_blocks(path=[self.title]))
+            blocks.extend(section.content_blocks(path=[self.title], include_paragraphs=include_paragraphs))
         return blocks
 
-    def block_counts(self) -> dict[str, int]:
-        """Return Mermaid/table/formula counts for the whole document."""
-        return count_readme_blocks(self.content_blocks())
+    def block_counts(self, *, include_paragraphs: bool = False) -> dict[str, int]:
+        """Return typed block counts for the whole document."""
+        return count_readme_blocks(self.content_blocks(include_paragraphs=include_paragraphs))
 
     @classmethod
     def from_value(cls, value: Any, *, fallback_markdown: str = "", fallback_title: str = "README") -> "ReadmeDocument":
@@ -456,3 +514,65 @@ class ReadmeDocument(BaseModel):
                     matches.append(heading_match)
             position += len(line)
         return matches
+
+
+def _same_markdown(left: str, right: str) -> bool:
+    """Compare Markdown bodies after whitespace normalization."""
+    return re.sub(r"\s+", " ", (left or "").strip()) == re.sub(r"\s+", " ", (right or "").strip())
+
+
+def _label_block(markdown: str, label: str) -> str:
+    """Extract a body block after a bold Markdown label without relying on section regex."""
+    target = _normalize_label(label)
+    if not target:
+        return ""
+
+    capturing = False
+    collected: list[str] = []
+    for line in (markdown or "").splitlines():
+        parsed = _parse_bold_label(line)
+        if parsed is not None:
+            current_label, remainder = parsed
+            if capturing:
+                break
+            if _normalize_label(current_label) == target:
+                capturing = True
+                if remainder:
+                    collected.append(remainder)
+            continue
+        if capturing:
+            collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def _body_before_label(markdown: str, label: str) -> str:
+    """Return Markdown body before the first matching bold label."""
+    target = _normalize_label(label)
+    if not target:
+        return (markdown or "").strip()
+
+    collected: list[str] = []
+    for line in (markdown or "").splitlines():
+        parsed = _parse_bold_label(line)
+        if parsed is not None and _normalize_label(parsed[0]) == target:
+            break
+        collected.append(line)
+    return "\n".join(collected).strip()
+
+
+def _parse_bold_label(line: str) -> tuple[str, str] | None:
+    """Parse ``**Label:** optional text`` lines."""
+    stripped = (line or "").strip()
+    if not stripped.startswith("**"):
+        return None
+    close_index = stripped.find("**", 2)
+    if close_index < 0:
+        return None
+    label = stripped[2:close_index].strip().rstrip(":").strip()
+    if not label:
+        return None
+    return label, stripped[close_index + 2 :].strip()
+
+
+def _normalize_label(label: str) -> str:
+    return (label or "").strip().rstrip(":").casefold()

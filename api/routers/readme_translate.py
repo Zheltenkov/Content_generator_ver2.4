@@ -28,7 +28,7 @@ from api.utils.result_cache import (
     set_translation_phase,
 )
 from content_gen.agents.translator import TranslatorAgent
-from content_gen.llm.cached_client import CachedLLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.models.schemas import ProjectSeed
 from content_gen.subtitles.burned_pipeline import run_burned_subs_pipeline
 
@@ -111,9 +111,12 @@ def _run_translation(
     def progress_callback(phase: str) -> None:
         set_translation_phase(request_id, phase)
 
-    llm_client = CachedLLMClient(
+    llm_client = create_llm_client(
+        default_role="translator",
         enable_cache=True,
         enable_batching=True,
+        user_id=user_id,
+        run_id=request_id,
     )
     translator = TranslatorAgent(llm_client)
     try:
@@ -197,9 +200,12 @@ def _run_burned_video_translation(
         progress = STAGE_PROGRESS.get(phase)
         set_translation_phase(request_id, phase, progress)
 
-    llm_client = CachedLLMClient(
+    llm_client = create_llm_client(
+        default_role="translator",
         enable_cache=True,
         enable_batching=True,
+        user_id=user_id,
+        run_id=request_id,
     )
     # Ограничиваем количество одновременных тяжёлых задач перевода видео.
     with _video_jobs_semaphore:

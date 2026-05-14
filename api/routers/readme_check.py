@@ -13,7 +13,7 @@ from api.db.logging_db import write_log_async
 from api.dependencies import get_current_user
 from api.utils.logger import get_logger
 from api.utils.logging_context import set_request_id, set_user_id
-from content_gen.llm.client import LLMClient
+from content_gen.llm.factory import create_llm_client
 from content_gen.utils.rubric_export import criteria_to_json
 from content_gen.validators.rubric import RubricScorer
 from utils.token_counter import count_tokens
@@ -110,7 +110,13 @@ async def check_readme(
     try:
         # LLM клиент передается в RubricScorer для AI‑критериев
         try:
-            llm_client = LLMClient()
+            llm_client = create_llm_client(
+                default_role="critic",
+                enable_cache=True,
+                enable_batching=True,
+                user_id=user_id,
+                run_id=request_id,
+            )
             logger.info("✅ LLM клиент создан успешно")
         except Exception as e:
             logger.error(f"❌ Ошибка создания LLM клиента: {e}", exc_info=True)

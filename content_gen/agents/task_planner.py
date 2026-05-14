@@ -10,9 +10,9 @@ content_gen/agents/task_planner.py
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from ..agents.context_analysis import ContextAnalysisResult
 from ..config.loader import get_agent_config
@@ -26,12 +26,14 @@ logger = logging.getLogger(__name__)
 class TaskPlan(BaseModel):
     """Результат планирования практики."""
 
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     tasks_count: int = Field(
         description="Количество практических задач (от 2 до 8)",
         ge=2,
         le=8
     )
-    complexity: str = Field(
+    complexity: Literal["easy", "medium", "hard"] = Field(
         description="Уровень сложности задач: 'easy', 'medium' или 'hard'"
     )
     level_index: int = Field(
@@ -39,7 +41,7 @@ class TaskPlan(BaseModel):
         ge=0,
         le=2
     )
-    level_source: str = Field(
+    level_source: Literal["context+audience", "audience_only", "curriculum_adjusted"] = Field(
         description="Источник определения уровня: 'context+audience', 'audience_only' или 'curriculum_adjusted'"
     )
     rationale: str = Field(

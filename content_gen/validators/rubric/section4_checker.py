@@ -5,6 +5,7 @@ import re
 from ...models.criteria_models import CheckMethod, CriteriaItem, StrictnessLevel
 from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
+from .document_utils import document_prose_text
 
 
 class Section4Checker:
@@ -128,7 +129,7 @@ class Section4Checker:
 
         return False
 
-    def check(self, md: str) -> list[CriteriaItem]:
+    def _check_text(self, md: str, *, protected_blocks_removed: bool = False) -> list[CriteriaItem]:
         """Проверяет раздел 4: Tone of voice и редактура (4.1-4.3)."""
         items = []
 
@@ -198,15 +199,16 @@ class Section4Checker:
             # Не критично, но проверяем
             pass
 
-        # Проверка кавычек-елочек (исключаем кавычки в коде и JSON)
-        # Убираем блоки кода и JSON перед проверкой
-        md_for_quote_check = re.sub(r'```[\s\S]*?```', '', md)  # Блоки кода
-        md_for_quote_check = re.sub(r'`[^`]+`', '', md_for_quote_check)  # Inline код
-        md_for_quote_check = re.sub(r'\{[^}]*"[^}]*\}', '', md_for_quote_check)  # JSON объекты
-        md_for_quote_check = re.sub(r'\[[^\]]*"[^\]]*\]', '', md_for_quote_check)  # JSON массивы
-        md_for_quote_check = re.sub(r'<div[^>]*>[\s\S]*?</div>', '', md_for_quote_check)  # HTML блоки (Mermaid)
-        md_for_quote_check = re.sub(r'%%\{init:[\s\S]*?\}%%', '', md_for_quote_check)  # Mermaid init блоки
-        md_for_quote_check = re.sub(r'(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitgraph|journey|requirement)[\s\S]*?(?=\n\n|\n#|$|```)', '', md_for_quote_check, flags=re.I)  # Mermaid диаграммы
+        md_for_quote_check = md
+        if not protected_blocks_removed:
+            # Legacy Markdown input still needs deterministic cleanup before typography checks.
+            md_for_quote_check = re.sub(r'```[\s\S]*?```', '', md_for_quote_check)  # Блоки кода
+            md_for_quote_check = re.sub(r'`[^`]+`', '', md_for_quote_check)  # Inline код
+            md_for_quote_check = re.sub(r'\{[^}]*"[^}]*\}', '', md_for_quote_check)  # JSON объекты
+            md_for_quote_check = re.sub(r'\[[^\]]*"[^\]]*\]', '', md_for_quote_check)  # JSON массивы
+            md_for_quote_check = re.sub(r'<div[^>]*>[\s\S]*?</div>', '', md_for_quote_check)  # HTML блоки (Mermaid)
+            md_for_quote_check = re.sub(r'%%\{init:[\s\S]*?\}%%', '', md_for_quote_check)  # Mermaid init блоки
+            md_for_quote_check = re.sub(r'(flowchart|graph|sequenceDiagram|classDiagram|stateDiagram|erDiagram|gantt|pie|gitgraph|journey|requirement)[\s\S]*?(?=\n\n|\n#|$|```)', '', md_for_quote_check, flags=re.I)  # Mermaid диаграммы
 
         # Ищем прямые кавычки в тексте (не в коде)
         straight_quotes = re.findall(r'"[^"]*"', md_for_quote_check)
@@ -254,6 +256,10 @@ class Section4Checker:
 
         return items
 
+    def check(self, md: str) -> list[CriteriaItem]:
+        """Проверяет раздел 4 по legacy Markdown input."""
+        return self._check_text(md, protected_blocks_removed=False)
+
     def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
         """Проверяет раздел 4 по typed README document tree."""
-        return self.check(document.to_markdown())
+        return self._check_text(document_prose_text(document), protected_blocks_removed=True)

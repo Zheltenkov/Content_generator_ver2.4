@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/title_annotation.py
 
 Агент генерации заголовка и аннотации.
@@ -11,9 +11,9 @@ import re
 import sys
 from dataclasses import dataclass
 
-from ..config.loader import get_agent_config
+from ..config.loader import get_agent_config, prompt_trace_kwargs
 from ..config.thresholds import THRESHOLDS
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..utils.didactics_loader import compose_didactics_context
 from ..models.schemas import Annotation, ProjectContextMeta, ProjectSeed
 
@@ -150,7 +150,7 @@ class TitleAnnotationAgent:
 
     CONFIG_NAME = "title_annotation"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         self.rx_h1 = re.compile(r"^#\s+(.+)$", re.M)
         self.config = get_agent_config(self.CONFIG_NAME)
@@ -195,7 +195,16 @@ class TitleAnnotationAgent:
             seed_skills="; ".join(seed.skills) if seed.skills else "—",
         )
 
-        regenerated = self.llm.complete(system=system_prompt, user=user, **self.llm_kwargs)
+        llm_kwargs = self.llm_kwargs.copy()
+        llm_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system_base",
+                "regenerate_annotation",
+                output_schema="Annotation.text",
+            )
+        )
+        regenerated = self.llm.complete(system=system_prompt, user=user, **llm_kwargs)
         return re.sub(r"\s+", " ", regenerated.strip())
 
     def _regenerate_title(self, original_title: str, seed: ProjectSeed, context_meta: ProjectContextMeta) -> str:
@@ -223,6 +232,14 @@ class TitleAnnotationAgent:
 
         regen_kwargs = self.llm_kwargs.copy()
         regen_kwargs.setdefault("temperature", 0.2)
+        regen_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system_base",
+                "regenerate_title",
+                output_schema="TitleAnnotation.title",
+            )
+        )
         regenerated = self.llm.complete(system=system_prompt, user=user, **regen_kwargs)
         # Убираем возможные символы # и лишние пробелы
         regenerated = re.sub(r"^#+\s*", "", regenerated.strip())
@@ -488,5 +505,13 @@ class TitleAnnotationAgent:
         )
         generation_kwargs = self.llm_kwargs.copy()
         generation_kwargs.setdefault("temperature", 0.2)
+        generation_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system_base",
+                "user_template",
+                output_schema="TitleAnnotation",
+            )
+        )
         md = self.llm.complete(system=system_prompt, user=usr, **generation_kwargs)
         return self._postprocess(md, seed=seed, context_meta=context_meta)

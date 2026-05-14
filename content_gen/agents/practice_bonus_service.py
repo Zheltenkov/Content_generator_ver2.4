@@ -6,6 +6,7 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from ..config.loader import prompt_trace_kwargs
 from ..models.schemas import PracticeTask, ProjectSeed
 from .base.llm_client import LLMClientProtocol
 from .practice_contracts import ensure_p2p_criteria, normalize_approach_bullets
@@ -77,6 +78,14 @@ class BonusPracticeService:
 
         generation_kwargs = self.llm_kwargs.copy()
         generation_kwargs.setdefault("temperature", 0.2)
+        generation_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "bonus_template",
+                output_schema="BonusPracticeTask[]",
+            )
+        )
         markdown = self.llm.complete(system=system_prompt, user=user_prompt, **generation_kwargs)
         bonus_tasks = self._materialize_bonus_tasks(markdown, seed)
         return self.finalizer.finalize_bonus_tasks(bonus_tasks, seed, seed.language)

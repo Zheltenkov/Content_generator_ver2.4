@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/translator.py
 
 Агент для перевода README на целевой язык с сохранением структуры.
@@ -19,7 +19,7 @@ import sys
 from collections.abc import Callable
 from difflib import SequenceMatcher
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.schemas import ProjectSeed
 from ..utils.protected_blocks import protect_blocks, restore_blocks
 from .translation_refiner import TranslationCombinerAgent, TranslationRefinerAgent
@@ -142,7 +142,7 @@ _MARKDOWN_STRIP_RE = re.compile(
 class TranslatorAgent:
     """Агент для перевода README на целевой язык."""
 
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: LLMClientProtocol):
         self.llm = llm_client
         self._default_max_chunk_length = 10000
 

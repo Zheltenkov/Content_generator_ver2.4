@@ -1,9 +1,10 @@
-"""Основной класс RubricScorer для оценки проектов по критериям."""
+﻿"""Основной класс RubricScorer для оценки проектов по критериям."""
 
 import concurrent.futures
+import json
 import re
 
-from ...llm.client import LLMClient
+from ...agents.base.llm_client import LLMClientProtocol
 from ...models.criteria_models import CriteriaItem, CriteriaReport
 from ...models.readme_document import ReadmeDocument
 from ...embeddings import create_embedding_function
@@ -19,7 +20,7 @@ from .similarity import SimilarityCalculator
 class RubricScorer:
     """Оценивает проект по всем критериям из "Критерии проверки.txt"."""
 
-    def __init__(self, language: str = "ru", llm_client: LLMClient | None = None):
+    def __init__(self, language: str = "ru", llm_client: LLMClientProtocol | None = None):
         """
         Инициализация RubricScorer.
         
@@ -137,18 +138,22 @@ class RubricScorer:
         use_cache: bool = True,
     ) -> CriteriaReport:
         """Score a typed README document through typed checker entrypoints."""
-        md = document.to_markdown()
+        cache_payload = self._document_cache_payload(document)
+        cache_context = {
+            "learning_outcomes": learning_outcomes or [],
+            "input_type": "readme_document",
+        }
         if use_cache:
             cache = get_cache()
-            cached_report = cache.get(md, context={"learning_outcomes": learning_outcomes or []})
+            cached_report = cache.get(cache_payload, context=cache_context)
             if cached_report is not None:
                 safe_print("  ✅ Результат валидации найден в кэше", flush=True)
                 return cached_report
 
-        report = self._score_sections(md, learning_outcomes=learning_outcomes, document=document)
+        report = self._score_sections("", learning_outcomes=learning_outcomes, document=document)
         if use_cache:
             cache = get_cache()
-            cache.set(md, report, context={"learning_outcomes": learning_outcomes or []})
+            cache.set(cache_payload, report, context=cache_context)
         return report
 
     def _score_sections(
@@ -247,4 +252,14 @@ class RubricScorer:
             total=total,
             max_score=max_score,
             summary=summary,
+        )
+
+    @staticmethod
+    def _document_cache_payload(document: ReadmeDocument) -> str:
+        """Build a stable typed cache payload without rendering README Markdown."""
+        return json.dumps(
+            document.model_dump(mode="json"),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
         )

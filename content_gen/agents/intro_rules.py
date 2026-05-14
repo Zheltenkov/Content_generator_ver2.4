@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/intro_rules.py
 
 Агент генерации введения и инструкции.
@@ -11,14 +11,14 @@ import re
 import sys
 from dataclasses import dataclass
 
-from ..config.loader import get_agent_config
+from ..config.loader import get_agent_config, prompt_trace_kwargs
 from ..config.thresholds import THRESHOLDS
 from ..domain_contracts import semantic_overlap_ratio, semantic_tokens
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..utils.didactics_loader import compose_didactics_context
 from ..models.schemas import ProjectContextMeta, ProjectSeed
 from ..utils.text_analysis import count_words
-from .style_guard import StyleGuardAgent
+from ..repair.style_guard import StyleGuardRepair
 
 
 def _count_words(text: str, language: str = "ru") -> int:
@@ -394,9 +394,9 @@ class IntroRulesAgent:
     INTRO_HEADINGS = {"введение", "вводная часть", "контекст проекта"}
     INSTRUCTION_HEADINGS = {"инструкция", "правила выполнения", "требования"}
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
-        self.style = StyleGuardAgent()
+        self.style = StyleGuardRepair()
         self.rx_h3 = re.compile(r"^###\s+(.+?)\s*$", re.M)
         self.config = get_agent_config(self.CONFIG_NAME)
         self.llm_kwargs = self.config.llm.to_kwargs() if self.config.llm else {}
@@ -596,6 +596,14 @@ class IntroRulesAgent:
             )
         generation_kwargs = self.llm_kwargs.copy()
         generation_kwargs.setdefault("temperature", 0.2)
+        generation_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="IntroResult",
+            )
+        )
         md = self.llm.complete(system=system_prompt, user=usr, **generation_kwargs)
 
         intro, instr = self._split_intro_instruction(md)

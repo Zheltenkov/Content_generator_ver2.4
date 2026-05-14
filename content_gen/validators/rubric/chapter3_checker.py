@@ -12,7 +12,7 @@ from ...models.readme_document import ReadmeDocument
 from ...utils.logging import safe_print
 from ...utils.text_analysis import clean_markdown_prose_for_counting, count_words
 from ..messages import practice_task_label
-from .document_utils import chapter_content, practice_task_sections, section_artifact_paths, section_content
+from .document_utils import chapter_prose_text, practice_task_sections, task_block_from_section
 from .utils import TaskBlock, bag, cosine, tokens
 
 
@@ -41,21 +41,27 @@ class Chapter3Checker:
         return has_active_goal_verb(goal_text)
 
     @staticmethod
-    def _has_deterministic_p2p_signal(task_text: str, artifact_paths: list[str] | None = None) -> bool:
-        criteria_match = re.search(
-            r"\*\*(?:Что должно получиться|Критерии проверки.*?):?\*\*\s*\n(.*?)(?=\n\*\*|\n###|\n##|\Z)",
-            task_text,
-            flags=re.S | re.I,
-        )
-        if not criteria_match:
-            return False
+    def _has_deterministic_p2p_signal(
+        task_text: str,
+        artifact_paths: list[str] | None = None,
+        criteria_items: list[str] | None = None,
+    ) -> bool:
+        checklist_items = list(criteria_items or [])
+        if not checklist_items:
+            criteria_match = re.search(
+                r"\*\*(?:Что должно получиться|Критерии проверки.*?):?\*\*\s*\n(.*?)(?=\n\*\*|\n###|\n##|\Z)",
+                task_text,
+                flags=re.S | re.I,
+            )
+            if not criteria_match:
+                return False
 
-        criteria_block = criteria_match.group(1)
-        checklist_items = [
-            re.sub(r"^[-*]\s*\[[ x]?\]\s*", "", line.strip())
-            for line in criteria_block.splitlines()
-            if re.match(r"^\s*[-*]\s*(?:\[[ x]?\]\s*)?.+", line)
-        ]
+            criteria_block = criteria_match.group(1)
+            checklist_items = [
+                re.sub(r"^[-*]\s*\[[ x]?\]\s*", "", line.strip())
+                for line in criteria_block.splitlines()
+                if re.match(r"^\s*[-*]\s*(?:\[[ x]?\]\s*)?.+", line)
+            ]
         checklist_items = [item for item in checklist_items if len(item) >= 10]
         if len(checklist_items) < 3:
             return False
@@ -118,15 +124,20 @@ class Chapter3Checker:
         return cls._extract_action_field(task_text, "Подход")
 
     @classmethod
-    def _has_expected_result_text(cls, task_text: str, artifact_paths: list[str] | None = None) -> bool:
-        result = cls._extract_label_block(task_text, "Что должно получиться")
+    def _has_expected_result_text(
+        cls,
+        task_text: str,
+        artifact_paths: list[str] | None = None,
+        expected_result: str = "",
+    ) -> bool:
+        result = expected_result or cls._extract_label_block(task_text, "Что должно получиться")
         has_artifact = bool(re.search(r"\b(файл|документ|таблиц|схем|артефакт|отчет|отчёт|README|Markdown)\b", result, re.I))
         has_location = bool(artifact_paths) or bool(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}:\-]+", result))
         return bool(result.strip()) and (has_artifact or has_location)
 
     @staticmethod
-    def _has_task_situation(task_text: str) -> bool:
-        situation_text = Chapter3Checker._extract_action_field(task_text, "Ситуация").strip().lower()
+    def _has_task_situation(task_text: str, situation: str = "") -> bool:
+        situation_text = (situation or Chapter3Checker._extract_action_field(task_text, "Ситуация")).strip().lower()
         if not situation_text:
             return False
         if len(situation_text) < 25:
@@ -216,18 +227,23 @@ class Chapter3Checker:
             task_text = task.body
 
             canonical = (
-                self._has_label(task_text, "Что нужно сделать")
-                and self._has_label(task_text, "Что должно получиться")
-                and self._has_label(task_text, "Формат сдачи")
-                and self._has_task_situation(task_text)
+                (task.has_action_block or self._has_label(task_text, "Что нужно сделать"))
+                and (task.has_expected_result_block or self._has_label(task_text, "Что должно получиться"))
+                and (task.has_submission_block or self._has_label(task_text, "Формат сдачи"))
+                and self._has_task_situation(task_text, task.situation)
             )
 
             if not canonical:
                 missing = []
-                for label in ["Что нужно сделать", "Что должно получиться", "Формат сдачи"]:
-                    if not self._has_label(task_text, label):
+                label_flags = {
+                    "Что нужно сделать": task.has_action_block,
+                    "Что должно получиться": task.has_expected_result_block,
+                    "Формат сдачи": task.has_submission_block,
+                }
+                for label, typed_present in label_flags.items():
+                    if not typed_present and not self._has_label(task_text, label):
                         missing.append(label)
-                if not self._has_task_situation(task_text):
+                if not self._has_task_situation(task_text, task.situation):
                     missing.append("Ситуация")
                 structure_issues.append(f"{practice_task_label(i, task.title)}: отсутствуют блоки: {', '.join(missing)}")
 
@@ -258,7 +274,7 @@ class Chapter3Checker:
         for i, task in enumerate(task_blocks, 1):
             task_text = task.body
 
-            goal_text = self._extract_goal_text(task_text)
+            goal_text = task.goal or self._extract_goal_text(task_text)
             if goal_text:
                 # Проверяем на плохие цели
                 has_bad_goal = any(re.search(p, goal_text, flags=re.I) for p in self.rx_bad_goals)
@@ -302,7 +318,7 @@ class Chapter3Checker:
         for i, task in enumerate(task_blocks, 1):
             task_text = task.body
 
-            approach_text = self._extract_approach_text(task_text)
+            approach_text = task.approach or self._extract_approach_text(task_text)
             if approach_text:
                 w = count_words(approach_text, self.lang)
 
@@ -386,7 +402,7 @@ class Chapter3Checker:
                 ))
         else:
             for i, task in enumerate(task_blocks, 1):
-                if not self._has_expected_result_text(task.body, task.artifact_paths):
+                if not self._has_expected_result_text(task.body, task.artifact_paths, task.expected_result):
                     result_issues.append(f"{practice_task_label(i, task.title)}: ожидаемый результат не найден или не содержит артефакт/локацию")
             items.append(CriteriaItem(
                 id="2.5.5",
@@ -404,7 +420,11 @@ class Chapter3Checker:
         for i, task in enumerate(task_blocks, 1):
             task_text = task.body
 
-            has_p2p_signal = self._has_deterministic_p2p_signal(task_text, task.artifact_paths)
+            has_p2p_signal = self._has_deterministic_p2p_signal(
+                task_text,
+                task.artifact_paths,
+                task.criteria_items,
+            )
             if not has_p2p_signal and self.llm:
                 has_p2p_signal = self._ai_check_p2p_verifiability(task_text)
 
@@ -526,17 +546,13 @@ class Chapter3Checker:
     def check_document(self, document: ReadmeDocument) -> list[CriteriaItem]:
         """2.5: Проверка Главы 3 из typed README document."""
         task_blocks = [
-            TaskBlock(
-                title=section.title,
-                body=section_content(section),
-                artifact_paths=section_artifact_paths(section),
-            )
+            task_block_from_section(section)
             for section in practice_task_sections(document, language=self.lang)
         ]
         return self.check(
-            chapter_content(document, 3, language=self.lang),
-            chapter_content(document, 2, language=self.lang),
-            task_blocks=task_blocks or None,
+            chapter_prose_text(document, 3, language=self.lang),
+            chapter_prose_text(document, 2, language=self.lang),
+            task_blocks=task_blocks,
         )
 
     def _ai_check_expected_result(self, task_text: str) -> dict[str, Any]:

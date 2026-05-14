@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/readability_agent.py
 
 Агент для проверки и улучшения читаемости текста.
@@ -9,7 +9,7 @@ content_gen/agents/readability_agent.py
 
 import re
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 from ..models.schemas import ProjectSeed, TheoryPart
 from ..utils.logging import safe_print
 from ..validators.rubric import _readability_index
@@ -77,7 +77,7 @@ class ReadabilityAgent:
     упрощая предложения и разбивая длинные конструкции.
     """
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация агента.
         

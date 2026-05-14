@@ -17,7 +17,7 @@ from ..didactics.composer import compose_didactics_context
 from ..models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
 from .base.agent import BaseAgent
 from .base.llm_client import LLMClientProtocol
-from .style_guard import StyleGuardAgent
+from ..repair.style_guard import StyleGuardRepair
 from .theory_generation_service import TheoryGenerationService
 from .theory_generation import (
     pick_theory_parts_count,
@@ -60,7 +60,7 @@ class TheoryAgent(BaseAgent):
     def __init__(self, llm: LLMClientProtocol):
         super().__init__(llm)
         self.logger = logging.getLogger("content_gen.agents.theory")
-        self.style = StyleGuardAgent()
+        self.style = StyleGuardRepair()
         self.rx_part = re.compile(r"^###\s+2\.(\d+)\.\s*(.+?)\s*$", re.M)
         self.rx_example = re.compile(r"\*\*Пример:\*\*\s*(.+)")
         self.rx_qs = re.compile(r"\*\*Вопросы к практике:\*\*([\s\S]+?)(?=\n###|\Z)", re.M)

@@ -13,7 +13,16 @@ from .phase_results import (
     TitleAnnotationPhaseResult,
     TranslationPhaseResult,
 )
-from .readme_blocks import ReadmeBlock, ReadmeBlockKind
+from .readme_blocks import (
+    CodeBlock,
+    CriteriaBlock,
+    FormulaBlock,
+    MarkdownParagraph,
+    MermaidBlock,
+    ReadmeBlock,
+    ReadmeBlockKind,
+    TableBlock,
+)
 from .readme_document import ReadmeDocument, ReadmeSection
 from .result import OrchestratorResult
 from .schemas import (
@@ -50,6 +59,12 @@ __all__ = [
     "TranslationPhaseResult",
     "ReadmeBlock",
     "ReadmeBlockKind",
+    "MarkdownParagraph",
+    "MermaidBlock",
+    "TableBlock",
+    "FormulaBlock",
+    "CodeBlock",
+    "CriteriaBlock",
     "ReadmeDocument",
     "ReadmeSection",
     "OrchestratorResult",

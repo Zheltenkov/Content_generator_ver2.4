@@ -91,6 +91,28 @@ def test_theory_executor_replaces_enhanced_theory_as_typed_document() -> None:
     assert updated.section_by_title_fragment("Глава 3") is not None
 
 
+def test_theory_executor_accepts_enhanced_theory_body_as_typed_chapter_content() -> None:
+    seed = _make_seed()
+    document = ReadmeDocument.from_markdown(
+        "# README\n\n"
+        "## Глава 2. Теоретический блок\n\n"
+        "Старый текст.\n\n"
+        "## Глава 3. Практический блок\n\n"
+        "Практика."
+    )
+    enhanced_body = (
+        "Новая теория.\n\n"
+        "### 2.1. Новый раздел\n\n"
+        "Детали."
+    )
+
+    updated = TheoryPhaseExecutor._replace_with_enhanced_theory_document(document, enhanced_body, seed)
+
+    assert updated.section_by_title_fragment("2.1").body == "Детали."
+    assert "Старый текст" not in updated.to_markdown()
+    assert updated.section_by_title_fragment("Глава 3") is not None
+
+
 class _TheoryAgentStub:
     def generate(
         self,

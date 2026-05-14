@@ -1,4 +1,4 @@
-"""
+﻿"""
 content_gen/agents/translation_refiner.py
 
 Агенты для улучшения перевода по читаемости и стилю и комбинирования двух версий.
@@ -12,7 +12,7 @@ content_gen/agents/translation_refiner.py
 import sys
 import re
 
-from ..llm.client import LLMClient
+from .base.llm_client import LLMClientProtocol
 
 REFINER_SYSTEM = """Ты — редактор переводов технических документов.
 Твоя задача — переписать уже переведённый текст на целевом языке для лучшей читаемости и стиля, БЕЗ изменения смысла и структуры документа.
@@ -81,7 +81,7 @@ COMBINER_USER = """Объедини две версии перевода в од
 class TranslationRefinerAgent:
     """Переписывает перевод для читаемости и стиля (все языки)."""
 
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: LLMClientProtocol):
         self.llm = llm_client
         self._max_chars = 12000
 
@@ -218,7 +218,7 @@ class TranslationRefinerAgent:
 class TranslationCombinerAgent:
     """Комбинирует дословную и улучшенную версии перевода в один вариант."""
 
-    def __init__(self, llm_client: LLMClient):
+    def __init__(self, llm_client: LLMClientProtocol):
         self.llm = llm_client
 
     def combine(

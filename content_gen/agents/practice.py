@@ -60,7 +60,7 @@ from .practice_repair import (
     summarize_approach_to_limit,
     token_set,
 )
-from .style_guard import StyleGuardAgent
+from ..repair.style_guard import StyleGuardRepair
 
 if TYPE_CHECKING:
     from .code_example import CodeExampleAgent
@@ -89,7 +89,7 @@ class PracticeAgent(BaseAgent):
     def __init__(self, llm: LLMClientProtocol):
         super().__init__(llm)
         self.logger = logging.getLogger("content_gen.agents.practice")
-        self.style = StyleGuardAgent()
+        self.style = StyleGuardRepair()
         self.code_agent: CodeExampleAgent | None = None
         if CODE_EXAMPLE_CONFIG["enable_code_tasks_in_practice"]:
             try:

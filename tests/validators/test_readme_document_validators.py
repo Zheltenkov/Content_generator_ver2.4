@@ -75,3 +75,7 @@ def test_practice_validator_uses_typed_task_sections() -> None:
     issues = PracticeValidator().validate_document(document, language="ru", tasks_count_expected=2)
 
     assert not [issue for issue in issues if issue.path == "practice.tasks"]
+    task = document.section_by_title_fragment("Задание 1")
+    assert task is not None
+    assert task.label_block("Что должно получиться").startswith("- [ ] Документ")
+    assert task.block_counts(include_paragraphs=True)["criteria"] == 1

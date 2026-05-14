@@ -99,6 +99,11 @@ class TestRubricScorer:
         monkeypatch.setattr(scorer.section3_checker, "check_document", section3)
         monkeypatch.setattr(scorer.section4_checker, "check_document", section4)
         document = ReadmeDocument.from_markdown("# Проект\n\n## Глава 2. Теория\n\nТекст.")
+        monkeypatch.setattr(
+            ReadmeDocument,
+            "to_markdown",
+            lambda self: (_ for _ in ()).throw(AssertionError("typed scorer rendered markdown")),
+        )
 
         report = scorer.score_document(document, learning_outcomes=["LO"], use_cache=False)
 

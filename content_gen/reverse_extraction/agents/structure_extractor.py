@@ -1,4 +1,4 @@
-"""
+﻿"""
 StructureExtractor - извлечение структурированных данных из README.
 
 Использует StructuredLLMClient для гарантированного парсинга.
@@ -6,8 +6,8 @@ StructureExtractor - извлечение структурированных д�
 
 import logging
 
-from ...config.loader import get_agent_config
-from ...llm.client import LLMClient
+from ...config.loader import get_agent_config, prompt_trace_kwargs
+from ...agents.base.llm_client import LLMClientProtocol
 from ...llm.structured_output import StructuredLLMClient
 from ..models import NormalizedReadme, PartialProjectSeed
 
@@ -19,7 +19,7 @@ class StructureExtractor:
 
     CONFIG_NAME = "structure_extractor"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         """
         Инициализация экстрактора.
         
@@ -57,6 +57,14 @@ class StructureExtractor:
         # Получаем извлеченные данные через structured output
         llm_kwargs = self.llm_kwargs.copy()
         llm_kwargs.setdefault("temperature", 0.1)
+        llm_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="PartialProjectSeed",
+            )
+        )
 
         try:
             result = self.structured_client.complete_structured(
@@ -167,4 +175,3 @@ class StructureExtractor:
             tasks_count=tasks_count,
             theory_parts=[]
         )
-

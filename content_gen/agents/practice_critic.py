@@ -1,4 +1,4 @@
-"""
+﻿"""
 Агент-критик практических задач.
 """
 
@@ -6,11 +6,12 @@ from __future__ import annotations
 
 import json
 import re
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from ..config.loader import get_agent_config
-from ..llm.client import LLMClient
+from ..config.loader import get_agent_config, prompt_trace_kwargs
+from .base.llm_client import LLMClientProtocol
 from ..llm.structured_output import StructuredLLMClient
 from ..models.schemas import ProjectSeed
 from ..observability import FallbackTraceEvent
@@ -19,21 +20,29 @@ from ..observability import FallbackTraceEvent
 class PracticeIssue(BaseModel):
     """Проблема, найденная в практических задачах."""
 
+    model_config = ConfigDict(extra="forbid", strict=True, str_strip_whitespace=True)
+
     task_index: int = Field(
         ge=0,
+        le=20,
         description="Индекс задачи (начиная с 0)"
     )
     kind: str = Field(
+        min_length=1,
+        max_length=80,
         description="Тип проблемы: 'alignment', 'complexity', 'clarity', 'p2p_checkable', etc."
     )
-    severity: str = Field(
-        description="Серьезность: 'error', 'warning', 'info'"
+    severity: Literal["critical", "error", "warning", "info"] = Field(
+        description="Серьезность: 'critical', 'error', 'warning', 'info'"
     )
     message: str = Field(
+        min_length=1,
+        max_length=600,
         description="Описание проблемы"
     )
     suggestion: str = Field(
         default="",
+        max_length=800,
         description="Предложение по исправлению"
     )
 
@@ -45,8 +54,11 @@ class PracticeIssue(BaseModel):
 class PracticeCriticResponse(BaseModel):
     """Ответ от PracticeCriticAgent со списком проблем."""
 
+    model_config = ConfigDict(extra="forbid", strict=True)
+
     issues: list[PracticeIssue] = Field(
         default_factory=list,
+        max_length=20,
         description="Список найденных проблем в практических задачах"
     )
 
@@ -56,7 +68,7 @@ class PracticeCriticAgent:
 
     CONFIG_NAME = "practice_critic"
 
-    def __init__(self, llm: LLMClient):
+    def __init__(self, llm: LLMClientProtocol):
         self.llm = llm
         self.structured_client = StructuredLLMClient(llm)
         self.config = get_agent_config(self.CONFIG_NAME)
@@ -90,6 +102,14 @@ class PracticeCriticAgent:
 
         llm_kwargs = self.llm_kwargs.copy()
         llm_kwargs.setdefault("temperature", 0.0)
+        llm_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="PracticeCriticResponse",
+            )
+        )
 
         try:
             # Используем structured output

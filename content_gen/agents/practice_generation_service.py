@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..artifact_chain import ArtifactChainPlan
+from ..config.loader import prompt_trace_kwargs
 from ..config.thresholds import THRESHOLDS
 from ..models.schemas import PracticeTask, ProjectSeed
 from ..project_planning import render_practice_plan_contract_section
@@ -103,6 +104,14 @@ class PracticeGenerationService:
 
         generation_kwargs = self.llm_kwargs.copy()
         generation_kwargs.setdefault("temperature", 0.2)
+        generation_kwargs.update(
+            prompt_trace_kwargs(
+                self.config,
+                "system",
+                "user_template",
+                output_schema="PracticeTask[]",
+            )
+        )
         markdown = self.llm.complete(system=system_prompt, user=user_prompt, **generation_kwargs)
         normalization = self.output_normalizer.normalize_practice_markdown(markdown)
         markdown = normalization.markdown

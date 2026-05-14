@@ -64,14 +64,18 @@ class PracticeValidator:
             )
 
         for i, section in enumerate(task_sections):
-            blk = section.to_markdown()
-            canonical = _has_label(blk, "Что нужно сделать") and _has_label(blk, "Что должно получиться") and _has_label(blk, "Формат сдачи")
+            canonical = (
+                section.has_label("Что нужно сделать")
+                and section.has_label("Что должно получиться")
+                and section.has_label("Формат сдачи")
+            )
             if not canonical:
                 for label in ["Что нужно сделать", "Что должно получиться", "Формат сдачи"]:
-                    if not _has_label(blk, label):
+                    if not section.has_label(label):
                         issues.append(Issue(f"practice.tasks[{i}].{label}", "error", f"Отсутствует блок «{label}»."))
 
-            m_ap = _extract_canonical_action_field(blk, "Подход")
+            action_block = section.label_block("Что нужно сделать")
+            m_ap = _extract_colon_field(action_block, "Подход")
             if m_ap:
                 # Используем универсальную функцию подсчета слов
                 words = count_words(m_ap, language)
@@ -84,7 +88,7 @@ class PracticeValidator:
                         )
                     )
 
-            goal = _extract_goal_from_canonical(blk)
+            goal = _extract_colon_field(action_block, "Цель")
             if goal:
                 for pat in BAD_GOAL_PATTERNS.get(language, []):
                     if re.search(pat, goal, flags=re.I):
@@ -96,7 +100,7 @@ class PracticeValidator:
                             )
                         )
 
-            result = _extract_label_block(blk, "Что должно получиться")
+            result = section.label_block("Что должно получиться")
             if result:
                 if "где найти" not in result.lower() and "repo/" not in result and "/" not in result:
                     issues.append(
@@ -132,11 +136,30 @@ def _extract_goal_from_canonical(text: str) -> str:
 
 def _extract_canonical_action_field(text: str, label: str) -> str:
     action = _extract_label_block(text, "Что нужно сделать")
+    return _extract_colon_field(action, label)
+
+
+def _extract_colon_field(text: str, label: str) -> str:
+    """Extract a colon-prefixed field from a canonical action block."""
     labels = ["Ситуация", "Исходные данные", "Цель", "Подход"]
-    other_labels = "|".join(re.escape(item) for item in labels if item.casefold() != label.casefold())
-    match = re.search(
-        rf"(?:^|\n)\s*{re.escape(label)}:\s*(.+?)(?=\n\s*(?:{other_labels}):|\Z)",
-        action,
-        flags=re.S | re.I,
-    )
-    return match.group(1).strip() if match else ""
+    target = label.casefold()
+    capturing = False
+    collected: list[str] = []
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        current_label = next(
+            (item for item in labels if stripped.casefold().startswith(f"{item.casefold()}:")),
+            "",
+        )
+        if current_label:
+            if capturing:
+                break
+            if current_label.casefold() == target:
+                capturing = True
+                remainder = stripped.split(":", 1)[1].strip()
+                if remainder:
+                    collected.append(remainder)
+            continue
+        if capturing:
+            collected.append(line)
+    return "\n".join(collected).strip()
