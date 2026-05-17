@@ -45,6 +45,22 @@ class TestAdminAccessControl:
         result = is_admin(user=mock_admin_user, db=mock_db_session)
         assert result == mock_admin_user
 
+    def test_is_admin_accepts_jwt_subject_format(self, mock_db_session):
+        """JWT subject user_<id> должен сопоставляться с числовым users.id."""
+        jwt_user = {"id": "user_1", "email": "admin@example.com", "role": "admin"}
+        db_user = Mock(spec=User)
+        db_user.id = 1
+        db_user.role = "admin"
+        db_user.is_active = True
+
+        mock_query = Mock()
+        mock_query.filter.return_value.first.return_value = db_user
+        mock_db_session.query.return_value = mock_query
+
+        result = is_admin(user=jwt_user, db=mock_db_session)
+
+        assert result == jwt_user
+
     def test_is_admin_with_user_role(self, mock_regular_user, mock_db_session):
         """Тест проверки обычного пользователя (должен быть отклонен)."""
         # Создаем мок пользователя из БД с ролью user

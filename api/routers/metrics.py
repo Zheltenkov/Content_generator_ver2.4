@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from api.db.models import LogEntry
 from api.db.session import SessionLocal
 from api.dependencies import get_current_user
-from api.utils.result_cache import get_generation_status, get_result
+from api.utils.result_cache import get_generation_owner, get_generation_status, get_result
 
 router = APIRouter()
 
@@ -18,6 +18,16 @@ def _get_logs_by_request_id(request_id: str) -> list:
         return db.query(LogEntry).filter(LogEntry.request_id == request_id).all()
     finally:
         db.close()
+
+
+def _ensure_request_owner(request_id: str, user: dict) -> None:
+    """Запрещает доступ к метрикам чужого запуска."""
+    owner_id = get_generation_owner(request_id)
+    current_user_id = user.get("id")
+    if owner_id and current_user_id and owner_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Нет доступа к запуску другого пользователя")
+    if not owner_id:
+        raise HTTPException(status_code=403, detail="Владелец запуска не определен")
 
 
 @router.get("/metrics/{request_id}")
@@ -39,6 +49,7 @@ async def get_metrics(
     status = get_generation_status(request_id)
     if status is None:
         raise HTTPException(status_code=404, detail="Запрос генерации не найден")
+    _ensure_request_owner(request_id, user)
 
     # Получаем логи для этого запроса (доступны даже для незавершенных генераций)
     logs = _get_logs_by_request_id(request_id)
@@ -103,6 +114,7 @@ async def get_rubric(
     cached = get_result(request_id)
     if not cached:
         raise HTTPException(status_code=404, detail="Результат генерации не найден или истек срок хранения")
+    _ensure_request_owner(request_id, user)
 
     return {
         "request_id": request_id,

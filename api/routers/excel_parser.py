@@ -1,14 +1,21 @@
 """Endpoint для парсинга Excel файлов."""
 
 from typing import Any
+from pathlib import Path
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+
+from api.dependencies import get_current_user
+from api.utils.file_validation import MAX_FILE_SIZE, read_upload_limited, validate_file
 
 router = APIRouter()
 
 
 @router.post("/parse-excel")
-async def parse_excel(file: UploadFile = File(...)) -> dict[str, Any]:
+async def parse_excel(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """
     Парсит Excel файл и возвращает данные в формате JSON.
     
@@ -21,8 +28,12 @@ async def parse_excel(file: UploadFile = File(...)) -> dict[str, Any]:
     try:
         from utils.excel_io import excel_to_json
 
-        # Читаем файл
-        file_bytes = await file.read()
+        validate_file(file)
+        extension = Path(file.filename or "").suffix.lower()
+        if extension not in {".xlsx", ".xls"}:
+            raise HTTPException(status_code=400, detail="Поддерживаются только Excel файлы .xlsx или .xls")
+
+        file_bytes = await read_upload_limited(file, max_size=MAX_FILE_SIZE)
 
         # Парсим Excel
         data_list = excel_to_json(file_bytes)
@@ -41,6 +52,8 @@ async def parse_excel(file: UploadFile = File(...)) -> dict[str, Any]:
 
     except ImportError:
         raise HTTPException(status_code=500, detail="Для работы с Excel файлами требуется pandas. Установите: pip install pandas openpyxl")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Ошибка при чтении Excel файла: {str(e)}")
+        raise HTTPException(status_code=400, detail="Ошибка при чтении Excel файла")
 

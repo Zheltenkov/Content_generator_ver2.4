@@ -200,6 +200,14 @@ def set_generation_owner(request_id: str, user_id: str) -> None:
     _generation_owners[request_id] = user_id
 
 
+def get_generation_owner(request_id: str) -> str | None:
+    """Возвращает владельца runtime-задачи, если он известен."""
+    cached = _result_cache.get(request_id)
+    if isinstance(cached, dict) and cached.get("user_id"):
+        return str(cached["user_id"])
+    return _generation_owners.get(request_id)
+
+
 def get_active_generation_count(user_id: str | None = None) -> int:
     """Возвращает количество активных генераций, при необходимости только пользователя."""
     active_statuses = {"pending", "in_progress", "needs_review"}
@@ -332,6 +340,7 @@ _translation_ttl = timedelta(hours=2)
 def set_translation_job(
     request_id: str,
     status: str,
+    user_id: str | None = None,
     phase: str | None = None,
     original_markdown: str | None = None,
     translated_markdown: str | None = None,
@@ -344,6 +353,8 @@ def set_translation_job(
     progress: float | None = None,
     error_code: str | None = None,
     result_links: dict[str, str] | None = None,
+    source_filename: str | None = None,
+    source_format: str | None = None,
 ) -> None:
     """Создаёт или обновляет задачу перевода (status: pending, in_progress, completed, failed)."""
     now = _utc_now()
@@ -351,6 +362,8 @@ def set_translation_job(
         _translation_jobs[request_id] = {"created_at": now}
     job = _translation_jobs[request_id]
     job["status"] = status
+    if user_id is not None:
+        job["user_id"] = user_id
     if phase is not None:
         job["phase"] = phase
     if original_markdown is not None:
@@ -375,8 +388,21 @@ def set_translation_job(
         job["error_code"] = error_code
     if result_links is not None:
         job["result_links"] = result_links
+    if source_filename is not None:
+        job["source_filename"] = source_filename
+    if source_format is not None:
+        job["source_format"] = source_format
     job["updated_at"] = now
     logger.debug(f"Translation job updated: request_id={request_id}, status={status}, phase={phase}")
+
+
+def get_translation_job_owner(request_id: str) -> str | None:
+    """Возвращает владельца задачи перевода без раскрытия его в public status payload."""
+    job = _translation_jobs.get(request_id)
+    if not isinstance(job, dict):
+        return None
+    owner = job.get("user_id")
+    return str(owner) if owner else None
 
 
 def set_translation_phase(request_id: str, phase: str, progress: float | None = None) -> None:
@@ -399,6 +425,6 @@ def get_translation_job(request_id: str) -> dict[str, Any] | None:
     allowed = (
         "status", "phase", "original_markdown", "translated_markdown", "target_language",
         "error", "created_at", "job_type", "translated_subtitles", "original_transcript",
-        "subtitle_format", "progress", "error_code", "result_links",
+        "subtitle_format", "progress", "error_code", "result_links", "source_filename", "source_format",
     )
     return {k: v for k, v in job.items() if k in allowed}

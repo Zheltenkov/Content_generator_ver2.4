@@ -126,7 +126,7 @@ class ReadmeImprovementService:
             },
         )
 
-        store_original_readme(command.request_id, command.readme_text)
+        store_original_readme(command.request_id, command.readme_text, user_id=command.user_id)
 
         if command.curriculum_project and isinstance(command.curriculum_project, dict):
             partial_seed, classification = self._build_from_curriculum_project(command)

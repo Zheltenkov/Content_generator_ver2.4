@@ -2,19 +2,22 @@
 
 import hashlib
 import os
+import secrets
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from jose import jwt
-from pydantic import BaseModel, EmailStr
+from jose import JWTError, jwt
+from pydantic import BaseModel, EmailStr, Field
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from api.db.models import PasswordResetToken, User, UserSession
 from api.db.session import get_db_session
+from api.dependencies import get_current_user
 from api.utils.email_service import get_password_reset_email_html, get_welcome_email_html, send_email_async
 from api.utils.logger import get_logger
 
@@ -45,6 +48,7 @@ limiter = Limiter(key_func=get_remote_address)
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRATION_HOURS = int(os.getenv("JWT_EXPIRATION_HOURS", "24"))
+PASSWORD_MIN_LENGTH = int(os.getenv("PASSWORD_MIN_LENGTH", "8"))
 
 # Максимальное количество активных сессий на пользователя
 MAX_ACTIVE_SESSIONS_PER_USER = int(os.getenv("MAX_ACTIVE_SESSIONS_PER_USER", "5"))
@@ -91,6 +95,21 @@ def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = 
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
     return encoded_jwt
+
+
+def _session_public_payload(session: UserSession) -> dict[str, Any]:
+    """Возвращает сессию без bearer/session token material."""
+    return {
+        "id": session.id,
+        "user_id": session.user_id,
+        "username": session.username,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "last_activity": session.last_activity.isoformat() if session.last_activity else None,
+        "ip_address": session.ip_address,
+        "user_agent": session.user_agent,
+        "is_active": session.is_active == "true",
+        "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+    }
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -310,7 +329,7 @@ async def logout(
                 db.commit()
 
         return {"message": "Выход выполнен успешно"}
-    except jwt.JWTError:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Невалидный токен"
@@ -320,6 +339,7 @@ async def logout(
 @router.get("/sessions")
 async def get_sessions(
     user_id: str | None = None,
+    user: dict = Depends(get_current_user),
     db: Session = Depends(get_db_session)
 ):
     """
@@ -332,15 +352,25 @@ async def get_sessions(
     Returns:
         Список сессий
     """
-    query = db.query(UserSession)
+    current_user_id = user.get("id")
+    requested_user_id = user_id or current_user_id
+    if not requested_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не аутентифицирован",
+        )
+    if requested_user_id != current_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Нет доступа к сессиям другого пользователя",
+        )
 
-    if user_id:
-        query = query.filter(UserSession.user_id == user_id)
+    query = db.query(UserSession).filter(UserSession.user_id == requested_user_id)
 
     sessions = query.order_by(UserSession.started_at.desc()).limit(100).all()
 
     return {
-        "sessions": [session.to_dict() for session in sessions],
+        "sessions": [_session_public_payload(session) for session in sessions],
         "total": len(sessions)
     }
 
@@ -359,8 +389,8 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     """Запрос на сброс пароля."""
-    token: str
-    new_password: str
+    token: str = Field(min_length=1, max_length=255)
+    new_password: str = Field(min_length=PASSWORD_MIN_LENGTH, max_length=1024)
 
 
 @router.post("/register")
@@ -441,14 +471,23 @@ async def forgot_password(
         logger.info(f"📧 Запрос восстановления для несуществующего email: {forgot_data.email}")
         return {"message": "Если email существует, на него отправлена инструкция"}
 
-    # Генерируем токен
-    reset_token = str(uuid.uuid4())
+    # Генерируем одноразовый токен и храним только его хеш.
+    reset_token = secrets.token_urlsafe(32)
+    reset_token_hash = hash_token(reset_token)
     expires_at = datetime.utcnow() + timedelta(hours=1)
 
-    # Сохраняем токен
+    # Отзываем старые неиспользованные ссылки, чтобы активной была только последняя.
+    stale_tokens = db.query(PasswordResetToken).filter(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used == False,
+    ).all()
+    for stale_token in stale_tokens:
+        stale_token.used = True
+
+    # Сохраняем хеш токена.
     reset_record = PasswordResetToken(
         user_id=user.id,
-        token=reset_token,
+        token=reset_token_hash,
         expires_at=expires_at
     )
     db.add(reset_record)
@@ -477,12 +516,20 @@ async def reset_password(
     db: Session = Depends(get_db_session)
 ):
     """Сброс пароля по токену."""
-    # Находим токен
+    token_hash = hash_token(reset_data.token)
+
+    # Находим токен. Fallback на plaintext оставлен для старых ссылок до выкладки хеширования.
     reset_record = db.query(PasswordResetToken).filter(
-        PasswordResetToken.token == reset_data.token,
+        PasswordResetToken.token == token_hash,
         PasswordResetToken.used == False,
         PasswordResetToken.expires_at > datetime.utcnow()
     ).first()
+    if not reset_record:
+        reset_record = db.query(PasswordResetToken).filter(
+            PasswordResetToken.token == reset_data.token,
+            PasswordResetToken.used == False,
+            PasswordResetToken.expires_at > datetime.utcnow()
+        ).first()
 
     if not reset_record:
         raise HTTPException(
@@ -497,11 +544,22 @@ async def reset_password(
             detail="Пользователь не найден"
         )
 
-    # Обновляем пароль
+    # Обновляем пароль и закрываем все активные сессии пользователя.
+    now = datetime.utcnow()
     user.hashed_password = User.hash_password(reset_data.new_password)
     user.failed_login_attempts = 0
     user.locked_until = None
     reset_record.used = True
+    active_sessions = db.query(UserSession).filter(
+        or_(
+            UserSession.user_id_fk == user.id,
+            UserSession.user_id == f"user_{user.id}",
+        ),
+        UserSession.is_active == "true",
+    ).all()
+    for session in active_sessions:
+        session.is_active = "false"
+        session.ended_at = now
     db.commit()
 
     logger.info(f"✅ Пароль изменен для пользователя: {user.email}")

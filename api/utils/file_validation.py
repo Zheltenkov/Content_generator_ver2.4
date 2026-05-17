@@ -17,7 +17,7 @@ ALLOWED_EXTENSIONS = {
 }
 
 # Видео для пайплайна субтитров
-MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE_BYTES", 100 * 1024 * 1024))  # 100MB
+MAX_VIDEO_SIZE = int(os.getenv("MAX_VIDEO_SIZE_BYTES", 500 * 1024 * 1024))  # 500MB
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}
 
 # Запрещенные имена файлов (защита от path traversal)
@@ -26,6 +26,22 @@ FORBIDDEN_FILENAMES = {
     "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
     "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
 }
+
+
+async def read_upload_limited(file: UploadFile, *, max_size: int, chunk_size: int = 1024 * 1024) -> bytes:
+    """Читает UploadFile потоково и останавливается сразу после превышения лимита."""
+    content = bytearray()
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+        content.extend(chunk)
+        if len(content) > max_size:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Файл слишком большой. Максимальный размер: {max_size / 1024 / 1024:.0f}MB",
+            )
+    return bytes(content)
 
 
 def validate_file(file: UploadFile) -> None:

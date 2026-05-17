@@ -16,6 +16,16 @@ router = APIRouter()
 logger = get_logger("admin")
 
 
+def _db_user_id_from_subject(user_id: Any) -> int | None:
+    """JWT subject is stored as user_<db_id>; admin checks need the numeric DB id."""
+    if isinstance(user_id, int):
+        return user_id
+    value = str(user_id or "").strip()
+    if value.startswith("user_"):
+        value = value.removeprefix("user_")
+    return int(value) if value.isdigit() else None
+
+
 def is_admin(
     user: dict = Depends(get_current_user),
     db: Session = Depends(get_db_session),
@@ -42,7 +52,14 @@ def is_admin(
             detail="Пользователь не аутентифицирован",
         )
 
-    db_user = db.query(User).filter(User.id == user_id).first()
+    db_user_id = _db_user_id_from_subject(user_id)
+    if db_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Администратор не найден",
+        )
+
+    db_user = db.query(User).filter(User.id == db_user_id).first()
     if db_user is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

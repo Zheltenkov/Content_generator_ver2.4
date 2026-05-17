@@ -9,7 +9,13 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from api.db.generation_results_db import list_recent_generation_results_for_user, save_generation_result
-from api.db.user_runs_db import count_active_user_runs, list_recent_user_runs_for_user, upsert_user_run
+from api.db.user_runs_db import (
+    count_active_user_runs,
+    list_recent_user_runs_for_user,
+    mark_user_run_cancelled,
+    reconcile_stale_active_user_runs,
+    upsert_user_run,
+)
 from api.db.logging_db import write_log_async
 from api.db.paused_generation_db import (
     load_paused_generation_session,
@@ -51,6 +57,7 @@ from api.utils.result_cache import (
     cancel_generation_task,
     get_generation_error,
     get_generation_methodology,
+    get_generation_owner,
     get_generation_status,
     get_active_generation_count,
     get_result,
@@ -147,6 +154,7 @@ def _dashboard_status_label(status: str | None) -> str:
         "pending": "ОЖИДАЕТ",
         "needs_review": "НА ПРОВЕРКЕ",
         "resuming": "ВОЗОБНОВЛЕНИЕ",
+        "interrupted": "ПРЕРВАНО",
         "failed": "ОШИБКА",
         "cancelled": "ОСТАНОВЛЕНО",
     }
@@ -232,7 +240,11 @@ def _generation_resume_service() -> GenerationResumeService:
         paused_saver=save_paused_generation_session,
         paused_completed_marker=mark_paused_generation_completed,
         log_writer=write_log_async,
-        llm_factory=lambda: create_llm_client(enable_cache=True, enable_batching=True),
+        llm_factory=lambda provider=None: create_llm_client(
+            provider=provider,
+            enable_cache=True,
+            enable_batching=True,
+        ),
         orchestrator_cls=Orchestrator,
         completed_saver=_save_completed_generation,
     )
@@ -256,6 +268,7 @@ def _generation_status_service() -> GenerationStatusService:
         result_getter=get_result,
         error_getter=get_generation_error,
         task_canceller=cancel_generation_task,
+        owner_getter=get_generation_owner,
         methodology_getter=get_generation_methodology,
         methodology_setter=set_generation_methodology,
         paused_loader=load_paused_generation_session,
@@ -407,6 +420,7 @@ async def get_dashboard_recent_runs(
 ) -> dict[str, Any]:
     """Возвращает dashboard-сводку последних запусков только текущего пользователя."""
     user_id = user.get("id", "anonymous")
+    await asyncio.to_thread(reconcile_stale_active_user_runs, user_id=user_id)
     user_run_rows = await asyncio.to_thread(list_recent_user_runs_for_user, user_id, limit)
     legacy_rows = await asyncio.to_thread(list_recent_generation_results_for_user, user_id, limit)
 
@@ -475,8 +489,9 @@ async def get_generation_status_endpoint(
     user: dict = Depends(get_current_user)
 ):
     """Получает статус генерации контента."""
+    user_id = user.get("id", "anonymous")
     try:
-        return await _generation_status_service().get_status(request_id)
+        return await _generation_status_service().get_status(request_id, user_id=user_id)
     except GenerationServiceError as error:
         _raise_generation_error(error)
 
@@ -619,6 +634,17 @@ async def cancel_generation_endpoint(
         )
         return response
     except GenerationServiceError as error:
+        cancelled_row = await asyncio.to_thread(
+            mark_user_run_cancelled,
+            request_id=request_id,
+            user_id=user_id,
+            reason=f"runtime_cancel_failed:{error.status_code}",
+        )
+        if cancelled_row and error.status_code in {404, 500}:
+            return {
+                "success": True,
+                "message": "Запуск снят с активного статуса. Runtime-задача не найдена.",
+            }
         _raise_generation_error(error)
 
 
@@ -636,6 +662,11 @@ async def submit_generation_workflow_command(
             return GenerateStartResponse(request_id=request_id, status="cancelled")
         except GenerationServiceError as error:
             _raise_generation_error(error)
+
+    try:
+        await _generation_status_service().get_status(request_id, user_id=user_id)
+    except GenerationServiceError as error:
+        _raise_generation_error(error)
 
     set_generation_status(request_id, "in_progress")
     task = asyncio.create_task(

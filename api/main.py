@@ -158,7 +158,7 @@ if static_dir.exists():
                 status_code=500,
                 content={"detail": f"Файл app.html не найден: {app_path}"}
             )
-        return FileResponse(str(app_path))
+        return FileResponse(str(app_path), headers={"Cache-Control": "no-store"})
 
     @app.get("/app/generate")
     async def read_app_generate():
@@ -170,7 +170,19 @@ if static_dir.exists():
                 status_code=500,
                 content={"detail": f"Файл index.html не найден: {index_path}"}
             )
-        return FileResponse(str(index_path))
+        return FileResponse(str(index_path), headers={"Cache-Control": "no-store"})
+
+    @app.get("/app/instruction")
+    async def read_app_instruction():
+        """Страница инструкции для методолога."""
+        instruction_path = static_path / "instruction.html"
+        if not instruction_path.exists():
+            logger.error(f"❌ Файл instruction.html не найден: {instruction_path}")
+            return JSONResponse(
+                status_code=500,
+                content={"detail": f"Файл instruction.html не найден: {instruction_path}"}
+            )
+        return FileResponse(str(instruction_path), headers={"Cache-Control": "no-store"})
 
     @app.get("/app/check")
     async def read_app_check():
@@ -182,7 +194,7 @@ if static_dir.exists():
                 status_code=500,
                 content={"detail": f"Файл checker.html не найден: {checker_path}"}
             )
-        return FileResponse(str(checker_path))
+        return FileResponse(str(checker_path), headers={"Cache-Control": "no-store"})
 
     @app.get("/app/translate")
     async def read_app_translate():
@@ -194,7 +206,7 @@ if static_dir.exists():
                 status_code=500,
                 content={"detail": f"Файл translator.html не найден: {translator_path}"},
             )
-        return FileResponse(str(translator_path))
+        return FileResponse(str(translator_path), headers={"Cache-Control": "no-store"})
 else:
     logger.warning(f"⚠️ Директория static не найдена: {static_dir.absolute()}")
 
@@ -220,12 +232,13 @@ app.include_router(curriculum.router, prefix="/api/v1", tags=["curriculum"])
 async def global_exception_handler(request: Request, exc: Exception):
     """Глобальный обработчик исключений для возврата понятных ошибок."""
     logger.error(f"❌ Необработанное исключение: {exc}", exc_info=True)
+    expose_details = os.getenv("EXPOSE_ERROR_DETAILS", "false").lower() in {"1", "true", "yes", "on"}
+    content = {"detail": "Внутренняя ошибка сервера"}
+    if expose_details:
+        content.update({"error": str(exc), "type": type(exc).__name__})
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={
-            "detail": f"Внутренняя ошибка сервера: {str(exc)}",
-            "type": type(exc).__name__
-        }
+        content=content,
     )
 
 
@@ -233,12 +246,13 @@ async def global_exception_handler(request: Request, exc: Exception):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     """Обработчик ошибок валидации."""
     logger.warning(f"⚠️ Ошибка валидации запроса: {exc}")
+    expose_details = os.getenv("EXPOSE_ERROR_DETAILS", "false").lower() in {"1", "true", "yes", "on"}
+    content = {"detail": "Ошибка валидации запроса"}
+    if expose_details:
+        content["errors"] = exc.errors()
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
-            "detail": exc.errors(),
-            "body": exc.body
-        }
+        content=content,
     )
 
 
@@ -257,15 +271,22 @@ async def startup_event():
         else:
             logger.info("✅ База данных доступна; схема управляется Alembic")
         if os.getenv("WORKFLOW_RECOVERY_ON_STARTUP", "true").lower() in {"1", "true", "yes", "on"}:
+            from api.db.user_runs_db import reconcile_stale_active_user_runs
             from api.services.generation_workflow_service import GenerationWorkflowService
 
             interrupted = await asyncio.to_thread(
                 GenerationWorkflowService().mark_interrupted_active_workflows
             )
+            stale_runs = await asyncio.to_thread(reconcile_stale_active_user_runs)
             if interrupted:
                 logger.warning(
                     "♻️ Восстановление workflow: помечено interrupted запусков=%s",
                     len(interrupted),
+                )
+            if stale_runs:
+                logger.warning(
+                    "♻️ Dashboard cleanup: reconciled stale active runs=%s",
+                    len(stale_runs),
                 )
     except Exception as e:
         db_status = get_database_status()

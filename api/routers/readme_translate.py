@@ -1,16 +1,24 @@
-"""Endpoints для перевода произвольного README/Markdown и видео (субтитры).
+"""Endpoints для перевода произвольных документов и видео (субтитры).
 
-Модуль реализует сервисы «Перевод README» и «Перевод субтитров по видео».
-POST /translate/readme или POST /translate/video возвращают request_id;
+Модуль реализует сервисы «Перевод документа» и «Перевод субтитров по видео».
+POST /translate/readme, POST /translate/document или POST /translate/video возвращают request_id;
 клиент опрашивает GET /translate/status/{request_id} до status=completed или failed.
 """
 
 import asyncio
+import re
 import os
 import tempfile
 import time
 import uuid
 import threading
+import zipfile
+from dataclasses import dataclass
+from html.parser import HTMLParser
+from io import BytesIO
+from pathlib import Path
+from typing import Literal
+from xml.etree import ElementTree
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -19,11 +27,12 @@ from pydantic import BaseModel
 from api.db.logging_db import write_log_async
 from api.db.user_runs_db import upsert_user_run
 from api.dependencies import get_current_user
-from api.utils.file_validation import MAX_VIDEO_SIZE, validate_video_file
+from api.utils.file_validation import FORBIDDEN_FILENAMES, MAX_VIDEO_SIZE, read_upload_limited, validate_video_file
 from api.utils.logger import get_logger
 from api.utils.logging_context import set_request_id, set_user_id
 from api.utils.result_cache import (
     get_translation_job,
+    get_translation_job_owner,
     set_translation_job,
     set_translation_phase,
 )
@@ -37,6 +46,11 @@ router = APIRouter()
 
 SUPPORTED_LANGUAGES = {"ru", "en", "kg", "uz", "tg"}
 STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.join(tempfile.gettempdir(), "content_generator_translations"))
+MAX_TRANSLATION_DOCUMENT_SIZE = int(os.getenv("MAX_TRANSLATION_DOCUMENT_SIZE_BYTES", 25 * 1024 * 1024))
+TRANSLATION_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt", ".html", ".htm", ".docx", ".pdf"}
+MARKDOWN_DOCUMENT_EXTENSIONS = {".md", ".markdown"}
+TEXT_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt"}
+HTML_DOCUMENT_EXTENSIONS = {".html", ".htm"}
 
 STAGE_PROGRESS = {
     "queued": 0,
@@ -56,7 +70,7 @@ VIDEO_MAX_CONCURRENT_JOBS = int(os.getenv("VIDEO_MAX_CONCURRENT_JOBS", "1"))
 _video_jobs_semaphore = threading.Semaphore(max(1, VIDEO_MAX_CONCURRENT_JOBS))
 
 
-def _markdown_title(markdown: str, fallback: str = "Перевод README") -> str:
+def _markdown_title(markdown: str, fallback: str = "Перевод документа") -> str:
     """Extract a compact dashboard title from the first Markdown H1."""
     for line in (markdown or "").splitlines():
         clean = line.strip()
@@ -65,11 +79,250 @@ def _markdown_title(markdown: str, fallback: str = "Перевод README") -> s
     return fallback
 
 
+@dataclass(frozen=True)
+class ExtractedTranslationDocument:
+    """Текстовый контракт документа после безопасного извлечения содержимого."""
+
+    text: str
+    filename: str
+    extension: str
+    title_seed: str
+
+
+class _PlainHtmlTextExtractor(HTMLParser):
+    """Минимальный HTML-to-text fallback без внешних зависимостей."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self._skip_depth = 0
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript"}:
+            self._skip_depth += 1
+        if tag in {"p", "div", "section", "article", "br", "li", "tr", "h1", "h2", "h3", "h4"}:
+            self.parts.append("\n")
+        if tag == "li":
+            self.parts.append("- ")
+
+    def handle_endtag(self, tag: str) -> None:
+        tag = tag.lower()
+        if tag in {"script", "style", "noscript"} and self._skip_depth:
+            self._skip_depth -= 1
+        if tag in {"p", "div", "section", "article", "li", "tr", "h1", "h2", "h3", "h4"}:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        if self._skip_depth:
+            return
+        clean = data.strip()
+        if clean:
+            self.parts.append(clean + " ")
+
+    def text(self) -> str:
+        return _normalize_extracted_text("".join(self.parts))
+
+
+def _normalize_extracted_text(text: str) -> str:
+    """Нормализует извлеченный текст без агрессивного форматирования."""
+    normalized = str(text or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"[ \t]+\n", "\n", normalized)
+    normalized = re.sub(r"\n{3,}", "\n\n", normalized)
+    normalized = re.sub(r"[ \t]{2,}", " ", normalized)
+    return normalized.strip()
+
+
+def _decode_text_bytes(content: bytes) -> str:
+    """Декодирует пользовательские текстовые документы с частыми кодировками."""
+    for encoding in ("utf-8-sig", "utf-8", "cp1251", "latin-1"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return content.decode("utf-8", errors="replace")
+
+
+def _extract_text_from_html(content: bytes) -> str:
+    """Извлекает видимый текст HTML, удаляя script/style/noscript."""
+    html = _decode_text_bytes(content)
+    try:
+        from bs4 import BeautifulSoup  # type: ignore
+
+        soup = BeautifulSoup(html, "html.parser")
+        for node in soup(["script", "style", "noscript"]):
+            node.decompose()
+        return _normalize_extracted_text(soup.get_text(separator="\n"))
+    except Exception:
+        parser = _PlainHtmlTextExtractor()
+        parser.feed(html)
+        return parser.text()
+
+
+def _extract_text_from_docx(content: bytes) -> str:
+    """Извлекает текст из DOCX через WordprocessingML без runtime-зависимости от python-docx."""
+    try:
+        archive = zipfile.ZipFile(BytesIO(content))
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="DOCX-файл поврежден или имеет неверный формат") from exc
+
+    xml_paths = ["word/document.xml"]
+    xml_paths.extend(
+        name for name in archive.namelist()
+        if re.match(r"word/(header|footer)\d+\.xml$", name)
+    )
+    paragraphs: list[str] = []
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+
+    for path in xml_paths:
+        try:
+            root = ElementTree.fromstring(archive.read(path))
+        except KeyError:
+            continue
+        except ElementTree.ParseError as exc:
+            raise HTTPException(status_code=400, detail="Не удалось разобрать XML внутри DOCX") from exc
+
+        for paragraph in root.findall(".//w:p", namespace):
+            pieces: list[str] = []
+            for node in paragraph.iter():
+                tag = node.tag.rsplit("}", 1)[-1]
+                if tag == "t" and node.text:
+                    pieces.append(node.text)
+                elif tag == "tab":
+                    pieces.append("\t")
+                elif tag in {"br", "cr"}:
+                    pieces.append("\n")
+            line = "".join(pieces).strip()
+            if line:
+                paragraphs.append(line)
+
+    return _normalize_extracted_text("\n".join(paragraphs))
+
+
+def _extract_text_from_pdf(content: bytes) -> str:
+    """Извлекает текстовый слой PDF через pypdf."""
+    try:
+        from pypdf import PdfReader  # type: ignore
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Для перевода PDF нужно установить зависимость pypdf из requirements.txt",
+        ) from exc
+
+    try:
+        reader = PdfReader(BytesIO(content))
+        page_text = [page.extract_text() or "" for page in reader.pages]
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="Не удалось извлечь текст из PDF") from exc
+
+    return _normalize_extracted_text("\n\n".join(page_text))
+
+
+def _safe_translation_filename(file: UploadFile) -> tuple[str, str]:
+    """Возвращает безопасное имя и расширение документа для перевода."""
+    raw_filename = file.filename or ""
+    filename = Path(raw_filename).name
+    if (
+        not filename
+        or filename in FORBIDDEN_FILENAMES
+        or ".." in raw_filename
+        or "/" in raw_filename
+        or "\\" in raw_filename
+        or filename != raw_filename
+    ):
+        raise HTTPException(status_code=400, detail="Недопустимое имя файла")
+    extension = Path(filename).suffix.lower()
+    if extension not in TRANSLATION_DOCUMENT_EXTENSIONS:
+        allowed = ", ".join(sorted(TRANSLATION_DOCUMENT_EXTENSIONS))
+        raise HTTPException(status_code=400, detail=f"Формат документа не поддерживается. Разрешены: {allowed}")
+    return filename, extension
+
+
+def _extract_translation_document_text(filename: str, content: bytes) -> str:
+    """Извлекает текст из поддерживаемого документа по расширению."""
+    extension = Path(filename).suffix.lower()
+    if extension in TEXT_DOCUMENT_EXTENSIONS:
+        return _normalize_extracted_text(_decode_text_bytes(content))
+    if extension in HTML_DOCUMENT_EXTENSIONS:
+        return _extract_text_from_html(content)
+    if extension == ".docx":
+        return _extract_text_from_docx(content)
+    if extension == ".pdf":
+        return _extract_text_from_pdf(content)
+    raise HTTPException(status_code=400, detail="Формат документа не поддерживается")
+
+
+async def _read_uploaded_translation_document(file: UploadFile) -> ExtractedTranslationDocument:
+    """Валидирует upload и извлекает текст для дальнейшего LLM-перевода."""
+    filename, extension = _safe_translation_filename(file)
+    if getattr(file, "size", None) and file.size and file.size > MAX_TRANSLATION_DOCUMENT_SIZE:
+        limit_mb = MAX_TRANSLATION_DOCUMENT_SIZE // (1024 * 1024)
+        raise HTTPException(status_code=413, detail=f"Документ слишком большой. Максимум: {limit_mb} MB")
+
+    try:
+        content = await read_upload_limited(file, max_size=MAX_TRANSLATION_DOCUMENT_SIZE)
+    except HTTPException as exc:
+        limit_mb = MAX_TRANSLATION_DOCUMENT_SIZE // (1024 * 1024)
+        exc.detail = f"Документ слишком большой. Максимум: {limit_mb} MB"
+        raise
+
+    text = _extract_translation_document_text(filename, content)
+    if not text:
+        raise HTTPException(status_code=400, detail="Не удалось извлечь текст из документа")
+
+    return ExtractedTranslationDocument(
+        text=text,
+        filename=filename,
+        extension=extension,
+        title_seed=Path(filename).stem[:160] or "Перевод документа",
+    )
+
+
+async def _save_uploaded_video_to_temp(file: UploadFile, *, suffix: str) -> str:
+    """Сохраняет видео потоково, прерывая чтение сразу после превышения лимита."""
+    fd, video_path = tempfile.mkstemp(suffix=suffix)
+    total_size = 0
+    try:
+        with os.fdopen(fd, "wb") as target:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                total_size += len(chunk)
+                if total_size > MAX_VIDEO_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"Видео слишком большое. Максимум: {MAX_VIDEO_SIZE // (1024 * 1024)} MB",
+                    )
+                target.write(chunk)
+    except Exception:
+        if os.path.exists(video_path):
+            try:
+                os.unlink(video_path)
+            except OSError:
+                pass
+        raise
+    return video_path
+
+
+def _translation_job_for_user(request_id: str, user: dict) -> dict:
+    """Возвращает задачу перевода только её владельцу."""
+    job = _translation_job_for_user(request_id, user)
+    current_user_id = user.get("id")
+    owner_id = get_translation_job_owner(request_id)
+    if owner_id and current_user_id and owner_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Нет доступа к задаче перевода другого пользователя")
+    if not owner_id:
+        raise HTTPException(status_code=403, detail="Владелец задачи перевода не определен")
+    return job
+
+
 class TranslateReadmeRequest(BaseModel):
-    """Запрос на перевод произвольного README/Markdown-документа."""
+    """Запрос на перевод произвольного текстового документа."""
 
     markdown: str
     target_language: str
+    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = None
     translation_mode: str | None = "literal"  # "literal" | "combined"
     thematic_block: str | None = None
     title_seed: str | None = None
@@ -97,6 +350,8 @@ class TranslateReadmeStatusResponse(BaseModel):
     progress: float | None = None
     error_code: str | None = None
     result_links: dict[str, str] | None = None
+    source_filename: str | None = None
+    source_format: str | None = None
 
 
 def _run_translation(
@@ -112,6 +367,7 @@ def _run_translation(
         set_translation_phase(request_id, phase)
 
     llm_client = create_llm_client(
+        provider=seed.llm_provider,
         default_role="translator",
         enable_cache=True,
         enable_batching=True,
@@ -131,6 +387,7 @@ def _run_translation(
         set_translation_job(
             request_id=request_id,
             status="completed",
+            user_id=user_id,
             phase="combine" if translation_mode == "combined" else "translate",
             original_markdown=markdown,
             translated_markdown=translated_md,
@@ -150,6 +407,7 @@ def _run_translation(
         set_translation_job(
             request_id=request_id,
             status="failed",
+            user_id=user_id,
             original_markdown=markdown,
             target_language=target_language,
             error=str(e),
@@ -172,6 +430,7 @@ def _run_burned_video_translation(
     target_language: str,
     output_mode: str,
     subtitle_style: str,
+    llm_provider: str | None = None,
 ) -> None:
     """Запуск пайплайна с транскрипцией RU, переводом по id и опционально рендером видео с субтитрами."""
     output_dir = os.path.join(STORAGE_DIR, "translations", request_id)
@@ -201,6 +460,7 @@ def _run_burned_video_translation(
         set_translation_phase(request_id, phase, progress)
 
     llm_client = create_llm_client(
+        provider=llm_provider,
         default_role="translator",
         enable_cache=True,
         enable_batching=True,
@@ -246,6 +506,7 @@ def _run_burned_video_translation(
             set_translation_job(
                 request_id=request_id,
                 status="completed",
+                user_id=user_id,
                 phase="done",
                 target_language=target_language,
                 job_type="video",
@@ -280,6 +541,7 @@ def _run_burned_video_translation(
             set_translation_job(
                 request_id=request_id,
                 status="failed",
+                user_id=user_id,
                 target_language=target_language,
                 job_type="video",
                 error=str(e),
@@ -349,6 +611,7 @@ async def translate_readme_start(
         phase="translate_readme_start",
         metadata={
             "target_language": target_language,
+            "llm_provider": payload.llm_provider,
             "translation_mode": translation_mode,
             "markdown_chars": len(markdown),
         },
@@ -357,6 +620,7 @@ async def translate_readme_start(
     try:
         seed = ProjectSeed(
             language="ru",
+            llm_provider=payload.llm_provider,
             project_type="individual",
             thematic_block=payload.thematic_block or "GEN",
             audience_level="base",
@@ -387,6 +651,7 @@ async def translate_readme_start(
     set_translation_job(
         request_id=request_id,
         status="in_progress",
+        user_id=user_id,
         phase="translate",
         original_markdown=markdown,
         target_language=target_language,
@@ -415,11 +680,46 @@ async def translate_readme_start(
     )
 
     logger.info(
-        "🌐 Перевод README запущен в фоне (request_id=%s, target_language=%s)",
+        "🌐 Перевод документа запущен в фоне (request_id=%s, target_language=%s)",
         request_id,
         target_language,
     )
     return TranslateReadmeStartResponse(request_id=request_id)
+
+
+@router.post("/translate/document", response_model=TranslateReadmeStartResponse)
+async def translate_document_start(
+    file: UploadFile = File(...),
+    target_language: str = Form(...),
+    translation_mode: str = Form("literal"),
+    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Form(None),
+    user: dict = Depends(get_current_user),
+) -> TranslateReadmeStartResponse:
+    """Загружает TXT/Markdown/HTML/DOCX/PDF, извлекает текст и запускает перевод в фоне."""
+    document = await _read_uploaded_translation_document(file)
+    payload = TranslateReadmeRequest(
+        markdown=document.text,
+        target_language=target_language,
+        llm_provider=llm_provider,
+        translation_mode=translation_mode,
+        thematic_block="GEN",
+        title_seed=document.title_seed,
+    )
+    response = await translate_readme_start(payload, user=user)
+    job = get_translation_job(response.request_id) or {}
+    set_translation_job(
+        request_id=response.request_id,
+        status=job.get("status", "in_progress"),
+        user_id=user.get("id", "anonymous"),
+        phase=job.get("phase", "translate"),
+        original_markdown=job.get("original_markdown") or document.text,
+        translated_markdown=job.get("translated_markdown"),
+        target_language=job.get("target_language") or (target_language or "").lower().strip(),
+        job_type="document",
+        source_filename=document.filename,
+        source_format=document.extension.lstrip("."),
+    )
+    return response
 
 
 @router.post("/translate/video", response_model=TranslateReadmeStartResponse)
@@ -428,6 +728,7 @@ async def translate_video_start(
     target_language: str = Form(...),
     output_mode: str = Form("burned_video"),  # burned_video | subtitles_only | both
     subtitle_style: str = Form("boxed"),  # boxed | outline
+    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Form(None),
     user: dict = Depends(get_current_user),
 ) -> TranslateReadmeStartResponse:
     """Загружает видео, транскрибирует RU (gpt-4o-transcribe), переводит, выдаёт VTT/SRT/ASS и опционально MP4 с вожёнными субтитрами."""
@@ -445,27 +746,14 @@ async def translate_video_start(
     if style not in ("boxed", "outline"):
         style = "boxed"
 
-    content = await file.read()
-    if len(content) > MAX_VIDEO_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Видео слишком большое. Максимум: {MAX_VIDEO_SIZE // (1024 * 1024)} MB",
-        )
     suffix = os.path.splitext(file.filename or "")[1] or ".mp4"
     if suffix.lower() not in {".mp4", ".webm", ".mov", ".avi", ".mkv", ".m4v"}:
         suffix = ".mp4"
-    fd, video_path = None, None
     try:
-        fd, video_path = tempfile.mkstemp(suffix=suffix)
-        os.write(fd, content)
-        os.close(fd)
-        fd = None
+        video_path = await _save_uploaded_video_to_temp(file, suffix=suffix)
     except Exception as e:
-        if fd is not None:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
+        if isinstance(e, HTTPException):
+            raise
         raise HTTPException(status_code=500, detail=f"Не удалось сохранить видео: {e}")
 
     request_id = str(uuid.uuid4())
@@ -481,6 +769,7 @@ async def translate_video_start(
         phase="translate_video_start",
         metadata={
             "target_language": target_language,
+            "llm_provider": llm_provider,
             "output_mode": mode,
             "subtitle_style": style,
         },
@@ -489,6 +778,7 @@ async def translate_video_start(
     set_translation_job(
         request_id=request_id,
         status="in_progress",
+        user_id=user_id,
         phase="queued",
         target_language=target_language,
         job_type="video",
@@ -502,7 +792,7 @@ async def translate_video_start(
         status="in_progress",
         title=file.filename or "Перевод видео",
         result_url=f"/api/v1/translate/status/{request_id}",
-        metadata={"target_language": target_language, "output_mode": mode},
+        metadata={"target_language": target_language, "llm_provider": llm_provider, "output_mode": mode},
     )
 
     asyncio.create_task(
@@ -514,6 +804,7 @@ async def translate_video_start(
             target_language,
             mode,
             style,
+            llm_provider,
         )
     )
 
@@ -532,9 +823,7 @@ async def download_translated_subtitles(
     user: dict = Depends(get_current_user),
 ) -> Response:
     """Скачивает файл переведённых субтитров (SRT или VTT) по request_id. Обратная совместимость для старых задач без result_links."""
-    job = get_translation_job(request_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Запрос перевода не найден или истёк")
+    job = _translation_job_for_user(request_id, user)
     if job.get("job_type") != "video":
         raise HTTPException(status_code=400, detail="Запрос не является задачей перевода видео")
     result_links = job.get("result_links") or {}
@@ -588,9 +877,7 @@ async def download_translation_artifact(
     user: dict = Depends(get_current_user),
 ):
     """Скачивает артефакт перевода видео: video, vtt, srt, ass, transcript."""
-    job = get_translation_job(request_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Запрос перевода не найден или истёк")
+    job = _translation_job_for_user(request_id, user)
     if job.get("job_type") != "video":
         raise HTTPException(status_code=400, detail="Запрос не является задачей перевода видео")
     kind = (type or "").lower().strip()
@@ -605,9 +892,7 @@ async def translate_readme_status(
     user: dict = Depends(get_current_user),
 ) -> TranslateReadmeStatusResponse:
     """Возвращает текущий статус и результат перевода (при status=completed). stage=phase, progress, error_code, result_links для видео."""
-    job = get_translation_job(request_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Запрос перевода не найден или истёк")
+    job = _translation_job_for_user(request_id, user)
     return TranslateReadmeStatusResponse(
         request_id=request_id,
         status=job.get("status", "pending"),
@@ -622,4 +907,6 @@ async def translate_readme_status(
         progress=job.get("progress"),
         error_code=job.get("error_code"),
         result_links=job.get("result_links"),
+        source_filename=job.get("source_filename"),
+        source_format=job.get("source_format"),
     )

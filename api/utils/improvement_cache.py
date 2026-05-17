@@ -15,9 +15,10 @@ _improvement_cache: dict[str, dict] = {}
 # Связь между extract_request_id и generation_request_id
 _extract_to_generation: dict[str, str] = {}
 _generation_to_extract: dict[str, str] = {}
+_improvement_owners: dict[str, str] = {}
 
 
-def store_original_readme(request_id: str, readme_text: str) -> None:
+def store_original_readme(request_id: str, readme_text: str, user_id: str | None = None) -> None:
     """
     Сохраняет исходный README в кэш.
     
@@ -30,6 +31,8 @@ def store_original_readme(request_id: str, readme_text: str) -> None:
 
     _improvement_cache[request_id]["original_readme"] = readme_text
     _improvement_cache[request_id]["created_at"] = datetime.now()
+    if user_id:
+        _improvement_owners[request_id] = user_id
 
 
 def store_extracted_data(
@@ -207,6 +210,13 @@ def link_generation_request(extract_request_id: str, generation_request_id: str)
     """
     _extract_to_generation[extract_request_id] = generation_request_id
     _generation_to_extract[generation_request_id] = extract_request_id
+    if owner := _improvement_owners.get(extract_request_id):
+        _improvement_owners[generation_request_id] = owner
+
+
+def get_improvement_owner(request_id: str) -> str | None:
+    """Возвращает владельца extract/generation request для README improvement."""
+    return _improvement_owners.get(request_id)
 
 
 def get_generation_request_id(extract_request_id: str) -> str | None:
@@ -228,11 +238,14 @@ def clear_cache(request_id: str | None = None) -> None:
     """
     if request_id:
         _improvement_cache.pop(request_id, None)
+        _improvement_owners.pop(request_id, None)
         generation_id = _extract_to_generation.pop(request_id, None)
         if generation_id:
             _generation_to_extract.pop(generation_id, None)
+            _improvement_owners.pop(generation_id, None)
     else:
         _improvement_cache.clear()
         _extract_to_generation.clear()
         _generation_to_extract.clear()
+        _improvement_owners.clear()
 

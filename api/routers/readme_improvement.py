@@ -16,14 +16,25 @@ from api.services.readme_improvement_service import (
     ReadmeImprovementNotFoundError,
     ReadmeImprovementService,
 )
+from api.utils.improvement_cache import get_improvement_owner
 from api.utils.logger import get_logger
 from api.utils.logging_context import set_request_id, set_user_id
-from api.utils.result_cache import set_generation_status
+from api.utils.result_cache import get_generation_owner, set_generation_status
 from content_gen.llm.factory import create_llm_client
 from content_gen.models.schemas import ProjectSeed
 
 router = APIRouter()
 logger = get_logger("readme_improvement")
+
+
+def _ensure_improvement_owner(request_id: str, user: dict) -> None:
+    """Запрещает доступ к чужим improvement/diff request_id."""
+    current_user_id = user.get("id")
+    owner_id = get_improvement_owner(request_id) or get_generation_owner(request_id)
+    if owner_id and current_user_id and owner_id != current_user_id:
+        raise HTTPException(status_code=403, detail="Нет доступа к запуску другого пользователя")
+    if not owner_id:
+        raise HTTPException(status_code=403, detail="Владелец запуска не определен")
 
 
 def _build_improvement_service() -> ReadmeImprovementService:
@@ -117,7 +128,7 @@ async def extract_data_for_improvement(
             phase="improvement_extract_error",
             metadata={"error": str(e)}
         )
-        raise HTTPException(status_code=500, detail=f"Ошибка при извлечении данных: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при извлечении данных")
 
 
 @router.post("/readme/improve/generate", response_model=GenerateImprovedResponse)
@@ -135,6 +146,7 @@ async def generate_improved_readme(
 
     set_request_id(generation_request_id)
     set_user_id(user_id)
+    _ensure_improvement_owner(request.request_id, user)
 
     try:
         result = await _build_improvement_service().generate_improved_readme(
@@ -163,7 +175,7 @@ async def generate_improved_readme(
             phase="improvement_generate_error",
             metadata={"error": str(e)}
         )
-        raise HTTPException(status_code=500, detail=f"Ошибка при запуске генерации: {str(e)}")
+        raise HTTPException(status_code=500, detail="Ошибка при запуске генерации")
 
 
 @router.get("/readme/improve/diff/{request_id}")
@@ -178,7 +190,7 @@ async def get_readme_diff(
         request_id: ID запроса извлечения (extract request_id)
     """
     user_id = user.get("id", "anonymous")
-    del user_id
+    _ensure_improvement_owner(request_id, user)
     try:
         return _build_improvement_service().get_diff(request_id)
     except ReadmeImprovementNotFoundError as e:
@@ -195,7 +207,7 @@ async def get_generation_status_endpoint(
     
     Использует существующий механизм проверки статуса генерации.
     """
-    del user
+    _ensure_improvement_owner(generation_request_id, user)
     try:
         return _build_improvement_service().get_generation_status(generation_request_id)
     except ReadmeImprovementNotFoundError as e:
@@ -220,6 +232,7 @@ async def download_improved_readme_archive(
     user_id = user.get("id", "anonymous")
     set_user_id(user_id)
     set_request_id(generation_request_id)
+    _ensure_improvement_owner(generation_request_id, user)
 
     try:
         archive = _build_improvement_service().build_download_archive(generation_request_id)

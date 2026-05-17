@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+
+from api.routers.admin import is_admin
 
 router = APIRouter()
 
@@ -43,7 +45,10 @@ async def get_thematic_blocks() -> dict[str, str]:
 
 
 @router.post("/thematic-blocks")
-async def save_thematic_blocks_endpoint(blocks: dict[str, str]) -> dict[str, str]:
+async def save_thematic_blocks_endpoint(
+    blocks: dict[str, str],
+    admin: dict = Depends(is_admin),
+) -> dict[str, str]:
     """Сохраняет тематические блоки."""
     save_thematic_blocks(blocks)
     return blocks

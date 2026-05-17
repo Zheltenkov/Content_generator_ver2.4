@@ -20,7 +20,7 @@ async def _noop_log_writer(**kwargs):
     return None
 
 
-def _service(*, status=None, workflow=None, task_canceller=lambda request_id: True):
+def _service(*, status=None, workflow=None, paused_session=None, task_canceller=lambda request_id: True, owner="user-1"):
     statuses = {}
     if status is not None:
         statuses["req-1"] = status
@@ -31,9 +31,10 @@ def _service(*, status=None, workflow=None, task_canceller=lambda request_id: Tr
         result_getter=lambda request_id: None,
         error_getter=lambda request_id: None,
         task_canceller=task_canceller,
+        owner_getter=lambda request_id: owner,
         methodology_getter=lambda request_id: None,
         methodology_setter=lambda request_id, payload: None,
-        paused_loader=lambda request_id: None,
+        paused_loader=lambda request_id: paused_session,
         log_writer=_noop_log_writer,
         logger=type("Logger", (), {"warning": lambda *args, **kwargs: None, "debug": lambda *args, **kwargs: None, "info": lambda *args, **kwargs: None})(),
         workflow_service=workflow_service,
@@ -57,6 +58,65 @@ async def test_status_falls_back_to_durable_workflow_snapshot():
     assert response.status == "in_progress"
     assert response.workflow == workflow
     assert statuses["req-1"] == "in_progress"
+    assert response.workflow_profile
+    assert response.workflow_profile["id"] == "standard"
+
+
+@pytest.mark.asyncio
+async def test_status_exposes_workflow_profile_from_durable_metadata():
+    workflow = {
+        "request_id": "req-1",
+        "status": "needs_review",
+        "metadata": {
+            "workflow_profile": {
+                "id": "methodology",
+                "title": "Методологический режим",
+                "description": "",
+                "stages": ["context"],
+                "gates": [{"after_stage": "context", "action": "approve_or_revise"}],
+                "capabilities": {
+                    "project_regeneration": False,
+                    "section_regeneration": False,
+                    "methodology_assistant": True,
+                    "stage_review": True,
+                    "final_readme_editing": True,
+                    "checklist_editing": True,
+                },
+            }
+        },
+    }
+    service, _, statuses = _service(workflow=workflow)
+
+    response = await service.get_status("req-1")
+
+    assert response.status == "needs_review"
+    assert statuses["req-1"] == "needs_review"
+    assert response.workflow_profile
+    assert response.workflow_profile["id"] == "methodology"
+    assert response.workflow_profile["capabilities"]["project_regeneration"] is False
+
+
+@pytest.mark.asyncio
+async def test_status_prefers_durable_needs_review_over_cached_in_progress():
+    workflow = {
+        "request_id": "req-1",
+        "status": "needs_review",
+        "metadata": {"workflow_profile_id": "methodology"},
+        "checkpoints": [{"node_id": "context", "status": "paused"}],
+    }
+    paused_session = {"methodology": {"summary": {"latest_action": "pause"}}}
+    service, _, statuses = _service(
+        status="in_progress",
+        workflow=workflow,
+        paused_session=paused_session,
+    )
+
+    response = await service.get_status("req-1")
+
+    assert response.status == "needs_review"
+    assert statuses["req-1"] == "needs_review"
+    assert response.workflow == workflow
+    assert response.workflow_profile["id"] == "methodology"
 
 
 @pytest.mark.asyncio
@@ -77,7 +137,7 @@ async def test_cancel_works_from_durable_workflow_after_process_restart():
     response = await service.cancel("req-1", user_id="user-1")
 
     assert response["success"] is True
-    assert statuses["req-1"] == "in_progress"
+    assert statuses["req-1"] == "cancelled"
     assert workflow_service.cancelled == {"request_id": "req-1", "user_id": "user-1"}
 
 
@@ -92,6 +152,16 @@ async def test_status_exposes_interrupted_workflow_after_process_restart():
     assert response.error == "server restarted"
     assert response.workflow == workflow
     assert statuses["req-1"] == "interrupted"
+
+
+@pytest.mark.asyncio
+async def test_status_rejects_cross_user_access():
+    service, _, _ = _service(status="in_progress", owner="user-1")
+
+    with pytest.raises(GenerationServiceError) as exc_info:
+        await service.get_status("req-1", user_id="user-2")
+
+    assert exc_info.value.status_code == 403
 
 
 @pytest.mark.asyncio

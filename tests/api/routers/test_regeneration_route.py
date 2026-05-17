@@ -22,6 +22,7 @@ class _FakeSuccessService:
             skills=["Редактирование README"],
             seed_source="request.project_seed",
             learning_context_source="seed",
+            validation_report={"schema_version": "regeneration.pipeline.v1"},
         )
 
 
@@ -34,6 +35,7 @@ class _FakeValidationService:
 async def test_regenerate_route_delegates_to_service(monkeypatch) -> None:
     fake_service = _FakeSuccessService()
     monkeypatch.setattr(regeneration, "_regeneration_service", fake_service)
+    monkeypatch.setattr(regeneration, "get_generation_owner", lambda request_id: "user_1")
 
     response = await regeneration.regenerate(
         RegenerateRequest(
@@ -48,9 +50,28 @@ async def test_regenerate_route_delegates_to_service(monkeypatch) -> None:
 
     assert response.regenerated_md == "# README"
     assert response.seed_source == "request.project_seed"
+    assert response.validation_report == {"schema_version": "regeneration.pipeline.v1"}
     assert fake_service.command is not None
     assert fake_service.command.original_request_id == "source_1"
     assert fake_service.command.project_seed == {"title_seed": "Проект", "project_description": "Описание."}
+
+
+@pytest.mark.asyncio
+async def test_regenerate_route_rejects_foreign_original_request(monkeypatch) -> None:
+    monkeypatch.setattr(regeneration, "get_generation_owner", lambda request_id: "user_2")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await regeneration.regenerate(
+            RegenerateRequest(
+                original_request_id="source_1",
+                original_md="# Old",
+                comments="Исправь",
+                language="ru",
+            ),
+            user={"id": "user_1"},
+        )
+
+    assert exc_info.value.status_code == 403
 
 
 @pytest.mark.asyncio

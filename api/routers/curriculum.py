@@ -15,8 +15,11 @@ import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
+
+from api.dependencies import get_current_user
+from api.utils.file_validation import MAX_FILE_SIZE, read_upload_limited, validate_file
 
 from content_gen.models.curriculum import (
     CurriculumPlan,
@@ -47,6 +50,11 @@ CURRICULUM_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "сторителтнг",
         "sjm",
         "sjm (описание ситуации/кейса, с которым сталкивается участник, сторителлинг или моделирование среды)",
+    ),
+    "storytelling_type": (
+        "тип сторителлинга",
+        "storytelling type",
+        "storytelling_type",
     ),
     "format": ("формат",),
     "additional_materials": ("дополнительные материалы",),
@@ -268,6 +276,7 @@ def _parse_header_curriculum(text: str) -> CurriculumPlan | None:
             total_workload_days=parse_float(_row_value(row, columns, "total_workload_days")),
             xp=parse_int(_row_value(row, columns, "xp")),
             passing_threshold=_row_value(row, columns, "passing_threshold") or None,
+            storytelling_type=_row_value(row, columns, "storytelling_type") or None,
             sjm=_row_value(row, columns, "sjm") or None,
             expert_notes=_row_value(row, columns, "expert_notes") or None,
             additional_materials=_row_value(row, columns, "additional_materials") or None,
@@ -582,7 +591,10 @@ def detect_direction_from_block_name(block_name: str) -> str:
 
 
 @router.post("/upload", response_model=dict[str, Any])
-async def upload_curriculum(file: UploadFile = File(...)) -> dict[str, Any]:
+async def upload_curriculum(
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
     """
     Загружает и парсит CSV файл учебного плана.
     
@@ -595,7 +607,8 @@ async def upload_curriculum(file: UploadFile = File(...)) -> dict[str, Any]:
         raise HTTPException(400, "Поддерживается только CSV формат. Загрузите .csv файл.")
 
     try:
-        content = await file.read()
+        validate_file(file)
+        content = await read_upload_limited(file, max_size=MAX_FILE_SIZE)
         # Пробуем разные кодировки
         text = None
         for encoding in ['utf-8-sig', 'utf-8', 'cp1251', 'windows-1251']:
@@ -682,12 +695,13 @@ async def upload_curriculum(file: UploadFile = File(...)) -> dict[str, Any]:
         raise
     except Exception as e:
         logger.exception(f"Ошибка парсинга CSV: {e}")
-        raise HTTPException(500, f"Ошибка парсинга файла: {str(e)}")
+        raise HTTPException(500, "Ошибка парсинга файла")
 
 
 @router.post("/build-context")
 async def build_curriculum_context(
-    request: BuildCurriculumContextRequest
+    request: BuildCurriculumContextRequest,
+    user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     """
     Строит контекст для генерации на основе выбранного проекта.
@@ -731,4 +745,4 @@ async def build_curriculum_context(
         raise
     except Exception as e:
         logger.exception(f"Ошибка построения контекста: {e}")
-        raise HTTPException(500, f"Ошибка построения контекста: {str(e)}")
+        raise HTTPException(500, "Ошибка построения контекста")
