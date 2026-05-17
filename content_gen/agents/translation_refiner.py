@@ -13,6 +13,7 @@ import sys
 import re
 
 from .base.llm_client import LLMClientProtocol
+from ..utils.translation_languages import get_translation_language_profile
 
 REFINER_SYSTEM = """Ты — редактор переводов технических документов.
 Твоя задача — переписать уже переведённый текст на целевом языке для лучшей читаемости и стиля, БЕЗ изменения смысла и структуры документа.
@@ -22,7 +23,7 @@ REFINER_SYSTEM = """Ты — редактор переводов техниче�
 - НЕ изменяй и НЕ удаляй маркеры [[[BLOCK_N]]] и HTML-комментарии <!-- PROTECTED_BLOCK id=N ... -->.
 - НЕ меняй количество глав, параграфов, пунктов списков.
 - Переводи только формулировки предложений: делай их проще и яснее, сохраняя смысл.
-- Пиши переводимый текст латиницей; кириллицу оставляй только в неизменяемых именах собственных, коде, путях, ссылках и защищенных блоках.
+- Письменность: {script_instruction}.
 
 Для английского языка:
 - Используй American English (разговорный, простые конструкции).
@@ -53,7 +54,7 @@ COMBINER_SYSTEM = """Ты — редактор, который объединя�
 - Использует более простые и ясные формулировки там, где улучшенная версия лучше.
 - Сохраняет структуру Markdown и все маркеры [[[BLOCK_N]]] и <!-- PROTECTED_BLOCK --> без изменений.
 - Для английского: American English, читаемо и без излишней формальности.
-- Пишет переводимый текст латиницей; кириллицу оставляет только в неизменяемых именах собственных, коде, путях, ссылках и защищенных блоках.
+- Соблюдает письменность целевого языка: {script_instruction}.
 
 Выбирай по каждому фрагменту: оставить дословный вариант, взять улучшенный или слегка скомбинировать (ясность + полнота).
 
@@ -74,7 +75,7 @@ COMBINER_USER = """Объедини две версии перевода в од
 Требования:
 - Выдай один полный документ: полнота как в версии 1, ясность как в версии 2 где это уместно.
 - Сохрани всю структуру (заголовки, таблицы, списки). Не изменяй маркеры [[[BLOCK_N]]] и комментарии PROTECTED_BLOCK.
-- Пиши переводимый текст латиницей; не возвращай кириллический целевой текст.
+- Соблюдай письменность целевого языка: {script_instruction}.
 - Начни с первого заголовка, без вводных фраз."""
 
 
@@ -177,15 +178,13 @@ class TranslationRefinerAgent:
         Returns:
             Тот же документ с переписанными формулировками.
         """
-        lang_names = {
-            "en": "английский",
-            "kg": "киргизский",
-            "uz": "узбекский",
-            "tg": "таджикский",
-        }
-        lang_name = lang_names.get(target_language.lower().strip(), target_language)
+        profile = get_translation_language_profile(target_language)
+        lang_name = profile.prompt_label
 
-        system = REFINER_SYSTEM.format(target_language=lang_name)
+        system = REFINER_SYSTEM.format(
+            target_language=lang_name,
+            script_instruction=profile.script_instruction,
+        )
         try:
             print("  📝 Рефайнер: улучшение перевода для читаемости...", file=sys.stderr, flush=True)
             if len(translated_markdown) <= self._max_chars:
@@ -238,21 +237,20 @@ class TranslationCombinerAgent:
         Returns:
             Один итоговый документ.
         """
-        lang_names = {
-            "en": "английский",
-            "kg": "киргизский",
-            "uz": "узбекский",
-            "tg": "таджикский",
-        }
-        lang_name = lang_names.get(target_language.lower().strip(), target_language)
+        profile = get_translation_language_profile(target_language)
+        lang_name = profile.prompt_label
 
         # Ограничиваем размер для промпта (можно разбить по главам при необходимости)
         max_chars = 28000
         if len(literal_markdown) <= max_chars and len(refined_markdown) <= max_chars:
-            system = COMBINER_SYSTEM.format(target_language=lang_name)
+            system = COMBINER_SYSTEM.format(
+                target_language=lang_name,
+                script_instruction=profile.script_instruction,
+            )
             user = COMBINER_USER.format(
                 literal_markdown=literal_markdown,
                 refined_markdown=refined_markdown,
+                script_instruction=profile.script_instruction,
             )
             try:
                 print("  🔀 Комбайнер: объединение двух версий...", file=sys.stderr, flush=True)

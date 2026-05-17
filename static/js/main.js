@@ -86,21 +86,103 @@
         window.currentFilter = 'all'; // Глобальная копия для фильтра
         let currentSeed = null;
         let generationStartTime = null;
+        let originalRubric = null;
+        let originalTextStats = null;
+        let regeneratedRubric = null;
+        let regeneratedTextStats = null;
+        let currentMetricsVersion = 'original'; // 'original' или 'regenerated'
+        let currentReportVersion = 'original'; // 'original' или 'regenerated'
 
-        function setCurrentResult(result) {
-            currentResult = result;
-            window.currentResult = result;
-            window.__contentGenCurrentResult = result;
+        const appStores = window.ContentGenStores || {};
+        const generationStore = appStores.generationStore || null;
+        const resultStore = appStores.resultStore || null;
+        const workflowProfileStore = appStores.workflowProfileStore || null;
+
+        function setGenerationStoreState(updates = {}) {
+            if (generationStore && typeof generationStore.setState === 'function') {
+                generationStore.setState(updates);
+            }
         }
-        let lastKnownGenerationPhase = null;
-        let lastKnownGenerationProgress = 0;
-        let lastKnownGenerationAgent = 'Инициализация...';
-        let currentGenerationStatus = 'idle';
 
-        window.ContentGenGenerationRuntime = {
-            getApiUrl: () => API_URL,
-            getAuthHeaders,
-            getState: () => ({
+        function setResultStoreState(updates = {}) {
+            if (resultStore && typeof resultStore.setState === 'function') {
+                resultStore.setState(updates);
+            }
+        }
+
+        function normalizeWorkflowProfile(profile) {
+            if (typeof appStores.normalizeWorkflowProfile === 'function') {
+                return appStores.normalizeWorkflowProfile(profile);
+            }
+            const standard = {
+                id: 'standard',
+                title: 'Обычный режим',
+                capabilities: {
+                    project_regeneration: true,
+                    section_regeneration: true,
+                    methodology_assistant: false,
+                    stage_review: false,
+                    final_readme_editing: true,
+                    checklist_editing: true
+                }
+            };
+            const methodology = {
+                id: 'methodology',
+                title: 'Методологический режим',
+                capabilities: {
+                    project_regeneration: false,
+                    section_regeneration: false,
+                    methodology_assistant: true,
+                    stage_review: true,
+                    final_readme_editing: true,
+                    checklist_editing: true
+                }
+            };
+            if (profile && typeof profile === 'object') {
+                const base = profile.id === 'methodology' ? methodology : standard;
+                return {
+                    ...base,
+                    ...profile,
+                    capabilities: { ...base.capabilities, ...(profile.capabilities || {}) }
+                };
+            }
+            return profile === 'methodology' ? methodology : standard;
+        }
+
+        function workflowProfileFromSeed(seed = currentSeed) {
+            return normalizeWorkflowProfile(seed?.methodology_human_review ? 'methodology' : 'standard');
+        }
+
+        function setWorkflowProfileState(profile = null) {
+            const resolved = normalizeWorkflowProfile(profile || workflowProfileFromSeed());
+            workflowProfileStore?.setState?.({
+                profile: resolved,
+                profileId: resolved.id,
+                capabilities: resolved.capabilities || {}
+            });
+            return resolved;
+        }
+
+        function getWorkflowProfileState() {
+            const stored = workflowProfileStore?.getState?.()?.profile;
+            return normalizeWorkflowProfile(stored || workflowProfileFromSeed());
+        }
+
+        function getWorkflowCapability(capabilityName) {
+            const profile = getWorkflowProfileState();
+            const capabilities = profile?.capabilities || {};
+            if (Object.prototype.hasOwnProperty.call(capabilities, capabilityName)) {
+                return Boolean(capabilities[capabilityName]);
+            }
+            return false;
+        }
+
+        function isProjectRegenerationEnabled() {
+            return getWorkflowCapability('project_regeneration');
+        }
+
+        function syncStoresFromLocalState() {
+            setGenerationStoreState({
                 currentRequestId,
                 currentMarkdown,
                 originalMarkdown,
@@ -112,19 +194,81 @@
                 lastKnownGenerationProgress,
                 lastKnownGenerationAgent,
                 currentGenerationStatus,
-                currentMetricsVersion,
+            });
+            setResultStoreState({
                 originalRubric,
                 originalTextStats,
                 regeneratedRubric,
                 regeneratedTextStats,
-            }),
+                regeneratedMarkdown: window.regeneratedMarkdown || null,
+                currentRubric: window.currentRubric || null,
+                currentMetricsVersion,
+                currentReportVersion,
+            });
+        }
+
+        function setCurrentResult(result) {
+            currentResult = result;
+            window.currentResult = result;
+            window.__contentGenCurrentResult = result;
+            setGenerationStoreState({ currentResult: result });
+        }
+        let lastKnownGenerationPhase = null;
+        let lastKnownGenerationProgress = 0;
+        let lastKnownGenerationAgent = 'Инициализация...';
+        let currentGenerationStatus = 'idle';
+
+        window.ContentGenGenerationRuntime = {
+            getApiUrl: () => API_URL,
+            getAuthHeaders,
+            getState: () => {
+                syncStoresFromLocalState();
+                if (appStores && typeof appStores.getState === 'function') {
+                    return appStores.getState();
+                }
+                return {
+                    currentRequestId,
+                    currentMarkdown,
+                    originalMarkdown,
+                    currentTranslatedMarkdown,
+                    currentResult,
+                    currentSeed,
+                    generationStartTime,
+                    lastKnownGenerationPhase,
+                    lastKnownGenerationProgress,
+                    lastKnownGenerationAgent,
+                    currentGenerationStatus,
+                    currentMetricsVersion,
+                    originalRubric,
+                    originalTextStats,
+                    regeneratedRubric,
+                    regeneratedTextStats,
+                    regeneratedMarkdown: window.regeneratedMarkdown || null,
+                    workflowProfile: getWorkflowProfileState(),
+                    workflowCapabilities: getWorkflowProfileState().capabilities || {},
+                };
+            },
             setState: (updates = {}) => {
                 if (Object.prototype.hasOwnProperty.call(updates, 'currentRequestId')) currentRequestId = updates.currentRequestId;
                 if (Object.prototype.hasOwnProperty.call(updates, 'currentMarkdown')) currentMarkdown = updates.currentMarkdown;
                 if (Object.prototype.hasOwnProperty.call(updates, 'originalMarkdown')) originalMarkdown = updates.originalMarkdown;
                 if (Object.prototype.hasOwnProperty.call(updates, 'currentTranslatedMarkdown')) currentTranslatedMarkdown = updates.currentTranslatedMarkdown;
                 if (Object.prototype.hasOwnProperty.call(updates, 'currentResult')) setCurrentResult(updates.currentResult);
-                if (Object.prototype.hasOwnProperty.call(updates, 'currentSeed')) currentSeed = updates.currentSeed;
+                if (Object.prototype.hasOwnProperty.call(updates, 'currentSeed')) {
+                    currentSeed = updates.currentSeed;
+                    if (
+                        !Object.prototype.hasOwnProperty.call(updates, 'workflowProfile')
+                        && !Object.prototype.hasOwnProperty.call(updates, 'workflow_profile')
+                    ) {
+                        setWorkflowProfileState(workflowProfileFromSeed(currentSeed));
+                    }
+                }
+                if (Object.prototype.hasOwnProperty.call(updates, 'workflowProfile')) {
+                    setWorkflowProfileState(updates.workflowProfile);
+                }
+                if (Object.prototype.hasOwnProperty.call(updates, 'workflow_profile')) {
+                    setWorkflowProfileState(updates.workflow_profile);
+                }
                 if (Object.prototype.hasOwnProperty.call(updates, 'generationStartTime')) generationStartTime = updates.generationStartTime;
                 if (Object.prototype.hasOwnProperty.call(updates, 'lastKnownGenerationPhase')) lastKnownGenerationPhase = updates.lastKnownGenerationPhase;
                 if (Object.prototype.hasOwnProperty.call(updates, 'lastKnownGenerationProgress')) lastKnownGenerationProgress = Number(updates.lastKnownGenerationProgress || 0);
@@ -145,6 +289,11 @@
                     regeneratedTextStats = updates.regeneratedTextStats;
                     window.regeneratedTextStats = updates.regeneratedTextStats;
                 }
+                if (Object.prototype.hasOwnProperty.call(updates, 'regeneratedMarkdown') && updates.regeneratedMarkdown !== undefined) {
+                    window.regeneratedMarkdown = updates.regeneratedMarkdown;
+                }
+                syncStoresFromLocalState();
+                updateRegenerationAvailability();
             },
             setCurrentResult,
             showMethodologyAssistantChat: (status) => window.MethodologyAssistantChat?.show(status),
@@ -157,6 +306,8 @@
             getApiUrl: () => API_URL,
             getAuthHeaders,
             getState: () => window.ContentGenGenerationRuntime.getState(),
+            isEnabled: () => getWorkflowCapability('methodology_assistant'),
+            onApproved: (requestId) => resumeGenerationAfterMethodologyApproval(requestId),
             showMethodologyReviewActions: (requestId, message) => showMethodologyReviewActions(requestId, message),
         });
 
@@ -164,32 +315,7 @@
             apiUrl: API_URL,
             getAuthHeaders,
             getCurrentRequestId: () => currentRequestId,
-            onApproved: (requestId) => {
-                currentGenerationStatus = 'in_progress';
-                showCompactGenerationProgress('Генерация проекта продолжается...', {
-                    progress: Math.max(lastKnownGenerationProgress || 0, 1),
-                    agent: lastKnownGenerationAgent || 'Продолжение генерации'
-                });
-                showGenerationRunView(currentSeed || {}, {
-                    phase: lastKnownGenerationPhase || 'initialization',
-                    status: 'in_progress',
-                    progress: Math.max(lastKnownGenerationProgress || 0, 1),
-                    agent: lastKnownGenerationAgent || 'Продолжение генерации',
-                    message: 'Применяем решение методолога и продолжаем пайплайн.'
-                });
-                const cancelBtn = document.getElementById('cancelGenerationBtn');
-                if (cancelBtn) {
-                    cancelBtn.style.setProperty('display', 'block', 'important');
-                    cancelBtn.disabled = false;
-                }
-                const btn = document.getElementById('generateBtn');
-                if (btn) {
-                    btn.disabled = true;
-                    btn.textContent = 'Генерация...';
-                }
-                startTimer();
-                pollGenerationStatus(requestId);
-            },
+            onApproved: (requestId) => resumeGenerationAfterMethodologyApproval(requestId),
             onDiffApproved: (_requestId, reviewState) => {
                 applyAcceptedMethodologyPreview(reviewState);
             },
@@ -236,14 +362,52 @@
                 }
             }
         });
-        
-        // Сохраняем оригинальные метрики и отчет для переключения
-        let originalRubric = null;
-        let originalTextStats = null;
-        let regeneratedRubric = null;
-        let regeneratedTextStats = null;
-        let currentMetricsVersion = 'original'; // 'original' или 'regenerated'
-        let currentReportVersion = 'original'; // 'original' или 'regenerated'
+
+        function resumeGenerationAfterMethodologyApproval(requestId) {
+            currentGenerationStatus = 'in_progress';
+            showCompactGenerationProgress('Генерация проекта продолжается...', {
+                progress: Math.max(lastKnownGenerationProgress || 0, 1),
+                agent: lastKnownGenerationAgent || 'Продолжение генерации'
+            });
+            showGenerationRunView(currentSeed || {}, {
+                phase: lastKnownGenerationPhase || 'initialization',
+                status: 'in_progress',
+                progress: Math.max(lastKnownGenerationProgress || 0, 1),
+                agent: lastKnownGenerationAgent || 'Продолжение генерации',
+                message: 'Применяем решение методолога и продолжаем пайплайн.'
+            });
+            const cancelBtn = document.getElementById('cancelGenerationBtn');
+            if (cancelBtn) {
+                cancelBtn.style.setProperty('display', 'block', 'important');
+                cancelBtn.disabled = false;
+            }
+            const btn = document.getElementById('generateBtn');
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = 'Генерация...';
+            }
+            startTimer();
+            pollGenerationStatus(requestId);
+        }
+
+        function isMethodologyReviewEnabled() {
+            return getWorkflowCapability('stage_review');
+        }
+
+        function updateRegenerationAvailability() {
+            const disabled = !isProjectRegenerationEnabled();
+            document.body.classList.toggle('methodology-regeneration-disabled', disabled);
+            document.querySelectorAll('.regen-only-action, #regen').forEach((node) => {
+                node.hidden = disabled;
+            });
+            if (disabled && document.getElementById('regen')?.classList.contains('active')) {
+                if (typeof window.activateResultTab === 'function') {
+                    window.activateResultTab('readme');
+                } else {
+                    showTab('readme');
+                }
+            }
+        }
 
         function applyAcceptedMethodologyPreview(reviewState) {
             const markdown = reviewState?.preview_markdown
@@ -280,36 +444,38 @@
             saveGenerationState();
         }
         
-        // Инициализация Mermaid с темной темой (если библиотека подключена)
+        // Инициализация Mermaid в светлой теме, чтобы диаграммы соответствовали продуктовой палитре.
         if (typeof mermaid !== 'undefined') {
             mermaid.initialize({ 
                 startOnLoad: false, 
                 securityLevel: 'loose',
-                theme: 'dark',
+                suppressErrorRendering: true,
+                theme: 'base',
                 flowchart: {
                     htmlLabels: true,
-                    curve: 'linear',
+                    curve: 'basis',
                     padding: 18,
-                    nodeSpacing: 48,
-                    rankSpacing: 58,
-                    wrappingWidth: 190
+                    nodeSpacing: 68,
+                    rankSpacing: 82,
+                    wrappingWidth: 230,
+                    useMaxWidth: true
                 },
                 themeVariables: {
-                    primaryColor: '#141b2f',
-                    primaryTextColor: '#edf3fb',
-                    primaryBorderColor: '#64748b',
-                    lineColor: '#8aa0ba',
-                    secondaryColor: '#182033',
-                    tertiaryColor: '#202a42',
-                    background: 'transparent',
-                    mainBkg: '#141b2f',
-                    secondBkg: '#182033',
-                    textColor: '#e0e6ed',
-                    border1: '#64748b',
-                    border2: '#5f6f89',
-                    arrowheadColor: '#8aa0ba',
-                    edgeLabelBackground: '#0d1428',
-                    fontSize: '14px',
+                    primaryColor: '#ffffff',
+                    primaryTextColor: '#111820',
+                    primaryBorderColor: '#9aa79d',
+                    lineColor: '#334238',
+                    secondaryColor: '#eef4ef',
+                    tertiaryColor: '#f7faf6',
+                    background: '#ffffff',
+                    mainBkg: '#ffffff',
+                    secondBkg: '#eef4ef',
+                    textColor: '#111820',
+                    border1: '#9aa79d',
+                    border2: '#7f8d83',
+                    arrowheadColor: '#334238',
+                    edgeLabelBackground: '#ffffff',
+                    fontSize: '18px',
                     fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif'
                 }
             });
@@ -318,9 +484,11 @@
         }
         
         function toggleGroupSize() {
-            const projectType = document.getElementById('projectType').value;
+            const projectType = document.getElementById('projectType')?.value || 'individual';
             const groupSizeGroup = document.getElementById('groupSizeGroup');
-            groupSizeGroup.style.display = projectType === 'group' ? 'block' : 'none';
+            if (groupSizeGroup) {
+                groupSizeGroup.style.display = projectType === 'group' ? 'block' : 'none';
+            }
         }
         
         function toggleBonusWish() {
@@ -383,37 +551,34 @@
                 // Очищаем все поля формы вручную
                 
                 // Базовые параметры
-                document.getElementById('language').value = 'ru';
-                document.getElementById('projectType').value = 'individual';
-                document.getElementById('groupSize').value = '3';
-                document.getElementById('groupSizeGroup').style.display = 'none';
+                setValue('projectType', 'individual');
+                setValue('groupSize', '3');
+                setDisplay('groupSizeGroup', 'none');
                 
                 // Тематический блок
-                document.getElementById('thematicBlock').value = 'BSA';
-                document.getElementById('newBlockName').value = '';
-                document.getElementById('newBlockCode').value = '';
-                document.getElementById('addBlockExpander').style.display = 'none';
+                setValue('thematicBlock', 'BSA');
+                setValue('newBlockName', '');
+                setValue('newBlockCode', '');
+                setDisplay('addBlockExpander', 'none');
                 
                 // Остальные поля
                 setAudienceLevel('beginner_plus');
-                document.getElementById('titleSeed').value = '';
-                document.getElementById('requiredTools').value = '';
+                setValue('titleSeed', '');
+                setValue('requiredTools', '');
                 setValue('requiredSoftware', '');
-                document.getElementById('storytelling').value = '';
-                document.getElementById('projectDescription').value = '';
-                document.getElementById('learningOutcomes').value = '';
-                document.getElementById('skills').value = '';
-                setValue('referenceProjectHint', '');
-                setValue('referencePracticeHint', '');
+                setValue('storytellingType', 'sjm');
+                setValue('storytelling', '');
+                setValue('projectDescription', '');
+                setValue('learningOutcomes', '');
+                setValue('skills', '');
                 setValue('projectContentType', '');
                 setValue('platformName', '');
-                setValue('gitlabLink', '');
                 setValue('workloadHours', '');
                 setValue('additionalMaterials', '');
                 
                 // Настройки репозитория
-                document.getElementById('repoBaseUrl').value = '';
-                document.getElementById('repoPathTemplate').value = 'repo/part-03/task-{num:02d}/README.md';
+                setValue('repoBaseUrl', '');
+                setValue('repoPathTemplate', 'repo/part-03/task-{num:02d}/README.md');
                 
                 // Бонусное задание
                 setChecked('generateBonus', false);
@@ -421,6 +586,8 @@
                 setDisplay('bonusWishGroup', 'none');
                 
                 setChecked('methodologyHumanReview', false);
+                setWorkflowProfileState('standard');
+                updateRegenerationAvailability();
                 setChecked('includeFormulas', false);
                 setChecked('includeTables', false);
                 setChecked('includeDiagrams', false);
@@ -453,10 +620,13 @@
             originalMarkdown = null;
             setCurrentResult(null);
             currentSeed = null;
+            setWorkflowProfileState('standard');
+            syncStoresFromLocalState();
+            updateRegenerationAvailability();
             clearGenerationState(); // Очищаем сохраненное состояние
             resetGeneratorChrome();
-            document.getElementById('noResults').style.display = 'block';
-            document.getElementById('resultsArea').style.display = 'none';
+            setDisplay('noResults', 'block');
+            setDisplay('resultsArea', 'none');
             
             if (window.toast) {
                 window.toast.success('Результаты генерации очищены');
@@ -464,12 +634,15 @@
         }
         
         function clearRegeneration() {
-            document.getElementById('regenerationComments').value = '';
-            document.getElementById('regenContent').innerHTML = '';
-            document.getElementById('regenerationChanges').style.display = 'none';
+            setValue('regenerationComments', '');
+            const regenContent = document.getElementById('regenContent');
+            if (regenContent) regenContent.innerHTML = '';
+            setDisplay('regenerationChanges', 'none');
+            window.clearRegenerationSectionComments?.();
             // Сбрасываем версии на оригинальные
             currentMetricsVersion = 'original';
             currentReportVersion = 'original';
+            setResultStoreState({ currentMetricsVersion, currentReportVersion, regeneratedMarkdown: null });
             if (originalRubric) {
                 window.currentRubric = originalRubric;
                 displayMetrics(originalRubric, 'metricsContentOriginal');
@@ -486,6 +659,7 @@
         function switchMetricsVersion(version, clickedElement = null) {
             currentMetricsVersion = version;
             window.currentMetricsVersion = version; // Обновляем глобальную переменную
+            setResultStoreState({ currentMetricsVersion: version });
             
             // Переключаем вкладки
             const tabOriginal = document.getElementById('metricsTabOriginal');
@@ -509,6 +683,7 @@
                     containerRegen.style.display = 'none';
                     if (originalRubric) {
                         window.currentRubric = originalRubric;
+                        setResultStoreState({ currentRubric: originalRubric });
                         displayMetrics(originalRubric, 'metricsContentOriginal');
                         console.log('✅ Переключено на оригинальные метрики, отображено:', originalRubric.items?.length || 0, 'критериев');
                     } else {
@@ -520,6 +695,7 @@
                     containerRegen.style.display = 'block';
                     if (regeneratedRubric) {
                         window.currentRubric = regeneratedRubric;
+                        setResultStoreState({ currentRubric: regeneratedRubric });
                         displayMetrics(regeneratedRubric, 'metricsContentRegen');
                         console.log('✅ Переключено на перегенерированные метрики, отображено:', regeneratedRubric.items?.length || 0, 'критериев');
                     } else {
@@ -538,6 +714,7 @@
         function switchReportVersion(version, clickedElement = null) {
             currentReportVersion = version;
             window.currentReportVersion = version; // Обновляем глобальную переменную
+            setResultStoreState({ currentReportVersion: version });
             
             // Переключаем вкладки
             const tabOriginal = document.getElementById('reportTabOriginal');
@@ -637,10 +814,11 @@
                     statusText: rubricSummary.max > 0 ? `✓ ${scoreText}` : 'МЕТРИКИ',
                     statusClass: 'success',
                     rightHtml: `
-                        <button class="btn btn-secondary btn-sm" type="button" onclick="fillCommentsFromFailedCriteria()">Заполнить из непройденных</button>
-                        <button class="btn btn-sm" type="button" onclick="openRegenerationFromMetrics()">Перегенерировать</button>
+                        <button class="btn btn-secondary btn-sm regen-only-action" type="button" onclick="fillCommentsFromFailedCriteria()">Заполнить из непройденных</button>
+                        <button class="btn btn-sm regen-only-action" type="button" onclick="openRegenerationFromMetrics()">Перегенерировать</button>
                     `
                 });
+                updateRegenerationAvailability();
                 const back = document.getElementById('generatorBackLink');
                 if (back) {
                     back.onclick = (event) => {
@@ -793,6 +971,7 @@
                 });
 
                 currentSeed = seed;
+                setWorkflowProfileState(workflowProfileFromSeed(seed));
                 showGenerationRunView(seed, {
                     phase: 'initialization',
                     status: 'in_progress',
@@ -836,6 +1015,7 @@
                 const data = await response.json();
                 currentRequestId = data.request_id;
                 currentSeed = seed; // Сохраняем данные формы
+                setWorkflowProfileState(data.workflow_profile || workflowProfileFromSeed(seed));
                 currentGenerationStatus = 'in_progress';
                 
                 // Сохраняем исходное время старта, чтобы таймер не прыгал после ответа API.
@@ -1058,6 +1238,7 @@
                 const body = {
                     markdown,
                     language,
+                    llm_provider: window.getSelectedLlmProvider?.() || 'openai',
                     learning_outcomes: learningOutcomes.length ? learningOutcomes : null,
                 };
 
@@ -1251,15 +1432,28 @@
             
             setCurrentResult(data.result);
             currentMarkdown = data.result.markdown;
+            const restoredRegeneratedMarkdown = data.result.regenerated_markdown
+                || data.result.regenerated_md
+                || data.result.regenerated?.regenerated_md
+                || data.result.report_json?.regenerated_markdown
+                || data.result.report_json?.regenerated_md
+                || null;
+            if (restoredRegeneratedMarkdown) {
+                window.regeneratedMarkdown = restoredRegeneratedMarkdown;
+            }
             if (!originalMarkdown) {
-                originalMarkdown = currentMarkdown;
+                originalMarkdown = data.result.original_markdown
+                    || data.result.report_json?.original_markdown
+                    || currentMarkdown;
             }
             if (data.seed) {
                 currentSeed = data.seed;
             }
+            setWorkflowProfileState(data.workflow_profile || data.result.workflow_profile || workflowProfileFromSeed(currentSeed));
+            updateRegenerationAvailability();
 
-            document.getElementById('noResults').style.display = 'none';
-            document.getElementById('resultsArea').style.display = 'block';
+            setDisplay('noResults', 'none');
+            setDisplay('resultsArea', 'block');
             updateGenerationResultSummary(data);
             
             // Предупреждения
@@ -1837,11 +2031,23 @@
         }
         
         async function regenerateContent() {
-            const comments = document.getElementById('regenerationComments').value.trim();
+            if (!isProjectRegenerationEnabled()) {
+                alert('В методологическом режиме перегенерация проекта отключена. Используйте команды методолога в процессе ревью этапов.');
+                return;
+            }
+            const comments = typeof window.buildRegenerationComments === 'function'
+                ? window.buildRegenerationComments()
+                : (document.getElementById('regenerationComments')?.value || '').trim();
+            if (comments === null) {
+                return;
+            }
             if (!comments) {
                 alert('Пожалуйста, введите комментарии по изменению README.');
                 return;
             }
+            const submittedInstructions = typeof window.getSelectedRegenerationInstructions === 'function'
+                ? window.getSelectedRegenerationInstructions()
+                : [];
             
             if (!currentMarkdown) {
                 alert('Сначала сгенерируйте контент.');
@@ -1884,8 +2090,8 @@
                         original_request_id: currentRequestId,
                         original_md: currentMarkdown,
                         comments: comments,
-                        language: document.getElementById('language').value,
-                        project_seed: currentSeed || null
+                        language: 'ru',
+                        project_seed: currentSeed ? { ...currentSeed, language: 'ru' } : null
                     })
                 });
                 
@@ -1906,6 +2112,51 @@
                 }
                 
                 const data = await response.json();
+                appStores.regenerationStore?.setState?.({
+                    validationReport: data.validation_report || null,
+                    warnings: Array.isArray(data.warnings) ? data.warnings : [],
+                    accepted: data.accepted !== false,
+                    rubricRegression: data.rubric_regression || null,
+                });
+                if (data.accepted === false) {
+                    const regression = data.rubric_regression || {};
+                    const warningMessage = (data.warnings && data.warnings[0])
+                        || regression.message
+                        || 'Перегенерация не применена: результат ухудшил rubric. Уточните запрос и попробуйте ещё раз.';
+                    const failedItems = Array.isArray(regression.new_failed) && regression.new_failed.length
+                        ? regression.new_failed
+                        : (Array.isArray(regression.failed) ? regression.failed : []);
+                    const failedHtml = failedItems.length
+                        ? `<ul class="s21-plain-list">${failedItems.slice(0, 8).map(item => {
+                            const id = window.sanitize ? window.sanitize.escapeHtml(item.id || '') : (item.id || '');
+                            const title = window.sanitize ? window.sanitize.escapeHtml(item.title || 'Критерий') : (item.title || 'Критерий');
+                            const evidence = item.evidence
+                                ? ` — ${window.sanitize ? window.sanitize.escapeHtml(item.evidence) : item.evidence}`
+                                : '';
+                            return `<li><strong>${id}</strong> ${title}${evidence}</li>`;
+                        }).join('')}</ul>`
+                        : '';
+                    if (window.loading && window.currentRegenSpinnerId) {
+                        window.loading.hideSpinner(window.currentRegenSpinnerId);
+                    }
+                    if (generationLogs) {
+                        generationLogs.style.display = 'block';
+                    }
+                    if (logContent) {
+                        const html = `<div class="warning-msg"><strong>Нужно уточнить запрос перегенерации.</strong><p>${window.sanitize ? window.sanitize.escapeHtml(warningMessage) : warningMessage}</p>${failedHtml}</div>`;
+                        if (window.sanitize) {
+                            window.sanitize.safeSetHTML(logContent, html);
+                        } else {
+                            logContent.innerHTML = html;
+                        }
+                    }
+                    if (window.toast) {
+                        window.toast.warning('Перегенерация не применена: ухудшились критерии rubric.', 7000);
+                    } else {
+                        alert(warningMessage);
+                    }
+                    return;
+                }
                 
                 // ВАЖНО: Сохраняем оригинальные данные ДО обновления currentResult
                 // Иначе currentResult.rubric уже будет перегенерированным
@@ -1936,28 +2187,48 @@
                 // Сохраняем перегенерированный markdown отдельно
                 const regeneratedMarkdown = data.regenerated_md;
                 window.regeneratedMarkdown = regeneratedMarkdown; // Сохраняем для скачивания
+                setResultStoreState({ regeneratedMarkdown });
                 
                 // Обновляем текущий markdown перегенерированным
                 currentMarkdown = regeneratedMarkdown;
                 
                 // Обновляем результат с новыми данными (ПОСЛЕ сохранения оригинальных)
                 if (currentResult) {
+                    currentResult.original_markdown = originalMarkdown || currentMarkdown;
                     currentResult.markdown = data.regenerated_md;
+                    currentResult.regenerated_markdown = data.regenerated_md;
                     currentResult.rubric = data.rubric;
                     currentResult.text_stats = data.text_stats;
+                    currentResult.regenerated = {
+                        regenerated_md: data.regenerated_md,
+                        changes: data.changes || [],
+                        rubric: data.rubric,
+                        text_stats: data.text_stats,
+                    };
+                    currentResult.report_json = {
+                        ...(currentResult.report_json || {}),
+                        markdown: data.regenerated_md,
+                        regenerated_markdown: data.regenerated_md,
+                        original_markdown: originalMarkdown || currentMarkdown,
+                        rubric: data.rubric,
+                        text_stats: data.text_stats,
+                    };
                 }
                 
                 // Сохраняем перегенерированные метрики и отчет
                 if (data.rubric) {
                     regeneratedRubric = data.rubric;
                     window.regeneratedRubric = data.rubric; // Сохраняем в window для глобального доступа
+                    setResultStoreState({ regeneratedRubric: data.rubric });
                     console.log('regeneratedRubric сохранен:', !!regeneratedRubric);
                 }
                 if (data.text_stats) {
                     regeneratedTextStats = data.text_stats;
                     window.regeneratedTextStats = data.text_stats; // Сохраняем в window для глобального доступа
+                    setResultStoreState({ regeneratedTextStats: data.text_stats });
                     console.log('regeneratedTextStats сохранен:', !!regeneratedTextStats);
                 }
+                syncStoresFromLocalState();
                 
                 // Сохраняем обновленное состояние
                 saveGenerationState();
@@ -1968,19 +2239,28 @@
                     regenContainer.innerHTML = '';
                 }
                 
-                // Отображаем перегенерированный контент
-                displayMarkdown(data.regenerated_md, 'regenContent');
+                // Отображаем перегенерированный контент с учетом активного режима просмотра
+                if (typeof window.renderRegenerationReadme === 'function') {
+                    window.renderRegenerationReadme(data.regenerated_md);
+                } else {
+                    displayMarkdown(data.regenerated_md, 'regenContent');
+                }
+                window.rememberRegenerationInstructions?.(submittedInstructions);
+                window.renderRegenerationSectionSelector?.(data.regenerated_md);
+                renderGeneratedDataTab(currentResult || { markdown: data.regenerated_md });
                 
                 // Отображаем список изменений
                 if (data.changes && data.changes.length > 0) {
                     const changesList = document.getElementById('regenerationChangesList');
                     const changesContainer = document.getElementById('regenerationChanges');
-                    changesList.innerHTML = '<ul class="s21-plain-list">' +
-                        data.changes.map(change => `<li>${change}</li>`).join('') +
-                        '</ul>';
-                    changesContainer.style.display = 'block';
+                    if (changesList) {
+                        changesList.innerHTML = '<ul class="s21-plain-list">' +
+                            data.changes.map(change => `<li>${window.sanitize ? window.sanitize.escapeHtml(change) : change}</li>`).join('') +
+                            '</ul>';
+                    }
+                    if (changesContainer) changesContainer.style.display = 'block';
                 } else {
-                    document.getElementById('regenerationChanges').style.display = 'none';
+                    setDisplay('regenerationChanges', 'none');
                 }
                 
                 // Отображаем перегенерированные метрики и отчет в их контейнерах
@@ -2025,6 +2305,7 @@
                     hasRegeneratedTextStats: !!regeneratedTextStats
                 });
                 updateVersionButtons();
+                updateRegenerationAvailability();
                 
                 // Убеждаемся, что переключатели видны
                 const metricsSwitcher = document.getElementById('metricsVersionSwitcher');
@@ -2070,9 +2351,9 @@
                 
                 // Показываем вкладку перегенерации
                 const regenTab = document.querySelector('.tab[onclick*="regen"]');
-                if (regenTab) {
+                if (regenTab && !regenTab.hidden) {
                     showTab('regen', regenTab);
-                } else {
+                } else if (isProjectRegenerationEnabled()) {
                     showTab('regen');
                 }
                 
@@ -2234,6 +2515,10 @@
                 if (e.target && e.target.id === 'toggleDescription' && e.target.type === 'checkbox') {
                     window.toggleDescriptionColumn?.();
                 }
+                if (e.target && e.target.id === 'methodologyHumanReview' && e.target.type === 'checkbox') {
+                    setWorkflowProfileState(e.target.checked ? 'methodology' : 'standard');
+                    updateRegenerationAvailability();
+                }
             });
         })();
         
@@ -2271,6 +2556,10 @@
         
         function showTab(tabName, clickedElement) {
             console.log('showTab вызвана:', tabName, clickedElement);
+            if (tabName === 'regen' && !isProjectRegenerationEnabled()) {
+                tabName = 'readme';
+                clickedElement = document.querySelector('.result-tabs .tab[onclick*="readme"]');
+            }
             
             // Скрываем все вкладки и их контент
             document.querySelectorAll('.tab').forEach(tab => {
@@ -2345,6 +2634,9 @@
                     if (tabName === 'readme' && currentMarkdown) {
                         renderResultReadme(currentMarkdown);
                     }
+                    if (tabName === 'regen') {
+                        window.renderRegenerationReadme?.();
+                    }
                 }
                 
                 // Дополнительная проверка: убеждаемся, что все остальные скрыты
@@ -2394,6 +2686,9 @@
             window.getAuthHeaders = getAuthHeaders;
             window.displayResults = displayResults;
             window.updateVersionButtons = updateVersionButtons;
+            window.updateRegenerationAvailability = updateRegenerationAvailability;
+            window.getWorkflowProfileState = getWorkflowProfileState;
+            window.getWorkflowCapability = getWorkflowCapability;
             window.cancelGeneration = cancelGeneration;
             window.showMethodologyReviewActions = showMethodologyReviewActions;
             window.hideMethodologyReviewActions = hideMethodologyReviewActions;
@@ -2432,6 +2727,7 @@
                 const hasCheckerUI = Boolean(document.getElementById('checkBtn'));
                 if (hasGeneratorUI) {
                     window.MethodologyAssistantChat?.initialize();
+                    window.initializeStorytellingTypeHelp?.();
                     const displayName = localStorage.getItem('username') || localStorage.getItem('email') || 'Пользователь';
                     const generatorUserName = document.getElementById('generatorUserName');
                     const generatorUserInitials = document.getElementById('generatorUserInitials');
@@ -2454,6 +2750,7 @@
                         if (directionEl && thematicEl && !thematicEl.value && directionEl.value && directionEl.value !== 'ADD') {
                             thematicEl.value = directionEl.value;
                         }
+                        updateRegenerationAvailability();
                     }, 100);
                 }
                 if (hasCheckerUI) {

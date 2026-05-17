@@ -1,6 +1,7 @@
 import pytest
 
 from content_gen.utils import mermaid_export
+from content_gen.utils.markdown_renderer import _mermaid_theme_json
 
 
 MERMAID_MD = """Перед диаграммой.
@@ -69,6 +70,30 @@ def test_convert_mermaid_blocks_can_export_png_when_enabled(monkeypatch) -> None
     assert "```mermaid" not in updated
     assert assets == [{"name": "diagram_1.png", "data": b"png-bytes"}]
     assert captured["mode"] == "kroki"
+
+
+def test_export_theme_matches_light_product_style() -> None:
+    themed = mermaid_export._ensure_theme('%%{init:{"theme":"dark"}}%%\nflowchart TD\nA --> B')
+
+    assert '"theme":"base"' in themed
+    assert '"primaryColor":"#ffffff"' in themed
+    assert '"lineColor":"#334238"' in themed
+    assert '"fontSize":"18px"' in themed
+    assert '"wrappingWidth":230' in themed
+    assert '"theme":"dark"' not in themed
+    assert "#0a0e27" not in themed
+    assert themed.count("flowchart TD") == 1
+
+
+def test_markdown_mermaid_theme_matches_light_product_style() -> None:
+    theme = _mermaid_theme_json()
+
+    assert '"theme":"base"' in theme
+    assert '"primaryColor":"#ffffff"' in theme
+    assert '"lineColor":"#334238"' in theme
+    assert '"fontSize":"18px"' in theme
+    assert '"wrappingWidth":230' in theme
+    assert '"theme":"dark"' not in theme
 
 
 @pytest.mark.parametrize(

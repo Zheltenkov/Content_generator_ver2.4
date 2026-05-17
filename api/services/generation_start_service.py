@@ -15,6 +15,7 @@ from api.utils.data_masking import mask_dict
 from api.utils.logging_context import set_request_id, set_user_id
 from content_gen.exceptions import ValidationError
 from content_gen.models.schemas import ProjectSeed
+from content_gen.workflow_profiles import resolve_workflow_profile, workflow_profile_payload
 
 from .generation_errors import GenerationServiceError
 from .generation_workflow_service import GenerationWorkflowService
@@ -95,6 +96,8 @@ class GenerationStartService:
                 raise GenerationServiceError(400, f"Ошибка валидации данных: {str(exc)}") from exc
 
             project_seed_dict = project_seed.model_dump()
+            workflow_profile = resolve_workflow_profile(project_seed_dict)
+            workflow_profile_data = workflow_profile_payload(workflow_profile)
             self._workflow_service.create(
                 request_id=request_id,
                 user_id=user_id,
@@ -102,13 +105,18 @@ class GenerationStartService:
                     seed_data,
                     project_seed_payload=project_seed_dict,
                     track_paths=[],
+                    workflow_profile=workflow_profile_data,
                 ),
             )
             generation_task = asyncio.create_task(
                 self._background_runner(request_id, user_id, project_seed_dict, [], None)
             )
             self._task_registrar(request_id, generation_task)
-            return GenerateStartResponse(request_id=request_id, status="pending")
+            return GenerateStartResponse(
+                request_id=request_id,
+                status="pending",
+                workflow_profile=workflow_profile_data,
+            )
         except ValidationError as exc:
             self._logger.error("❌ Ошибка валидации: %s", str(exc))
             self._status_setter(request_id, "failed")
@@ -172,12 +180,14 @@ class GenerationStartService:
 
         if not isinstance(seed_data, dict):
             raise GenerationServiceError(400, "Seed должен быть JSON-объектом")
+        seed_data.setdefault("language", "ru")
         return seed_data
 
     async def _log_seed_metadata(self, *, request_id: str, user_id: str, seed_data: dict[str, Any]) -> None:
         seed_metadata = mask_dict(
             {
                 "language": seed_data.get("language"),
+                "llm_provider": seed_data.get("llm_provider"),
                 "track": seed_data.get("track"),
                 "project_type": seed_data.get("project_type"),
                 "learning_outcomes_count": len(seed_data.get("learning_outcomes", [])),
@@ -200,20 +210,26 @@ class GenerationStartService:
         *,
         project_seed_payload: dict[str, Any] | None = None,
         track_paths: list[str] | None = None,
+        workflow_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Keep only compact seed metadata in the workflow root row."""
         metadata = mask_dict(
             {
                 "language": seed_data.get("language"),
+                "llm_provider": seed_data.get("llm_provider"),
                 "track": seed_data.get("track"),
                 "project_type": seed_data.get("project_type"),
                 "audience_level": seed_data.get("audience_level"),
                 "project_title": seed_data.get("title_seed") or seed_data.get("platform_name"),
                 "methodology_human_review": seed_data.get("methodology_human_review", False),
+                "workflow_profile_id": (workflow_profile or {}).get("id"),
             }
         )
         metadata["project_seed_payload"] = project_seed_payload or dict(seed_data)
         metadata["track_paths"] = list(track_paths or [])
+        metadata["workflow_profile"] = workflow_profile or workflow_profile_payload(
+            resolve_workflow_profile(project_seed_payload or seed_data)
+        )
         return metadata
 
     @staticmethod

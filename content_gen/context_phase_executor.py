@@ -73,7 +73,8 @@ def _build_context_summary(seed: ProjectSeed, curriculum_ctx: dict[str, Any], pr
     if current_description:
         parts.append(f"Текущий проект фокусируется на: {current_description}.")
 
-    story = (getattr(seed, "sjm", None) or curriculum_ctx.get("sjm_context") or "").strip()
+    storytelling_type = str(getattr(seed, "storytelling_type", None) or curriculum_ctx.get("storytelling_type") or "sjm")
+    story = "" if storytelling_type == "none" else (getattr(seed, "sjm", None) or curriculum_ctx.get("sjm_context") or "").strip()
     if story:
         parts.append(f"Рабочий кейс проекта: {story[:280]}.")
 
@@ -141,6 +142,8 @@ def _execute_context_phase(
     # Форма может передать их напрямую, но при восстановлении из sessionStorage
     # они также доступны внутри curriculum_context.
     if curriculum_ctx:
+        if curriculum_ctx.get("storytelling_type"):
+            seed.storytelling_type = ProjectSeed._normalize_storytelling_type(curriculum_ctx.get("storytelling_type"))
         if not seed.sjm and curriculum_ctx.get("sjm_context"):
             seed.sjm = str(curriculum_ctx["sjm_context"]).strip() or None
         if (

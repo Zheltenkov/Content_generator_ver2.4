@@ -22,6 +22,7 @@ from difflib import SequenceMatcher
 from .base.llm_client import LLMClientProtocol
 from ..models.schemas import ProjectSeed
 from ..utils.protected_blocks import protect_blocks, restore_blocks
+from ..utils.translation_languages import get_translation_language_profile
 from .translation_refiner import TranslationCombinerAgent, TranslationRefinerAgent
 
 SYSTEM = """Ты — профессиональный переводчик технических документов.
@@ -33,7 +34,7 @@ SYSTEM = """Ты — профессиональный переводчик те�
 - Определения терминов (используй стандартные определения на целевом языке)
 - Стиль и тон (дружелюбный, на «ты»)
 - Текст в кавычках («...») оставляй обычным инлайн-текстом, не превращай в заголовки (##) и не выделяй жирным (**).
-- Письменность: весь переводимый текст пиши латиницей. Кириллицу оставляй только в неизменяемых именах собственных, коде, путях, ссылках и защищенных блоках.
+- Письменность: {script_instruction}.
 
 Для английского: используй американский вариант (American English), простые конструкции, хорошая читаемость; избегай тяжёлых формальных британских оборотов.
 
@@ -53,12 +54,12 @@ USER_TMPL = """Переведи следующий фрагмент README фа�
    - Изображения ![alt](path)
 
 2. Формулы LaTeX:
-   - НЕ переводи формулы внутри $$...$$ или \\[...\\]
-   - Сохрани все математические выражения как есть
+   - Сохрани математические выражения, переменные и синтаксис LaTeX
+   - Переведи русский естественный текст внутри \\text{{...}}, \\mathrm{{...}}, подписей и расшифровок параметров
    - Переведи только определения параметров после формул
 
 3. ЗАЩИТА БЛОКОВ (КРИТИЧЕСКИ ВАЖНО):
-   - НЕ изменяй и НЕ удаляй маркеры [[[BLOCK_N]]] — они защищают код, формулы и диаграммы
+   - НЕ изменяй и НЕ удаляй маркеры [[[BLOCK_N]]] — они защищают код и диаграммы
    - НЕ изменяй HTML-комментарии <!-- PROTECTED_BLOCK id=N type=... -->
    - Эти маркеры должны остаться ТОЧНО такими же, как в оригинале
 
@@ -71,7 +72,7 @@ USER_TMPL = """Переведи следующий фрагмент README фа�
    - НЕ удаляй таблицы
 
 5. Определения терминов:
-   - Используй латиницу для текста на целевом языке ({target_language})
+   - Соблюдай письменность целевого языка: {script_instruction}
    - Используй стандартные определения терминов на целевом языке
    - Сохрани структуру определений: "<термин> — это <определение>"
 
@@ -87,7 +88,7 @@ USER_TMPL = """Переведи следующий фрагмент README фа�
 8. КРИТИЧЕСКИ ВАЖНО:
    - Переведи ВЕСЬ текст на {target_language}, включая жирные определения (**...**), подписи к рисункам, подзаголовки
    - НЕ оставляй НИ ОДНОГО предложения или фразы на исходном языке
-   - НЕ используй кириллицу в переводимом тексте; пиши результат латиницей
+   - Соблюдай письменность целевого языка: {script_instruction}
    - Начни перевод сразу с первого элемента фрагмента, без вводных фраз
    - СОХРАНИ все маркеры [[[BLOCK_N]]] БЕЗ ИЗМЕНЕНИЙ
 
@@ -107,7 +108,7 @@ REPAIR_USER_TMPL = """Переведи следующую секцию доку�
 ОБЯЗАТЕЛЬНО:
 - Переведи ВСЕ заголовки, весь текст, ВСЕ ячейки таблиц, все жирные определения
 - НЕ оставляй НИ ОДНОГО слова на исходном языке (кроме имён собственных и технических терминов без перевода)
-- Пиши переводимый текст латиницей; кириллицу оставляй только в неизменяемом коде, путях, ссылках и именах собственных
+- Соблюдай письменность целевого языка: {script_instruction}
 - Сохрани структуру Markdown (заголовки, списки, таблицы, ссылки)
 - Сохрани маркеры [[[BLOCK_N]]] без изменений
 - Начни сразу с перевода, без вводных фраз
@@ -126,6 +127,38 @@ _LANG_FINGERPRINTS: dict[str, set[str]] = {
     "en": set(),  # детектируется по отсутствию Cyrillic
 }
 _CYRILLIC_RE = re.compile(r"[а-яА-ЯёЁ]")
+_CYRILLIC_WORD_RE = re.compile(r"[А-Яа-яЁёҒғӢӣҚқӮӯҲҳҶҷҢңҮүӨөІіЄєЇїЎў]{2,}")
+_LATIN_WORD_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_+/#.-]{2,}\b")
+_SCRIPT_LATIN_ALLOWLIST = {
+    "api",
+    "backend",
+    "bus",
+    "css",
+    "devops",
+    "docx",
+    "excel",
+    "factor",
+    "frontend",
+    "git",
+    "github",
+    "gitlab",
+    "google",
+    "html",
+    "http",
+    "https",
+    "json",
+    "markdown",
+    "pdf",
+    "pjm",
+    "readme",
+    "sermon",
+    "sjm",
+    "sql",
+    "url",
+    "vtt",
+    "yaml",
+    "yml",
+}
 _MARKDOWN_STRIP_RE = re.compile(
     r"\[([^\]]*)\]\([^)]*\)"   # [text](url) -> text
     r"|```[^`]*```"             # code blocks
@@ -209,6 +242,62 @@ class TranslatorAgent:
                 break
         return cleaned
 
+    @staticmethod
+    def _strip_markdown_for_script_check(markdown: str) -> str:
+        """Оставляет переводимый prose-текст и убирает технические контейнеры."""
+        text = re.sub(r"```.*?```", " ", markdown or "", flags=re.DOTALL)
+        text = re.sub(r"`[^`]+`", " ", text)
+        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"https?://\S+", " ", text)
+        text = re.sub(r"<!--.*?-->", " ", text, flags=re.DOTALL)
+        text = re.sub(r"\[\[\[BLOCK_\d+\]\]\]", " ", text)
+        return text
+
+    @staticmethod
+    def _is_allowed_latin_token(word: str) -> bool:
+        """Отсекает технические токены, которые не нужно переводить по письменности."""
+        normalized = word.lower().strip("._-/#")
+        if normalized in _SCRIPT_LATIN_ALLOWLIST:
+            return True
+        if re.search(r"[/_.#0-9]", word):
+            return True
+        return word.isupper() and len(word) <= 8
+
+    def _validate_script_coverage(
+        self, translated: str, target_language_code: str,
+    ) -> list[str]:
+        """Проверяет, что результат использует письменность выбранного языка."""
+        profile = get_translation_language_profile(target_language_code)
+        if profile.expected_script not in {"cyrillic", "latin"}:
+            return []
+
+        text = self._strip_markdown_for_script_check(translated)
+        cyrillic_words = _CYRILLIC_WORD_RE.findall(text)
+        latin_words = [
+            word
+            for word in _LATIN_WORD_RE.findall(text)
+            if not self._is_allowed_latin_token(word)
+        ]
+
+        if profile.expected_script == "cyrillic":
+            if len(latin_words) >= 8 and len(latin_words) > max(4, int(len(cyrillic_words) * 0.35)):
+                sample = ", ".join(latin_words[:8])
+                return [
+                    f"Нарушена письменность для {profile.name}: найдено слишком много латиницы "
+                    f"в переводимом тексте ({sample})"
+                ]
+            return []
+
+        total_words = len(cyrillic_words) + len(latin_words)
+        if len(cyrillic_words) >= 6 and (not total_words or len(cyrillic_words) / total_words > 0.12):
+            sample = ", ".join(cyrillic_words[:8])
+            return [
+                f"Нарушена письменность для {profile.name}: найден кириллический текст "
+                f"в переводимом содержимом ({sample})"
+            ]
+        return []
+
     # ------------------------------------------------------------------
     # section-aware splitting (Fix 1 + Fix 2)
     # ------------------------------------------------------------------
@@ -255,6 +344,7 @@ class TranslatorAgent:
         protected_md: str,
         max_length: int,
         target_lang_name: str = "",
+        script_instruction: str = "",
     ) -> list[str]:
         """Делит markdown на чанки, гарантируя что heading+body не разрываются.
 
@@ -285,7 +375,11 @@ class TranslatorAgent:
                 sub_chunks = self._split_section_by_paragraphs(section, max_length)
                 for i, sc in enumerate(sub_chunks):
                     if i > 0 and not re.match(r"^#{1,6}\s+", sc):
-                        ctx = self._make_context_header(last_heading, target_lang_name)
+                        ctx = self._make_context_header(
+                            last_heading,
+                            target_lang_name,
+                            script_instruction,
+                        )
                         sc = f"{ctx}\n\n{sc}"
                     chunks.append(sc.strip())
                 continue
@@ -304,14 +398,19 @@ class TranslatorAgent:
         return [c for c in chunks if c]
 
     @staticmethod
-    def _make_context_header(last_heading: str, target_lang_name: str) -> str:
+    def _make_context_header(
+        last_heading: str,
+        target_lang_name: str,
+        script_instruction: str = "",
+    ) -> str:
         """Генерирует контекстную строку для чанка без заголовка."""
         if not last_heading:
             return ""
+        script_text = script_instruction or "соблюдай письменность целевого языка"
         return (
             f"[КОНТЕКСТ: Продолжение раздела \"{last_heading}\". "
             f"Переведи ВСЁ на {target_lang_name}, включая таблицы, "
-            f"заголовки и определения. Пиши перевод латиницей. Не оставляй текст на исходном языке.]"
+            f"заголовки и определения. {script_text}. Не оставляй текст на исходном языке.]"
         )
 
     # ------------------------------------------------------------------
@@ -322,11 +421,13 @@ class TranslatorAgent:
         self,
         chunk_markdown: str,
         target_lang_name: str,
+        script_instruction: str,
         system_prompt: str,
     ) -> str:
         """Переводит один chunk. При finish_reason=length делит пополам."""
         part_prompt = USER_TMPL.format(
             target_language=target_lang_name,
+            script_instruction=script_instruction,
             markdown=chunk_markdown,
         )
         translated = self.llm.complete(
@@ -346,12 +447,20 @@ class TranslatorAgent:
             part_b = chunk_markdown[nl:].strip()
             t_a = self._cleanup_model_prefixes(
                 self.llm.complete(system=system_prompt,
-                                  user=USER_TMPL.format(target_language=target_lang_name, markdown=part_a),
+                                  user=USER_TMPL.format(
+                                      target_language=target_lang_name,
+                                      script_instruction=script_instruction,
+                                      markdown=part_a,
+                                  ),
                                   temperature=0.2)
             )
             t_b = self._cleanup_model_prefixes(
                 self.llm.complete(system=system_prompt,
-                                  user=USER_TMPL.format(target_language=target_lang_name, markdown=part_b),
+                                  user=USER_TMPL.format(
+                                      target_language=target_lang_name,
+                                      script_instruction=script_instruction,
+                                      markdown=part_b,
+                                  ),
                                   temperature=0.2)
             )
             return f"{t_a}\n\n{t_b}"
@@ -366,13 +475,24 @@ class TranslatorAgent:
         self,
         protected_md: str,
         target_lang_name: str,
+        script_instruction: str,
         system_prompt: str,
         max_length: int,
     ) -> str:
         """Переводит markdown по чанкам и склеивает результат."""
-        chunks = self._split_for_translation(protected_md, max_length, target_lang_name)
+        chunks = self._split_for_translation(
+            protected_md,
+            max_length,
+            target_lang_name,
+            script_instruction,
+        )
         if len(chunks) <= 1:
-            return self._translate_single_chunk(protected_md, target_lang_name, system_prompt)
+            return self._translate_single_chunk(
+                protected_md,
+                target_lang_name,
+                script_instruction,
+                system_prompt,
+            )
 
         print(
             f"  README длинный ({len(protected_md)} символов), "
@@ -386,7 +506,12 @@ class TranslatorAgent:
                 file=sys.stderr, flush=True,
             )
             translated_parts.append(
-                self._translate_single_chunk(chunk, target_lang_name, system_prompt),
+                self._translate_single_chunk(
+                    chunk,
+                    target_lang_name,
+                    script_instruction,
+                    system_prompt,
+                ),
             )
         return "\n\n".join(translated_parts)
 
@@ -462,6 +587,7 @@ class TranslatorAgent:
         original: str,
         translated: str,
         target_lang_name: str,
+        script_instruction: str,
     ) -> str:
         """Находит непереведённые секции и перетранслирует их точечно."""
         untranslated = self._validate_language_coverage(original, translated)
@@ -475,7 +601,10 @@ class TranslatorAgent:
 
         orig_sections = self._split_by_headings(original)
         trans_sections = self._split_by_headings(translated)
-        system_prompt = SYSTEM.format(target_language=target_lang_name)
+        system_prompt = SYSTEM.format(
+            target_language=target_lang_name,
+            script_instruction=script_instruction,
+        )
 
         for sec_idx, heading, ratio in untranslated:
             if sec_idx >= len(orig_sections) or sec_idx >= len(trans_sections):
@@ -493,6 +622,7 @@ class TranslatorAgent:
 
             repair_prompt = REPAIR_USER_TMPL.format(
                 target_language=target_lang_name,
+                script_instruction=script_instruction,
                 markdown=original_section,
             )
             try:
@@ -542,6 +672,7 @@ class TranslatorAgent:
         markdown_original: str,
         blocks: list,
         target_lang_name: str,
+        script_instruction: str,
         target_language_code: str,
         translation_mode: str,
         progress_callback: Callable[[str], None] | None,
@@ -552,10 +683,14 @@ class TranslatorAgent:
         Returns:
             (translated_md, is_valid, issues)
         """
-        system_prompt = SYSTEM.format(target_language=target_lang_name)
+        system_prompt = SYSTEM.format(
+            target_language=target_lang_name,
+            script_instruction=script_instruction,
+        )
         translated = self._translate_with_chunking(
             protected_md=protected_md,
             target_lang_name=target_lang_name,
+            script_instruction=script_instruction,
             system_prompt=system_prompt,
             max_length=max_length,
         )
@@ -586,7 +721,10 @@ class TranslatorAgent:
             if progress_callback:
                 progress_callback("repair")
             translated = self._repair_untranslated_sections(
-                markdown_original, translated, target_lang_name,
+                markdown_original,
+                translated,
+                target_lang_name,
+                script_instruction,
             )
             translated = self._cleanup_translation(translated, markdown_original)
 
@@ -604,7 +742,10 @@ class TranslatorAgent:
                 f"Секция [{sec_idx}] {heading[:50]!r} не переведена (similarity={ratio:.2f})"
             )
 
-        final_valid = is_valid and len(remaining) == 0
+        script_issues = self._validate_script_coverage(translated, target_language_code)
+        structure_issues.extend(script_issues)
+
+        final_valid = is_valid and len(remaining) == 0 and len(script_issues) == 0
         return translated, final_valid, structure_issues
 
     # ------------------------------------------------------------------
@@ -689,6 +830,14 @@ class TranslatorAgent:
                 f"оригинал {orig_mermaid}, перевод {trans_mermaid}"
             )
 
+        orig_formulas = len(re.findall(r"\$\$.*?\$\$", original, re.DOTALL))
+        trans_formulas = len(re.findall(r"\$\$.*?\$\$", translated, re.DOTALL))
+        if orig_formulas != trans_formulas:
+            issues.append(
+                f"Количество блочных формул не совпадает: "
+                f"оригинал {orig_formulas}, перевод {trans_formulas}"
+            )
+
         def count_tables(md: str) -> int:
             count = 0
             in_table = False
@@ -746,18 +895,14 @@ class TranslatorAgent:
         if target_language == "ru":
             return markdown
 
-        language_names = {
-            "en": "английский",
-            "kg": "киргизский",
-            "uz": "узбекский",
-            "tg": "таджикский",
-        }
-        target_lang_name = language_names.get(target_language, target_language)
+        target_profile = get_translation_language_profile(target_language)
+        target_lang_name = target_profile.prompt_label
+        script_instruction = target_profile.script_instruction
 
         detected_lang = self._detect_source_language(markdown)
         if detected_lang and detected_lang == target_language:
             msg = (
-                f"Входной документ уже на целевом языке ({target_lang_name}). "
+                f"Входной документ уже на целевом языке ({target_profile.name}). "
                 f"Подайте оригинальный документ на русском языке."
             )
             print(f"  {msg}", file=sys.stderr, flush=True)
@@ -772,9 +917,15 @@ class TranslatorAgent:
                 file=sys.stderr, flush=True,
             )
 
-        protected_md, blocks = protect_blocks(markdown)
+        protected_md, blocks = protect_blocks(
+            markdown,
+            protect_code=True,
+            protect_mermaid=True,
+            protect_formulas=False,
+            protect_tables=False,
+        )
         print(
-            f"  Защищено {len(blocks)} блоков (mermaid, формулы, код) перед переводом",
+            f"  Защищено {len(blocks)} блоков (код и mermaid) перед переводом",
             file=sys.stderr, flush=True,
         )
 
@@ -803,6 +954,7 @@ class TranslatorAgent:
                     markdown_original=markdown,
                     blocks=blocks,
                     target_lang_name=target_lang_name,
+                    script_instruction=script_instruction,
                     target_language_code=target_language,
                     translation_mode=mode,
                     progress_callback=progress_callback,

@@ -3,7 +3,7 @@
 import asyncio
 import re
 import uuid
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -59,6 +59,10 @@ class CheckReadmeRequest(BaseModel):
 
     markdown: str = Field(..., description="Содержимое README в формате Markdown")
     language: str = Field("ru", description="Язык README (ru/en/...)")
+    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Field(
+        default=None,
+        description="Предпочитаемый LLM provider для AI-критериев",
+    )
     learning_outcomes: list[str] | None = Field(
         default=None,
         description="Необязательный список образовательных результатов для критериев 2.x",
@@ -103,6 +107,7 @@ async def check_readme(
         metadata={
             "markdown_length": len(request.markdown or ""),
             "language": request.language,
+            "llm_provider": request.llm_provider,
             "learning_outcomes_count": len(request.learning_outcomes or []),
         },
     )
@@ -111,6 +116,7 @@ async def check_readme(
         # LLM клиент передается в RubricScorer для AI‑критериев
         try:
             llm_client = create_llm_client(
+                provider=request.llm_provider,
                 default_role="critic",
                 enable_cache=True,
                 enable_batching=True,

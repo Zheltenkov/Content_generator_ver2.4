@@ -1,7 +1,8 @@
 """Тесты для RubricScorer."""
 
-from content_gen.models.criteria_models import CheckMethod, CriteriaItem, CriteriaReport
+from content_gen.models.criteria_models import CheckMethod, CriteriaItem, CriteriaReport, StrictnessLevel
 from content_gen.models.readme_document import ReadmeDocument
+from content_gen.utils.rubric_export import criteria_to_json
 from content_gen.validators.rubric.scorer import RubricScorer
 
 
@@ -113,4 +114,51 @@ class TestRubricScorer:
         assert ("2", ["LO"]) in captured["sections"]
         assert ("3", "Проект") in captured["sections"]
         assert ("4", "Проект") in captured["sections"]
+
+    def test_build_report_turns_soft_failures_into_warnings(self):
+        """Soft rubric failures are diagnostic warnings, not blocking score losses."""
+        report = RubricScorer._build_report([
+            CriteriaItem(
+                id="1.1",
+                title="Структура README",
+                description="Обязательная структура",
+                check_method=CheckMethod.SCRIPT,
+                score=0,
+                comments=["Нет Главы 2"],
+                strictness=StrictnessLevel.HARD,
+            ),
+            CriteriaItem(
+                id="2.4.2",
+                title="Проверка смысловой точности названий подразделов",
+                description="Каждый подраздел имеет тематическое название",
+                check_method=CheckMethod.AI_AGENT,
+                score=0,
+                comments=["Некоторые названия требуют ручной проверки"],
+                strictness=StrictnessLevel.SOFT,
+            ),
+            CriteriaItem(
+                id="3.2",
+                title="Проверка единого нарративного фокуса",
+                description="Весь проект сохраняет единый контекст",
+                check_method=CheckMethod.HYBRID,
+                score=0,
+                comments=["Внешний пример может доминировать над основным кейсом"],
+            ),
+        ])
+
+        hard, soft, semantic = report.items
+        assert hard.score == 0
+        assert soft.score == 1
+        assert semantic.score == 1
+        assert soft.strictness == StrictnessLevel.SOFT
+        assert semantic.strictness == StrictnessLevel.SOFT
+        assert soft.comments[0].startswith("Предупреждение:")
+        assert semantic.details["blocking"] is False
+        assert report.total == 2
+
+        exported = criteria_to_json(report)
+        exported_by_id = {item["id"]: item for item in exported["items"]}
+        assert exported_by_id["1.1"]["status"] == "failed"
+        assert exported_by_id["2.4.2"]["status"] == "warning"
+        assert exported_by_id["3.2"]["status"] == "warning"
 

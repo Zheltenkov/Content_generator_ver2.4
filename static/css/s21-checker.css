@@ -5,7 +5,7 @@ body.s21-product.page-checker {
 }
 
 .checker-topbar {
-  grid-template-columns: minmax(260px, auto) 1fr auto;
+  grid-template-columns: 1fr auto;
 }
 
 .checker-subbar {

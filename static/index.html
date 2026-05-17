@@ -57,18 +57,20 @@
     </script>
     <!-- Polyfill.io удален: современные браузеры поддерживают ES6+ нативно -->
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260515-regen-diagram-fix">
     <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-buttons.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
-    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260516-methodology-fragment-fix">
     <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
+    <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260514-header-fix">
     <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
-    <link rel="stylesheet" href="/static/css/s21-methodology.css?v=20260514-split3">
-    <link rel="stylesheet" href="/static/css/s21-generate.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-methodology.css?v=20260516-methodology-fragment-fix">
+    <link rel="stylesheet" href="/static/css/s21-generate.css?v=20260517-storytelling-help">
     <link rel="stylesheet" href="/static/css/s21-metrics.css?v=20260514-split3">
+    <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
     <!-- Утилиты для UI -->
     <script src="/static/js/utils/sanitize.js?v=20260429-review-split"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
@@ -77,8 +79,8 @@
     <script src="/static/js/utils/validation.js?v=20260508-polish-ui"></script>
 </head>
 <body class="s21-product page-generate">
-    <header class="dashboard-header generator-topbar">
-        <a class="dashboard-brand generator-brand" href="/app" aria-label="Главная">
+    <header class="dashboard-header dashboard-header--menu generator-topbar">
+        <a class="dashboard-brand" href="/app" aria-label="Главная" hidden>
             <span>
                 <span id="generatorBrandMark" class="dashboard-brand-mark">ФОРМА ПАРАМЕТРОВ</span>
                 <span id="generatorBrandSub" class="dashboard-brand-sub">учебных проектов · v 2.4</span>
@@ -90,13 +92,19 @@
             <a href="/app/generate" class="active">Генерация</a>
             <a href="/app/check">Проверка</a>
             <a href="/app/translate">Перевод</a>
-            <a href="/docs" target="_blank" rel="noopener">Документация</a>
+            <a href="/app/instruction">Инструкция</a>
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-lang" aria-label="Язык интерфейса">
-                <span class="active">RU</span>
-                <span>EN</span>
+            <div class="dashboard-model-picker" data-selected-model="gpt">
+                <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
+                    <span aria-hidden="true">ИИ</span>
+                </button>
+                <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
+                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
+                    <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
+                </div>
             </div>
             <button class="dashboard-user" type="button" onclick="handleLogout()" title="Выйти">
                 <span class="dashboard-user-avatar" id="generatorUserInitials">U</span>
@@ -154,7 +162,6 @@
                         <div><span>Проект из УП</span><strong id="runParamProject">—</strong></div>
                         <div><span>Название</span><strong id="runParamTitle">—</strong></div>
                         <div><span>Тип</span><strong id="runParamType">—</strong></div>
-                        <div><span>Язык</span><strong id="runParamLanguage">—</strong></div>
                         <div><span>Кол-во задач</span><strong id="runParamTasks">—</strong></div>
                         <div><span>Методология</span><strong id="runParamMethodology">—</strong></div>
                     </div>
@@ -258,15 +265,6 @@
                     </div>
                     <div class="generator-field-grid two">
                         <div class="form-group">
-                            <label>Язык <span class="required">*</span></label>
-                            <select id="language">
-                                <option value="ru">RU · Русский</option>
-                                <option value="en">EN · Английский</option>
-                                <option value="kg">KG · Киргизский</option>
-                                <option value="uz">UZ · Узбекский</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
                             <label>Тип проекта <span class="required">*</span></label>
                             <select id="projectType" onchange="toggleGroupSize()">
                                 <option value="individual">Индивидуальный</option>
@@ -314,6 +312,25 @@
                         <input type="text" id="requiredSoftware" placeholder="VS Code, Docker, PostgreSQL, браузер">
                     </div>
                     <div class="form-group">
+                        <label for="storytellingType" class="storytelling-type-label">
+                            Тип сторителлинга
+                            <button
+                                class="storytelling-help-trigger"
+                                id="storytellingTypeHelpTrigger"
+                                type="button"
+                                aria-label="Пояснение типа сторителлинга"
+                            >?</button>
+                        </label>
+                        <select id="storytellingType">
+                            <option value="sjm" selected>Практический сторителлинг / SJM</option>
+                            <option value="case">Рабочий кейс</option>
+                            <option value="role_play">Ролевая ситуация</option>
+                            <option value="project_scenario">Сценарий проекта</option>
+                            <option value="story_arc">Сквозная история</option>
+                            <option value="none">Без сторителлинга</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
                         <label>Сторителлинг / SJM</label>
                         <textarea id="storytelling" rows="4" placeholder="Кейс, роль, рабочая ситуация и ограничения проекта"></textarea>
                     </div>
@@ -332,7 +349,7 @@
                         <span class="generator-section-index">05</span>
                         <div>
                             <h3>Дополнительные настройки</h3>
-                            <p>Репозиторий, визуальные блоки, опорные материалы и reference hints</p>
+                            <p>Визуальные блоки, опорные материалы и параметры репозитория</p>
                         </div>
                         <span class="generator-expander-icon">▼</span>
                     </div>
@@ -368,10 +385,6 @@
                                 <input type="text" id="platformName" placeholder="Platform / GitLab name">
                             </div>
                             <div class="form-group">
-                                <label>GitLab / Google docs</label>
-                                <input type="text" id="gitlabLink" placeholder="Ссылка из учебного плана">
-                            </div>
-                            <div class="form-group">
                                 <label>Трудоемкость, часы</label>
                                 <input type="number" id="workloadHours" min="0" step="0.5">
                             </div>
@@ -402,15 +415,6 @@
                             <input type="text" id="repoPathTemplate" value="repo/part-03/task-{num:02d}/README.md">
                         </div>
 
-                        <div class="form-group">
-                            <label>Reference project hint</label>
-                            <textarea id="referenceProjectHint" rows="3" placeholder="Эталонный фрагмент проекта для структуры и стиля"></textarea>
-                        </div>
-                        <div class="form-group">
-                            <label>Reference practice hint</label>
-                            <textarea id="referencePracticeHint" rows="3" placeholder="Эталонный фрагмент заданий для главы 3"></textarea>
-                        </div>
-
                     </div>
                 </section>
 
@@ -435,7 +439,7 @@
                             <span id="generationRunPercent">0%</span>
                         </div>
                         <div class="generation-run-title-block">
-                            <div class="generation-run-kicker">Этап <span id="generationRunStageIndex">1</span> из <span id="generationRunStageTotal">9</span></div>
+                            <div class="generation-run-kicker">Этап <span id="generationRunStageIndex">1</span> из <span id="generationRunStageTotal">8</span></div>
                             <h2 id="generationRunTitle">Инициализация пайплайна</h2>
                             <p id="generationRunSubtitle">Подготавливаем контекст и проверяем входные параметры.</p>
                         </div>
@@ -455,8 +459,7 @@
                             <li class="generation-pipeline-step pending" data-run-stage="practice"><span>05</span><div><strong>Генерация практики</strong><small>задачи, p2p-критерии, материалы</small></div><em>ожидает</em></li>
                             <li class="generation-pipeline-step pending" data-run-stage="quality"><span>06</span><div><strong>Проверка качества</strong><small>структура, связность, полнота</small></div><em>ожидает</em></li>
                             <li class="generation-pipeline-step pending" data-run-stage="evaluation"><span>07</span><div><strong>Оценка по критериям</strong><small>rubric, замечания, score</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="translation"><span>08</span><div><strong>Перевод</strong><small id="generationRunTranslationHint">пропускается — целевой язык RU</small></div><em>ожидает</em></li>
-                            <li class="generation-pipeline-step pending" data-run-stage="assembly"><span>09</span><div><strong>Сборка результата</strong><small>README, отчёты, архив</small></div><em>ожидает</em></li>
+                            <li class="generation-pipeline-step pending" data-run-stage="assembly"><span>08</span><div><strong>Сборка результата</strong><small>README, отчёты, архив</small></div><em>ожидает</em></li>
                         </ol>
                     </div>
 
@@ -481,6 +484,7 @@
                     <p>Заполните входные параметры слева и запустите генерацию. Полный пайплайн занимает 8–15 минут.</p>
                     <div class="generator-result-checklist">
                         <div><span>✓</span><strong>README.md</strong><small>теория, практика, критерии оценки</small></div>
+                        <div><span>✓</span><strong>check-list.yml</strong><small>чек-лист p2p-проверки по итоговому README</small></div>
                         <div><span>✓</span><strong>План практики</strong><small>задачи, формулы, чек-листы, сложность</small></div>
                         <div><span>✓</span><strong>Метрики качества</strong><small>39 критериев, антиплагиат, читаемость</small></div>
                         <div><span>✓</span><strong>Архив для скачивания</strong><small>результаты в .zip с отчётами</small></div>
@@ -519,7 +523,7 @@
                     <div id="warningsArea"></div>
                     
                     <!-- Перегенерация -->
-                    <section class="s21-regeneration-panel result-regeneration-tools">
+                    <section class="s21-regeneration-panel result-regeneration-tools regen-only-action">
                         <div class="s21-panel-head">
                             <div>
                                 <h3>Перегенерация контента</h3>
@@ -542,9 +546,9 @@
                             </div>
                         </div>
                         <div class="btn-group">
-                            <button class="btn" onclick="regenerateContent()">Перегенерировать</button>
-                            <button class="btn btn-secondary" onclick="clearRegeneration()">Очистить перегенерацию</button>
-                            <button class="btn btn-secondary" onclick="fillCommentsFromFailedCriteria()">Заполнить из непройденных критериев</button>
+                            <button class="btn regen-only-action" onclick="regenerateContent()">Перегенерировать</button>
+                            <button class="btn btn-secondary regen-only-action" onclick="clearRegeneration()">Очистить перегенерацию</button>
+                            <button class="btn btn-secondary regen-only-action" onclick="fillCommentsFromFailedCriteria()">Заполнить из непройденных критериев</button>
                         </div>
                     </section>
                     
@@ -558,10 +562,10 @@
                                 <button class="tab" onclick="showTab('generatedData', this)">Данные</button>
                                 <button class="tab" onclick="showTab('metrics', this)">Метрики</button>
                                 <button class="tab" onclick="showTab('report', this)">Отчёт</button>
-                                <button class="tab" onclick="showTab('regen', this)">Перегенерация</button>
+                            <button class="tab regen-only-action" data-result-tab="regen" onclick="showTab('regen', this)">Перегенерация</button>
                             </div>
                             <div class="result-view-actions" aria-label="Режим просмотра README">
-                                <button type="button" class="btn btn-secondary btn-sm" onclick="compareCurrentResult()">Сравнить</button>
+                                <button id="readmeModeCompare" type="button" class="btn btn-secondary btn-sm" onclick="compareCurrentResult()">Сравнить</button>
                                 <div class="result-view-toggle">
                                     <button id="readmeModeMarkdown" type="button" onclick="setReadmeRenderMode('markdown')">Markdown</button>
                                     <button id="readmeModePreview" type="button" class="active" onclick="setReadmeRenderMode('preview')">Превью</button>
@@ -627,7 +631,37 @@
                         <!-- Вкладка Перегенерация -->
                         <div id="regen" class="tab-content">
                             <div class="result-panel-body">
-                                <div id="regenContent" class="markdown-preview result-markdown"></div>
+                                <details id="regenerationScopeDetails" class="s21-regeneration-panel regeneration-scope-panel">
+                                    <summary class="regeneration-scope-summary">
+                                        <span>
+                                            <strong>Части README для перегенерации</strong>
+                                            <small>Отметьте нужные части README и задайте отдельные инструкции для каждой.</small>
+                                        </span>
+                                        <span class="regeneration-scope-filter" aria-hidden="true">
+                                            <span>Фильтр разделов</span>
+                                            <span class="regeneration-scope-filter-icon">›</span>
+                                        </span>
+                                    </summary>
+                                    <div class="regeneration-scope-body">
+                                        <div id="regenerationSectionSelector" class="regeneration-section-selector"></div>
+                                        <div class="regeneration-global-comment">
+                                            <label for="regenerationGlobalComment">Общая правка</label>
+                                            <textarea id="regenerationGlobalComment" rows="4" placeholder="Глобальные инструкции по README или проекту: что поправить во всех затронутых главах, заданиях, критериях или формулировках..." oninput="renderRegenerationSectionComments()"></textarea>
+                                            <small>Эта правка будет объединена с выбранными частями README и сохранёнными инструкциями предыдущих перегенераций.</small>
+                                        </div>
+                                        <div class="s21-inline-actions end">
+                                            <button class="btn btn-sm regen-only-action" type="button" onclick="regenerateContent()">
+                                                Запустить перегенерацию
+                                            </button>
+                                        </div>
+                                        <div id="regenerationSectionComments" class="regeneration-section-comments" aria-live="polite"></div>
+                                    </div>
+                                </details>
+                                <div class="divider"></div>
+                                <div class="result-readme-layout regeneration-readme-layout">
+                                    <aside id="regenToc" class="readme-toc" aria-label="Содержание перегенерированного README"></aside>
+                                    <div id="regenContent" class="markdown-preview result-markdown"></div>
+                                </div>
                                 <div class="divider"></div>
                                 <h3>Скачать</h3>
                                 <button class="btn" onclick="downloadRegeneratedResults()" id="downloadRegenBtn">Скачать перегенерированный архив</button>
@@ -655,6 +689,22 @@
                 <div>Я буду держать контекст запуска. Пишите сюда замечания по ходу генерации; на контрольной точке смогу отправить их как правку методолога.</div>
             </div>
         </div>
+        <div id="assistantChatActions" class="assistant-chat-actions" style="display: none;" aria-label="Действия методолога">
+            <button type="button" id="assistantActionContinue">Продолжить</button>
+            <button type="button" id="assistantActionEdit">Редактировать</button>
+            <button type="button" id="assistantActionAccept">Принять</button>
+            <button type="button" id="assistantActionCompare">Сравнить</button>
+        </div>
+        <div id="assistantTargetPicker" class="assistant-target-picker" style="display: none;" aria-label="Область правки">
+            <div class="assistant-target-picker-head">
+                <strong>К чему применить правку</strong>
+                <span>Выберите область и напишите правку в чат.</span>
+            </div>
+            <select id="assistantChangeTarget" class="assistant-target-select" aria-label="Выбранная область правки">
+                <option value="">Текущий блок</option>
+            </select>
+            <div id="assistantTargetChips" class="assistant-target-chips" role="listbox" aria-label="Блоки для правки"></div>
+        </div>
         <div class="assistant-chat-suggestions" aria-label="Быстрые команды">
             <button type="button" data-assistant-suggestion="Добавь больше коротких примеров в текущий раздел.">+ примеры</button>
             <button type="button" data-assistant-suggestion="Упрости текущую практическую задачу и снизь порог входа.">упростить</button>
@@ -667,17 +717,18 @@
         </div>
     </aside>
     
-    <script src="/static/js/modules/markdownRendering.js?v=20260514-split"></script>
+    <script src="/static/js/modules/stateStores.js?v=20260515-store-refactor"></script>
+    <script src="/static/js/modules/markdownRendering.js?v=20260516-methodology-fragment-fix"></script>
     <script src="/static/js/modules/generationRunView.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPolling.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
     <script src="/static/js/modules/curriculumForm.js?v=20260514-split"></script>
-    <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
-    <script src="/static/js/modules/generationFormState.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationResultTabs.js?v=20260515-regen-panel-fix"></script>
+    <script src="/static/js/modules/generationFormState.js?v=20260517-storytelling-help"></script>
     <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
-    <script src="/static/js/modules/translationPage.js?v=20260514-split"></script>
-    <script src="/static/js/modules/methodologyAssistantChat.js?v=20260514-split"></script>
-    <script src="/static/js/modules/methodologyPanel.js?v=20260512-stage-review"></script>
-    <script src="/static/js/main.js?v=20260514-split"></script>
+    <script src="/static/js/modules/translationPage.js?v=20260514-video-progress"></script>
+    <script src="/static/js/modules/methodologyAssistantChat.js?v=20260514-generator-fixes"></script>
+    <script src="/static/js/modules/methodologyPanel.js?v=20260516-methodology-fragment-fix"></script>
+    <script src="/static/js/main.js?v=20260515-regen-diagram-fix"></script>
 </body>
 </html>

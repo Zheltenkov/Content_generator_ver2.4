@@ -319,7 +319,10 @@ async function pollGenerationStatus(requestId) {
                 return;
             }
 
-            setGenerationPollingState({ currentGenerationStatus: status });
+            setGenerationPollingState({
+                currentGenerationStatus: status,
+                workflowProfile: data.workflow_profile || undefined
+            });
             const workflowMeta = window.workflowUiOptions?.(data) || {};
             console.debug('Polling status:', { status, hasResult: !!data.result, requestId, workflow: !!data.workflow });
 
@@ -496,7 +499,8 @@ function handleCompletedGeneration(data) {
         currentMarkdown: data.result.markdown,
         originalMarkdown: data.result.markdown,
         originalRubric: data.result?.rubric || undefined,
-        originalTextStats: data.result?.text_stats || undefined
+        originalTextStats: data.result?.text_stats || undefined,
+        workflowProfile: data.workflow_profile || data.result.workflow_profile || undefined
     });
     window.saveGenerationState?.();
 
@@ -518,7 +522,8 @@ function handleCompletedGeneration(data) {
             request_id: data.request_id,
             result: data.result,
             warnings: data.warnings || [],
-            methodology: data.methodology || data.result.methodology_gate || null
+            methodology: data.methodology || data.result.methodology_gate || null,
+            workflow_profile: data.workflow_profile || data.result.workflow_profile || null
         });
     } catch (displayError) {
         console.error('❌ Ошибка при отображении результатов:', displayError);

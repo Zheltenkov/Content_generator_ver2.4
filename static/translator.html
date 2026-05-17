@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Перевод README - Школа 21</title>
+    <title>Перевод документов - Школа 21</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -35,8 +35,10 @@
     <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
+    <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260514-header-fix">
     <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
-    <link rel="stylesheet" href="/static/css/s21-translation.css?v=20260514-split">
+    <link rel="stylesheet" href="/static/css/s21-translation.css?v=20260517-compare-width">
+    <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
     <script src="/static/js/utils/sanitize.js"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
     <script src="/static/js/utils/modal.js?v=20260508-polish-ui"></script>
@@ -44,8 +46,8 @@
     <script src="/static/js/utils/validation.js?v=20260508-polish-ui"></script>
 </head>
 <body class="s21-product page-translate">
-    <header class="dashboard-header translate-topbar">
-        <a class="dashboard-brand generator-brand" href="/app" aria-label="Главная">
+    <header class="dashboard-header dashboard-header--menu translate-topbar">
+        <a class="dashboard-brand" href="/app" aria-label="Главная" hidden>
             <span>
                 <span id="translationBrandMark" class="dashboard-brand-mark">ПЕРЕВОД ДОКУМЕНТА · RU → EN</span>
                 <span id="translationBrandSub" class="dashboard-brand-sub">учебных проектов</span>
@@ -57,13 +59,19 @@
             <a href="/app/generate">Генерация</a>
             <a href="/app/check">Проверка</a>
             <a href="/app/translate" class="active">Перевод</a>
-            <a href="/docs" target="_blank" rel="noopener">Документация</a>
+            <a href="/app/instruction">Инструкция</a>
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-lang" aria-label="Язык интерфейса">
-                <span class="active">RU</span>
-                <span>EN</span>
+            <div class="dashboard-model-picker" data-selected-model="gpt">
+                <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
+                    <span aria-hidden="true">ИИ</span>
+                </button>
+                <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
+                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
+                    <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
+                </div>
             </div>
             <button class="dashboard-user" type="button" onclick="handleLogout()" title="Выйти">
                 <span class="dashboard-user-avatar" id="translationUserInitials">U</span>
@@ -104,13 +112,14 @@
                 <div class="translate-field wide">
                     <label>Источник</label>
                     <div class="translate-file-pill" onclick="document.getElementById('translationFile').click()">
-                        <input type="file" id="translationFile" accept=".md,.markdown,.txt" onchange="handleTranslationFileSelect(event)">
+                        <input type="file" id="translationFile" accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf" onchange="handleTranslationFileSelect(event)">
                         <span class="translate-file-icon">▤</span>
-                        <strong id="translationSourceFileTitle">Загрузить README.md</strong>
-                        <small id="translationFileName">Markdown-файл для перевода</small>
+                        <strong id="translationSourceFileTitle">Загрузить README или документ</strong>
+                        <small id="translationFileName">Документ для перевода</small>
                         <button type="button" aria-label="Очистить файл" onclick="event.stopPropagation(); clearTranslationFile()">×</button>
                     </div>
-                    <textarea id="translationInput" class="translate-hidden-input" rows="8" placeholder="Вставьте markdown вручную"></textarea>
+                    <p class="translate-file-hint">TXT, Markdown, HTML, DOCX, PDF. До 25 MB.</p>
+                    <textarea id="translationInput" class="translate-hidden-input" rows="8" placeholder="Вставьте текст документа вручную"></textarea>
                 </div>
 
                 <div class="translate-field">
@@ -126,7 +135,7 @@
                     <select id="translationLanguage" onchange="refreshTranslationChrome()">
                         <option value="ru">RU · Русский</option>
                         <option value="en" selected>EN · Английский</option>
-                        <option value="kg">KG · Киргизский</option>
+                        <option value="kg">KG · Кыргызский</option>
                         <option value="uz">UZ · Узбекский</option>
                         <option value="tg">TG · Таджикский</option>
                     </select>
@@ -138,14 +147,9 @@
                 </div>
             </div>
 
-            <p class="translate-latin-note">
-                Результат перевода пишется латиницей. Кириллицу оставляем только там, где это часть неизменяемого кода,
-                пути, названия файла, ссылки или исходного имени собственного.
-            </p>
-
             <div id="translationNoResults" class="translate-empty-state">
                 <div class="translate-empty-icon">▤</div>
-                <h2>Загрузите README или Markdown</h2>
+                <h2>Загрузите README или документ</h2>
                 <p>После перевода здесь появится оригинал и результат в режиме сравнения.</p>
             </div>
 
@@ -188,16 +192,11 @@
                             </div>
                         </div>
                         <div id="translationTranslatedContent" class="markdown-preview"></div>
-                        <button class="btn" onclick="downloadTranslatedSubtitles()" id="downloadTranslatedSubtitlesBtn" style="display: none;">Скачать субтитры</button>
-                        <div id="translationVideoDownloadSection" style="display: none;">
-                            <p class="s21-download-hint">Скачать видео с переводом и субтитры:</p>
-                            <div class="btn-group" id="translationVideoDownloadLinks"></div>
-                        </div>
                     </article>
                 </div>
 
                 <footer class="translate-compare-footer">
-                    <span>Сохранены: <strong>Markdown</strong> · <strong>таблицы</strong> · <strong>формулы</strong> · <strong>Mermaid</strong></span>
+                    <span>Результат: <strong>Markdown</strong> · <strong>текст документа</strong> · <strong>режим сравнения</strong></span>
                     <div>
                         <button class="btn btn-secondary btn-sm" type="button">Сравнить</button>
                         <button class="btn btn-secondary btn-sm" type="button" onclick="copyTranslatedMarkdown()">Копировать</button>
@@ -212,13 +211,13 @@
                     <div class="translate-video-card" onclick="document.getElementById('translationVideoFile').click()">
                         <input type="file" id="translationVideoFile" accept=".mp4,.webm,.mov,.avi,.mkv,.m4v" onchange="handleTranslationVideoSelect(event)">
                         <div class="translate-video-preview">
-                            <span id="translationVideoPreviewName">methodology-intro.mp4</span>
+                            <span id="translationVideoPreviewName">Выберите видео</span>
                             <div class="translate-video-play">▶</div>
-                            <div class="translate-video-subtitle">ЗУНы — атомарная единица учебного результата.</div>
+                            <div class="translate-video-subtitle">Субтитры появятся после обработки</div>
                         </div>
                         <div class="translate-video-meta">
-                            <strong id="translationVideoTitle">methodology-intro.mp4</strong>
-                            <span id="translationVideoFileName">54 МБ · 04:21</span>
+                            <strong id="translationVideoTitle">Видео не выбрано</strong>
+                            <span id="translationVideoFileName">До 500 MB</span>
                         </div>
                         <div id="translationUploadProgressContainer" class="s21-progress-panel s21-upload-progress" style="display: none;">
                             <div id="translationUploadProgressLabel" class="s21-progress-label">Загрузка видео: 0%</div>
@@ -226,12 +225,17 @@
                                 <div id="translationUploadProgressBar" class="s21-progress-fill"></div>
                             </div>
                         </div>
-                        <div class="translate-video-progress-fallback">
-                            <span id="translationVideoProgressLabel">Распознавание речи</span>
-                            <span id="translationVideoProgressPct">72 %</span>
+                        <div id="translationVideoProgress" class="translate-video-progress" hidden aria-live="polite">
+                            <div class="translate-video-progress-row">
+                                <span id="translationVideoProgressLabel">Ожидает запуска</span>
+                                <span id="translationVideoProgressPct">0 %</span>
+                            </div>
+                            <div class="s21-progress-track">
+                                <div id="translationVideoProgressBar" class="s21-progress-fill"></div>
+                            </div>
                         </div>
                     </div>
-                    <p class="translate-video-hint">MP4, WebM, MOV, AVI, MKV. До 100 MB.</p>
+                    <p class="translate-video-hint">MP4, WebM, MOV, AVI, MKV. До 500 MB.</p>
                 </div>
 
                 <aside class="translate-video-options">
@@ -261,23 +265,22 @@
                     <select id="translationLanguageMirror" onchange="syncTranslationLanguageFromMirror()">
                         <option value="ru">RU · Русский</option>
                         <option value="en" selected>EN · Английский</option>
-                        <option value="kg">KG · Киргизский</option>
+                        <option value="kg">KG · Кыргызский</option>
                         <option value="uz">UZ · Узбекский</option>
                         <option value="tg">TG · Таджикский</option>
                     </select>
 
-                    <div class="translate-tts-box">
-                        <span>Сохранить голос диктора <small>экспериментально</small></span>
-                        <label class="translate-switch">
-                            <input type="checkbox" disabled>
-                            <span></span>
-                            <em>Клонировать тембр оригинала (TTS)</em>
-                        </label>
-                    </div>
-
                     <button class="btn translate-video-submit" type="button" onclick="translateReadme()">◎ Перевести видео</button>
                 </aside>
             </div>
+            <section id="translationVideoResultPanel" class="translate-video-result-panel" hidden aria-live="polite">
+                <div class="translate-video-result-head">
+                    <span class="badge success">✓ Видео готово</span>
+                    <strong id="translationVideoResultTitle">Субтитры и файлы перевода готовы</strong>
+                </div>
+                <p id="translationVideoResultHint">Скачайте нужные файлы здесь. Кнопки появляются после завершения обработки видео.</p>
+                <div class="translate-video-download-links" id="translationVideoInlineDownloadLinks"></div>
+            </section>
         </section>
     </main>
 
@@ -287,10 +290,10 @@
     <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
     <script src="/static/js/modules/curriculumForm.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
-    <script src="/static/js/modules/generationFormState.js?v=20260514-split"></script>
+    <script src="/static/js/modules/generationFormState.js?v=20260514-model-switch"></script>
     <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
-    <script src="/static/js/modules/translationPage.js?v=20260514-split"></script>
-    <script src="/static/js/main.js?v=20260514-split"></script>
+    <script src="/static/js/modules/translationPage.js?v=20260514-document-upload"></script>
+    <script src="/static/js/main.js?v=20260514-model-switch"></script>
     <script>
         (function () {
             const token = localStorage.getItem('auth_token');
@@ -337,7 +340,7 @@
             const mark = document.getElementById('translationBrandMark');
             const title = document.getElementById('translationSubbarTitle');
             if (badge) badge.setAttribute('data-step', isVideo ? '05.2' : '05.1');
-            if (mark) mark.textContent = isVideo ? 'ПЕРЕВОД ВИДЕО · 72 %' : `ПЕРЕВОД ДОКУМЕНТА · RU → ${language}`;
+            if (mark) mark.textContent = isVideo ? 'ПЕРЕВОД ВИДЕО' : `ПЕРЕВОД ДОКУМЕНТА · RU → ${language}`;
             if (title) title.textContent = isVideo ? 'Перевод · Видео' : 'Перевод';
             const mirror = document.getElementById('translationLanguageMirror');
             if (mirror && mirror.value !== document.getElementById('translationLanguage')?.value) {
@@ -386,6 +389,9 @@
             if (title) title.textContent = file.name;
             if (preview) preview.textContent = file.name;
             if (label) label.textContent = `${sizeMb} МБ · загружен`;
+            window.resetTranslationUploadProgress?.();
+            window.resetTranslationVideoProgress?.(true);
+            window.resetTranslationVideoResultPanel?.();
         }
 
         function updateTranslationOutputMode() {
@@ -413,8 +419,8 @@
             const title = document.getElementById('translationSourceFileTitle');
             const input = document.getElementById('translationInput');
             if (fileInput) fileInput.value = '';
-            if (fileName) fileName.textContent = 'Markdown-файл для перевода';
-            if (title) title.textContent = 'Загрузить README.md';
+            if (fileName) fileName.textContent = 'Документ для перевода';
+            if (title) title.textContent = 'Загрузить README или документ';
             if (input) input.value = '';
             if (window.resetTranslationState) window.resetTranslationState();
         }
@@ -424,12 +430,15 @@
             const videoInput = document.getElementById('translationVideoFile');
             const videoFileName = document.getElementById('translationVideoFileName');
             const videoTitle = document.getElementById('translationVideoTitle');
+            const videoPreview = document.getElementById('translationVideoPreviewName');
             const status = document.getElementById('translationStatus');
             if (videoInput) videoInput.value = '';
-            if (videoFileName) videoFileName.textContent = '';
-            if (videoTitle) videoTitle.textContent = 'methodology-intro.mp4';
+            if (videoFileName) videoFileName.textContent = 'До 500 MB';
+            if (videoTitle) videoTitle.textContent = 'Видео не выбрано';
+            if (videoPreview) videoPreview.textContent = 'Выберите видео';
             if (status) status.innerHTML = '';
             if (window.resetTranslationState) window.resetTranslationState();
+            window.resetTranslationVideoResultPanel?.();
         }
 
         function copyTranslatedMarkdown() {

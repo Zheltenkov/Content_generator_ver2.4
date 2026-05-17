@@ -11,6 +11,18 @@ from .models import (
     GoldenProjectCase,
     GoldenProjectExpectations,
 )
+from .regeneration import (
+    RegenerationEvalCase,
+    RegenerationEvalCaseResult,
+    RegenerationEvalDataset,
+    RegenerationEvalMetrics,
+    RegenerationEvalOutput,
+    RegenerationEvalRunSummary,
+    RegenerationEvalThresholds,
+    RegenerationEvaluationHarness,
+    load_regeneration_eval_dataset,
+    load_regeneration_eval_outputs,
+)
 from .runner import EvaluationHarness
 
 __all__ = [
@@ -23,6 +35,16 @@ __all__ = [
     "GoldenDataset",
     "GoldenProjectCase",
     "GoldenProjectExpectations",
+    "RegenerationEvalCase",
+    "RegenerationEvalCaseResult",
+    "RegenerationEvalDataset",
+    "RegenerationEvalMetrics",
+    "RegenerationEvalOutput",
+    "RegenerationEvalRunSummary",
+    "RegenerationEvalThresholds",
+    "RegenerationEvaluationHarness",
     "load_generated_outputs",
     "load_golden_dataset",
+    "load_regeneration_eval_dataset",
+    "load_regeneration_eval_outputs",
 ]

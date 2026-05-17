@@ -278,9 +278,9 @@ class TheoryPhaseExecutor:
         warnings: list[str] = []
 
         if not initial_checks_result.passed:
-            logger.warning(f"⚠️ Theory Checks: {len(initial_checks_result.hard_issues)} HARD проблем")
+            logger.warning(f"⚠️ Theory Checks: {len(initial_checks_result.hard_issues)} замечаний качества")
             warnings.append(
-                f"ℹ️ TheoryChecks: найдено {len(initial_checks_result.hard_issues)} критических замечаний, запускаю локальную коррекцию."
+                f"ℹ️ TheoryChecks: найдено {len(initial_checks_result.hard_issues)} замечаний качества, запускаю локальную коррекцию."
             )
             self._regenerate_fixable_parts(theory_res.parts, initial_checks_result.hard_issues, seed, warnings)
 
@@ -559,10 +559,10 @@ class TheoryPhaseExecutor:
         final_checks_result = self.runtime.theory_checks.check(parts)
 
         if initial_checks_result.hard_issues and not final_checks_result.hard_issues:
-            warnings.append("✅ TheoryChecks: локальная коррекция сняла критические замечания.")
+            warnings.append("✅ TheoryChecks: локальная коррекция сняла замечания качества.")
         elif final_checks_result.hard_issues:
             warnings.append(
-                f"⚠️ TheoryChecks: после автокоррекции осталось {len(final_checks_result.hard_issues)} критических замечаний."
+                f"⚠️ TheoryChecks: после автокоррекции осталось {len(final_checks_result.hard_issues)} замечаний качества."
             )
 
         return list(final_checks_result.hard_issues) + list(final_checks_result.soft_issues)

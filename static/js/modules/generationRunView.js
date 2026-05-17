@@ -113,7 +113,6 @@ function timelineStageFromPhase(phase) {
                 'quality': 75,
                 'global_quality': 80,
                 'evaluation': 88,
-                'translate': 93,
                 'finalize': 95,
                 'readme_check': 98,
                 'completion': 100,
@@ -176,11 +175,6 @@ function timelineStageFromPhase(phase) {
                 id: 'evaluation',
                 title: 'Оценка по критериям',
                 subtitle: 'Сверяем README с rubric и фиксируем замечания.'
-            },
-            {
-                id: 'translation',
-                title: 'Перевод',
-                subtitle: 'Пропускается для русского README, используется в отдельном разделе перевода.'
             },
             {
                 id: 'assembly',
@@ -259,9 +253,15 @@ function timelineStageFromPhase(phase) {
             setTextContent('runParamProject', curriculumProject && !curriculumProject.includes('Выберите') ? curriculumProject : (seed.platform_name || seed.title_seed || '—'));
             setTextContent('runParamTitle', seed.title_seed || getValueOrFallback('titleSeed') || '—');
             setTextContent('runParamType', projectTypeLabel(seed));
-            setTextContent('runParamLanguage', languageLabel(seed.language || getValueOrFallback('language')));
             setTextContent('runParamTasks', `${tasks}${bonus}`);
-            setTextContent('runParamMethodology', seed.methodology_human_review || getChecked('methodologyHumanReview') ? 'Включена' : 'Обычный режим');
+            const profile = getGenerationState().workflowProfile || {};
+            const capabilities = getGenerationState().workflowCapabilities || profile.capabilities || {};
+            setTextContent(
+                'runParamMethodology',
+                capabilities.stage_review || seed.methodology_human_review || getChecked('methodologyHumanReview')
+                    ? 'Включена'
+                    : 'Обычный режим'
+            );
         }
 
         function setGeneratorBrand(step, mark, sub) {
@@ -350,8 +350,6 @@ function timelineStageFromPhase(phase) {
                 validation: 'evaluation',
                 evaluation: 'evaluation',
                 readme_check: 'evaluation',
-                translate: 'translation',
-                translation: 'translation',
                 finalize: 'assembly',
                 completion: 'assembly',
                 final: 'assembly'
@@ -374,7 +372,6 @@ function timelineStageFromPhase(phase) {
                 global_quality: 'global_quality',
                 quality: 'global_quality',
                 evaluation: 'evaluation',
-                translate: 'translate',
                 finalize: 'finalize',
             }[node];
             if (mapped) return mapped;
@@ -504,24 +501,10 @@ function timelineStageFromPhase(phase) {
             setTextContent('generationRunSubtitle', options.message || activeStage.subtitle);
             setTextContent('generationRunRemaining', isPaused ? 'ожидает решения' : 'осталось ~ 6–15 мин');
 
-            const translationHint = document.getElementById('generationRunTranslationHint');
-            if (translationHint) {
-                const language = state.currentSeed?.language || getValueOrFallback('language', 'ru');
-                translationHint.textContent = language === 'ru'
-                    ? 'пропускается — целевой язык RU'
-                    : `будет выполнен для языка ${String(language).toUpperCase()}`;
-            }
-
             document.querySelectorAll('#generationRunTimeline .generation-pipeline-step').forEach((row, index) => {
-                const rowStage = row.getAttribute('data-run-stage');
                 row.classList.remove('done', 'now', 'pending', 'paused', 'skipped');
                 const statusNode = row.querySelector('em');
-                const language = state.currentSeed?.language || getValueOrFallback('language', 'ru');
-                const skipTranslation = rowStage === 'translation' && language === 'ru';
-                if (skipTranslation && index < stageIndex) {
-                    row.classList.add('skipped');
-                    if (statusNode) statusNode.textContent = 'пропущено';
-                } else if (isCompleted || index < stageIndex) {
+                if (isCompleted || index < stageIndex) {
                     row.classList.add('done');
                     if (statusNode) statusNode.textContent = 'готово';
                 } else if (index === stageIndex) {

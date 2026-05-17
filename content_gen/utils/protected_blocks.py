@@ -165,11 +165,18 @@ def _make_preview(text: str, max_len: int = 80) -> str:
     return one_line
 
 
-def protect_blocks(md: str) -> tuple[str, list[BlockInfo]]:
+def protect_blocks(
+    md: str,
+    *,
+    protect_code: bool = True,
+    protect_mermaid: bool = True,
+    protect_formulas: bool = True,
+    protect_tables: bool = True,
+) -> tuple[str, list[BlockInfo]]:
     """
-    Находит в Markdown:
-    - все ```кодовые блоки``` (включая ```mermaid```)
-    - все блочные формулы $$ ... $$
+    Находит в Markdown выбранные защищаемые блоки:
+    - ```кодовые блоки``` и ```mermaid``` (управляются отдельно)
+    - блочные формулы $$ ... $$
     - markdown-таблицы
 
     Заменяет их на:
@@ -178,6 +185,10 @@ def protect_blocks(md: str) -> tuple[str, list[BlockInfo]]:
 
     Args:
         md: Исходный Markdown текст
+        protect_code: Защищать обычные fenced code-блоки.
+        protect_mermaid: Защищать fenced mermaid-диаграммы.
+        protect_formulas: Защищать блочные LaTeX-формулы.
+        protect_tables: Защищать Markdown-таблицы.
 
     Returns:
         Tuple[защищённый Markdown с маркерами, список BlockInfo с оригинальным содержимым]
@@ -188,9 +199,9 @@ def protect_blocks(md: str) -> tuple[str, list[BlockInfo]]:
     length = len(md)
 
     while pos < length:
-        code_match = CODE_BLOCK_RE.search(md, pos)
-        formula_match = FORMULA_BLOCK_RE.search(md, pos)
-        table_match = _find_next_table(md, pos)
+        code_match = CODE_BLOCK_RE.search(md, pos) if (protect_code or protect_mermaid) else None
+        formula_match = FORMULA_BLOCK_RE.search(md, pos) if protect_formulas else None
+        table_match = _find_next_table(md, pos) if protect_tables else None
 
         # выбираем ближайшее совпадение
         candidates = [m for m in (code_match, formula_match, table_match) if m]
@@ -210,6 +221,12 @@ def protect_blocks(md: str) -> tuple[str, list[BlockInfo]]:
             body = match.group("body") or ""
             block_type = "mermaid" if "mermaid" in header.lower() else "code"
             full_block = md[match.start() : match.end()]
+            if (block_type == "mermaid" and not protect_mermaid) or (
+                block_type == "code" and not protect_code
+            ):
+                result_parts.append(full_block)
+                pos = match.end()
+                continue
         elif match.re is FORMULA_BLOCK_RE:
             # FORMULA_BLOCK_RE
             body = match.group("body") or ""

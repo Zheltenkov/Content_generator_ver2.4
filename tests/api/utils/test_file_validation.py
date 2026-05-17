@@ -11,6 +11,26 @@ from api.utils.file_validation import validate_file, validate_files
 class TestFileValidation:
     """Тесты для валидации файлов."""
 
+    def test_default_video_upload_limit_is_500_mb(self, monkeypatch):
+        """Тест дефолтного лимита видео для UI/API контракта."""
+        monkeypatch.delenv("MAX_VIDEO_SIZE_BYTES", raising=False)
+        import importlib
+
+        import api.utils.file_validation as fv_module
+        importlib.reload(fv_module)
+
+        assert fv_module.MAX_VIDEO_SIZE == 500 * 1024 * 1024
+
+    def test_env_example_video_upload_limit_is_500_mb(self):
+        """Тест документированного лимита видео в .env.example."""
+        from pathlib import Path
+
+        env_example = Path(__file__).resolve().parents[3] / ".env.example"
+        content = env_example.read_text(encoding="utf-8")
+
+        assert "MAX_VIDEO_SIZE_BYTES=524288000" in content
+        assert "MAX_VIDEO_SIZE_BYTES=104857600" not in content
+
     def test_validate_file_valid(self):
         """Тест валидации валидного файла."""
         file = Mock(spec=UploadFile)

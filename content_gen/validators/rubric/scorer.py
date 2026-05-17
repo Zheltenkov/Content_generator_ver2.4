@@ -15,6 +15,7 @@ from .section2_checker import Section2Checker
 from .section3_checker import Section3Checker
 from .section4_checker import Section4Checker
 from .similarity import SimilarityCalculator
+from .policy import apply_rubric_warning_policy
 
 
 class RubricScorer:
@@ -117,7 +118,7 @@ class RubricScorer:
         # Проверяем кэш
         if use_cache:
             cache = get_cache()
-            cached_report = cache.get(md, context={"learning_outcomes": learning_outcomes or []})
+            cached_report = cache.get(md, context=self._cache_context(learning_outcomes))
             if cached_report is not None:
                 safe_print("  ✅ Результат валидации найден в кэше", flush=True)
                 return cached_report
@@ -127,7 +128,7 @@ class RubricScorer:
         # Сохраняем в кэш
         if use_cache:
             cache = get_cache()
-            cache.set(md, report, context={"learning_outcomes": learning_outcomes or []})
+            cache.set(md, report, context=self._cache_context(learning_outcomes))
 
         return report
 
@@ -142,6 +143,7 @@ class RubricScorer:
         cache_context = {
             "learning_outcomes": learning_outcomes or [],
             "input_type": "readme_document",
+            "rubric_policy_version": self._rubric_policy_version(),
         }
         if use_cache:
             cache = get_cache()
@@ -232,6 +234,7 @@ class RubricScorer:
     @staticmethod
     def _build_report(items: list[CriteriaItem]) -> CriteriaReport:
         """Build the final criteria report from section items."""
+        items = apply_rubric_warning_policy(items)
         total = sum(item.score for item in items)
         max_score = len(items)
         if max_score != 39:
@@ -253,6 +256,17 @@ class RubricScorer:
             max_score=max_score,
             summary=summary,
         )
+
+    @staticmethod
+    def _rubric_policy_version() -> str:
+        return "soft-warning-v1"
+
+    @classmethod
+    def _cache_context(cls, learning_outcomes: list[str] | None) -> dict[str, object]:
+        return {
+            "learning_outcomes": learning_outcomes or [],
+            "rubric_policy_version": cls._rubric_policy_version(),
+        }
 
     @staticmethod
     def _document_cache_payload(document: ReadmeDocument) -> str:

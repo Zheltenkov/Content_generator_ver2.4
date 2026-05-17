@@ -492,24 +492,6 @@
             }
         }
 
-        /* Кнопки скачивания видео и субтитров: центрирование и акцентный стиль */
-        #translationVideoDownloadSection .btn-group {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 0.75rem;
-            margin-top: 0.75rem;
-            flex-wrap: wrap;
-        }
-
-        .btn-download {
-            background: linear-gradient(135deg, #1b3a5f 0%, #64ffda 100%);
-        }
-
-        .btn-download:hover {
-            background: linear-gradient(135deg, #22527f 0%, #76ffe2 100%);
-        }
-        
         .expander {
             border: 1px solid rgba(118, 75, 162, 0.4);
             border-radius: 8px;
@@ -2134,8 +2116,8 @@
         /* Единый стандарт диаграмм: ширина как у текстового блока, без хаотичных масштабов. */
         .markdown-preview figure.diagram-figure {
             width: 100% !important;
-            max-width: 860px !important;
-            margin: 2rem auto 2.7rem !important;
+            max-width: 900px !important;
+            margin: 1.7rem auto 2.3rem !important;
             text-align: center !important;
             clear: both !important;
         }
@@ -2150,14 +2132,14 @@
             align-items: flex-start !important;
             justify-content: center !important;
             width: 100% !important;
-            max-width: 860px !important;
+            max-width: 900px !important;
+            min-height: var(--diagram-min-height, 220px) !important;
             margin: 0 auto !important;
             padding: 1.15rem !important;
-            overflow-x: auto !important;
-            overflow-y: auto !important;
-            max-height: min(62vh, 560px) !important;
-            background: #0d1428 !important;
-            border: 1px solid rgba(100, 116, 139, 0.26) !important;
+            overflow: visible !important;
+            max-height: none !important;
+            background: #f7faf6 !important;
+            border: 1px solid #dfe5df !important;
             border-radius: 8px !important;
             box-shadow: none !important;
             scrollbar-gutter: stable !important;
@@ -2171,12 +2153,19 @@
         .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-overflow="scroll"],
         .markdown-preview .mermaid[data-diagram-overflow="scroll"] {
             justify-content: center !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+        }
+
+        .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-size="compact"],
+        .markdown-preview .mermaid[data-diagram-size="compact"] {
+            max-width: 720px !important;
         }
 
         .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-size="tall"],
         .markdown-preview .mermaid[data-diagram-size="tall"] {
-            max-height: min(70vh, 720px) !important;
-            overflow-y: auto !important;
+            max-height: none !important;
+            overflow-y: visible !important;
         }
 
         .markdown-preview figure.diagram-figure .mermaid-diagram svg,
@@ -2190,6 +2179,7 @@
             height: auto !important;
             margin: 0 auto !important;
             display: block !important;
+            object-fit: contain !important;
         }
 
         .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-overflow="scroll"] svg,
@@ -2200,7 +2190,8 @@
         .markdown-preview figure.diagram-figure .diagram-image-surface img,
         .markdown-preview .diagram-image-surface img {
             width: auto !important;
-            max-width: none !important;
+            max-width: min(820px, 100%) !important;
+            max-height: 560px !important;
         }
 
         .markdown-preview .mermaid .node rect,
@@ -2219,9 +2210,9 @@
         .markdown-preview .mermaid-diagram .task,
         .markdown-preview .mermaid-diagram .section,
         .markdown-preview .mermaid-diagram .cluster rect {
-            fill: #141b2f !important;
-            stroke: #64748b !important;
-            stroke-width: 1.25px !important;
+            fill: #ffffff !important;
+            stroke: #9aa79d !important;
+            stroke-width: 1.35px !important;
             filter: none !important;
         }
 
@@ -2235,13 +2226,16 @@
         .markdown-preview .mermaid-diagram path.relation,
         .markdown-preview .mermaid-diagram .messageLine0,
         .markdown-preview .mermaid-diagram .messageLine1 {
-            stroke: #8aa0ba !important;
+            stroke: #334238 !important;
+            stroke-width: 2.2px !important;
+            opacity: 1 !important;
         }
 
         .markdown-preview .mermaid marker path,
         .markdown-preview .mermaid-diagram marker path {
-            fill: #8aa0ba !important;
-            stroke: #8aa0ba !important;
+            fill: #334238 !important;
+            stroke: #334238 !important;
+            opacity: 1 !important;
         }
 
         .markdown-preview .mermaid .nodeLabel,
@@ -2258,25 +2252,27 @@
         .markdown-preview .mermaid-diagram .messageText,
         .markdown-preview .mermaid-diagram foreignObject div,
         .markdown-preview .mermaid-diagram foreignObject span {
-            color: #e5edf8 !important;
-            fill: #e5edf8 !important;
+            color: #111820 !important;
+            fill: #111820 !important;
             text-align: center !important;
-            line-height: 1.32 !important;
-            font-size: 14px !important;
+            line-height: 1.28 !important;
+            font-size: var(--diagram-font-size, 16px) !important;
+            font-weight: 600 !important;
+            white-space: normal !important;
         }
 
         .markdown-preview .mermaid .edgeLabel,
         .markdown-preview .mermaid .edgeLabel p,
         .markdown-preview .mermaid-diagram .edgeLabel,
         .markdown-preview .mermaid-diagram .edgeLabel p {
-            background: #0d1428 !important;
-            color: #c9d5e3 !important;
+            background: #ffffff !important;
+            color: #111820 !important;
         }
 
         .markdown-preview .mermaid .labelBkg,
         .markdown-preview .mermaid-diagram .labelBkg {
-            fill: #0d1428 !important;
-            opacity: 0.94 !important;
+            fill: #ffffff !important;
+            opacity: 0.96 !important;
         }
 
         .markdown-preview figure.diagram-figure .diagram-caption,

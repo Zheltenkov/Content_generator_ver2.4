@@ -127,6 +127,7 @@ class ProjectSeedProvider:
             "skills": cls._as_list(project.get("skills")),
             "tasks_count": cls._optional_int(project.get("tasks_count")),
             "group_size": cls._optional_int(project.get("group_size")),
+            "storytelling_type": project.get("storytelling_type") or payload.get("storytelling_type"),
             "sjm": project.get("sjm") or project.get("storytelling"),
             "platform_name": project.get("platform_name"),
             "gitlab_link": project.get("gitlab_link"),
@@ -167,6 +168,7 @@ class ProjectSeedProvider:
             "learning_outcomes": list(getattr(spec, "learning_outcomes", []) or []),
             "skills": list(getattr(spec, "skills", []) or []),
             "tasks_count": getattr(spec, "tasks_count", None),
+            "storytelling_type": getattr(spec, "storytelling_type", "sjm"),
             "sjm": getattr(spec, "sjm", None),
         }
         return ProjectSeed(**data)

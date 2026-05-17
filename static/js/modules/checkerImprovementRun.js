@@ -82,6 +82,7 @@ async function generateImprovedReadme() {
 function buildImprovementSeedData() {
     const seedData = {
         language: checkerInputValue('improveLanguage'),
+        llm_provider: window.getSelectedLlmProvider?.() || 'openai',
         project_type: checkerInputValue('improveProjectType'),
         thematic_block: checkerInputValue('improveThematicBlock'),
         audience_level: checkerInputValue('improveAudienceLevel'),

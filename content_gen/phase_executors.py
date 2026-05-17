@@ -46,6 +46,7 @@ class QualityPhaseExecutor:
 
         logger.info("🔄 Phase 4 | StyleGuardRepair")
         document = self._run_style(seed, document)
+        document = self._ensure_final_section_document(seed, document, story_map_contract=story_map_contract)
 
         final_markdown = normalize_markdown_display_blocks(document.to_markdown())
         return QualityPhaseResult(
@@ -95,14 +96,34 @@ class QualityPhaseExecutor:
         story_map_contract: Any | None = None,
     ) -> ReadmeDocument:
         """Append a source-compliant closing section to the typed README."""
+        final_body = self._final_section_body(seed, story_map_contract=story_map_contract)
         for section in readme_document.sections:
             if re.search(r"^(?:Заключение|Итог проекта|Финал проекта|Завершение проекта)\b", section.title, flags=re.I):
-                return readme_document
+                if not self._is_placeholder_final_section(section.body_markdown()):
+                    return readme_document
+                return readme_document.with_upserted_section_by_title_fragment(
+                    section.title,
+                    f"{'#' * section.level} {section.title}\n\n{final_body}",
+                    fallback_level=section.level,
+                )
         return readme_document.with_upserted_section_by_title_fragment(
             "Заключение",
-            f"## Заключение\n\n{self._final_section_body(seed, story_map_contract=story_map_contract)}",
+            f"## Заключение\n\n{final_body}",
             fallback_level=2,
         )
+
+    @staticmethod
+    def _is_placeholder_final_section(body: str) -> bool:
+        """Return whether a final section is still a skeleton placeholder."""
+        normalized = re.sub(r"\s+", " ", (body or "").strip()).casefold()
+        if not normalized:
+            return True
+        placeholder_patterns = [
+            r"^\(?финальное завершение текущего проекта без анонса следующего\)?$",
+            r"^\(?здесь будет\b",
+            r"^<[^>]+>$",
+        ]
+        return any(re.search(pattern, normalized, flags=re.I) for pattern in placeholder_patterns)
 
     def _final_section_body(self, seed: ProjectSeed, story_map_contract: Any | None = None) -> str:
         """Build the final project conclusion body."""
@@ -110,8 +131,8 @@ class QualityPhaseExecutor:
         completion = ""
         story_map = story_map_contract or getattr(self.runtime, "story_map_contract", None)
         if story_map is not None:
-            completion = str(getattr(story_map, "completion", "") or "")
-        if not completion:
+            completion = str(self._contract_value(story_map, "completion") or "")
+        if not completion or self._is_placeholder_final_section(completion) or self._mentions_next_project(completion):
             completion = (
                 "Собери итоговый артефакт, проверь его по критериям заданий и убедись, "
                 "что peer-review может принять работу без дополнительных пояснений."
@@ -123,6 +144,18 @@ class QualityPhaseExecutor:
             "Проверь, что ключевые решения опираются на материалы проекта, артефакты лежат по указанным путям, "
             "а каждый важный вывод можно показать на p2p-ревью."
         )
+
+    @staticmethod
+    def _contract_value(contract: Any, key: str) -> Any:
+        """Read a contract field from either a typed object or serialized dict."""
+        if isinstance(contract, dict):
+            return contract.get(key)
+        return getattr(contract, key, None)
+
+    @staticmethod
+    def _mentions_next_project(text: str) -> bool:
+        """Guard the final section from teaser-like references to the next project."""
+        return bool(re.search(r"следующ(?:ий|ем|его|ему)\s+проект", text or "", flags=re.I))
 
 
 class EvaluationPhaseExecutor:

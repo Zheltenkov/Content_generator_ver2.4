@@ -456,6 +456,52 @@ def test_theory_service_uses_typed_phase_readme_document() -> None:
     assert result.warnings == ["typed theory"]
 
 
+def test_theory_service_keeps_quality_issues_non_blocking() -> None:
+    seed = SimpleNamespace(
+        title_seed="Проект",
+        project_description="Описание",
+        learning_outcomes=["LO1"],
+        skills=["Skill"],
+        required_tools=[],
+        curriculum_context={},
+    )
+    context_meta = SimpleNamespace()
+    readme_document = ReadmeDocument.from_markdown("# README\n\n## Глава 2. Теория\n\nTyped theory.")
+    part = SimpleNamespace(title="Theory")
+
+    class Issue:
+        def __init__(self) -> None:
+            self.severity = "hard"
+            self.message = "Раздел 2.3: длина 313 слов (ожидается 110-312)"
+
+    def generate_theory(_seed, _context_meta, markdown, practice_plan_contract, section_context):
+        return TheoryPhaseResult(
+            markdown=readme_document.to_markdown(),
+            readme_document=readme_document,
+            theory_parts=[part],
+            issues=[Issue()],
+            warnings=[],
+        )
+
+    service = TheoryNodeService(
+        generate_theory,
+        SectionContextRecorder(),
+        lambda issues: [issue.__dict__ for issue in issues],
+        lambda _issues: True,
+        lambda issues: [issue.message for issue in issues],
+    )
+
+    result = service.execute(
+        GenerationContext(seed=seed, context_meta=context_meta, markdown="# README"),
+        {"seed": seed, "context_meta": context_meta, "markdown": "# README", "warnings": [], "issues": []},
+    )
+
+    assert result.status == "success"
+    assert result.serialized_issues == [{"severity": "hard", "message": "Раздел 2.3: длина 313 слов (ожидается 110-312)"}]
+    assert any("Генерация продолжена" in warning for warning in result.warnings)
+    assert result.issues == result.warnings
+
+
 def test_practice_service_uses_typed_phase_readme_document() -> None:
     seed = SimpleNamespace(
         title_seed="Проект",
@@ -513,6 +559,48 @@ def test_practice_service_uses_typed_phase_readme_document() -> None:
     assert result.evidence_specs == ["evidence"]
     assert result.dataset_files == [{"path": "typed.csv"}]
     assert result.practice_critic_issues == [{"message": "typed critic"}]
+
+
+def test_practice_service_keeps_quality_issues_non_blocking() -> None:
+    seed = SimpleNamespace(
+        title_seed="Проект",
+        project_description="Описание",
+        learning_outcomes=["LO1"],
+        skills=["Skill"],
+        required_tools=[],
+        curriculum_context={},
+    )
+    readme_document = ReadmeDocument.from_markdown("# README\n\n## Глава 3. Практика\n\nTyped practice.")
+
+    class Issue:
+        def __init__(self) -> None:
+            self.severity = "hard"
+            self.message = "Задание 1: не хватает ожидаемого результата"
+
+    def generate_practice(_seed, markdown, _generate_bonus, practice_plan_contract, artifact_chain_plan, section_context):
+        return PracticePhaseResult(
+            markdown=readme_document.to_markdown(),
+            readme_document=readme_document,
+            practice_tasks=[],
+            issues=[Issue()],
+            warnings=[],
+        )
+
+    service = PracticeNodeService(
+        generate_practice,
+        SectionContextRecorder(),
+        lambda issues: [issue.__dict__ for issue in issues],
+        lambda _issues: True,
+        lambda issues: [issue.message for issue in issues],
+    )
+    flow_context = {"seed": seed, "markdown": "# README", "issues": [], "warnings": []}
+
+    result = service.execute(GenerationContext(seed=seed, markdown="# README"), flow_context)
+
+    assert result.status == "success"
+    assert flow_context["issues"] == [{"severity": "hard", "message": "Задание 1: не хватает ожидаемого результата"}]
+    assert any("Генерация продолжена" in warning for warning in flow_context["warnings"])
+    assert result.issues == result.warnings
 
 
 def test_finalize_service_prefers_resumed_context_dataset_files() -> None:

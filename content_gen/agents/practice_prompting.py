@@ -102,6 +102,16 @@ def build_practice_sjm_section(
 ) -> str:
     """Build the story/case prompt section for Chapter 3."""
     sjm = (section_context or {}).get("sjm_context") or getattr(seed, "sjm", None)
+    storytelling_type = (
+        (section_context or {}).get("storytelling_type")
+        or getattr(seed, "storytelling_type", "sjm")
+        or "sjm"
+    )
+    if str(storytelling_type).strip().lower() == "none":
+        return (
+            "Сторителлинг/кейс отключен типом сторителлинга none. "
+            "Не добавляй отдельный сюжет; задачи должны опираться на описание проекта и образовательные результаты."
+        )
     ctx = (section_context or {}).get("curriculum_context")
     if not isinstance(ctx, dict):
         ctx = getattr(seed, "curriculum_context", None)
@@ -119,6 +129,13 @@ def build_practice_sjm_section(
         return "\n".join(lines)
 
     lines = [
+        f"Тип сторителлинга: {storytelling_type}.",
+        (
+            "Режим SJM по умолчанию применяется прежде всего к практической части: каждая задача должна опираться "
+            "на ситуацию, роль, ограничения, артефакт и критерии из этого контекста."
+            if str(storytelling_type).strip().lower() == "sjm"
+            else "Выбранный тип сторителлинга должен быть явно виден в формулировках практических задач."
+        ),
         "КРИТИЧЕСКИ ВАЖНО: Задания должны быть ПРИВЯЗАНЫ к этому кейсу/истории!",
         "",
         str(sjm),

@@ -1,8 +1,8 @@
 /* Translation module: document compare and video mode */
 .translate-topbar {
   display: grid;
-  grid-template-columns: minmax(280px, auto) 1fr auto;
-  gap: 28px;
+  grid-template-columns: 1fr auto;
+  gap: 22px;
   align-items: center;
 }
 
@@ -18,9 +18,10 @@
 .translate-pane-actions,
 .translate-compare-footer,
 .translate-video-meta,
-.translate-video-progress-fallback,
+.translate-video-progress-row,
 .translate-check,
-.translate-switch {
+.translate-video-result-head,
+.translate-video-download-links {
   display: flex;
   align-items: center;
 }
@@ -70,7 +71,7 @@
   display: grid;
   grid-template-columns: minmax(280px, 1.35fr) minmax(180px, 0.75fr) minmax(190px, 0.8fr) auto;
   gap: 18px;
-  align-items: end;
+  align-items: start;
   margin-bottom: 22px;
   padding: 26px;
   background: var(--s21-surface);
@@ -135,11 +136,11 @@
   font-size: 20px;
 }
 
-.translate-latin-note {
-  margin: 12px 0 22px;
+.translate-file-hint {
+  margin: 8px 0 0;
   color: var(--s21-muted);
-  font-size: 14px;
-  line-height: 1.45;
+  font-size: 13px;
+  line-height: 1.35;
 }
 
 .translate-hidden-input,
@@ -155,7 +156,9 @@
 }
 
 .translate-actions {
+  align-self: start;
   gap: 14px;
+  flex-wrap: nowrap;
   justify-content: flex-end;
 }
 
@@ -165,9 +168,21 @@
   margin: 0 !important;
 }
 
+body.s21-product.page-translate .translate-document-toolbar select,
+body.s21-product.page-translate .translate-actions .btn {
+  min-height: 48px;
+}
+
+@media (min-width: 1181px) {
+  .translate-actions {
+    padding-top: 24px;
+  }
+}
+
 .translate-status-slot,
 .translate-progress-panel {
-  max-width: 1600px;
+  width: 100%;
+  max-width: none;
   margin-left: auto !important;
   margin-right: auto !important;
 }
@@ -202,6 +217,11 @@
   font-size: 28px;
 }
 
+.translate-empty-state p {
+  max-width: 560px;
+  margin: 0;
+}
+
 .translate-empty-icon {
   width: 76px;
   height: 76px;
@@ -216,7 +236,8 @@
 }
 
 .translate-compare-card {
-  max-width: 1600px;
+  width: 100%;
+  max-width: none;
   margin: 0 auto;
   overflow: hidden;
   background: var(--s21-surface);
@@ -350,39 +371,64 @@ body.s21-product.page-translate .translate-document-pane .markdown-preview {
 }
 
 .translate-video-meta,
-.translate-video-progress-fallback {
+.translate-video-progress {
   justify-content: space-between;
   gap: 16px;
   margin-top: 16px;
 }
 
+.translate-video-progress[hidden] {
+  display: none !important;
+}
+
+.translate-video-progress-row {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 9px;
+}
+
 .translate-video-meta strong {
+  min-width: 0;
+  overflow: hidden;
   color: var(--s21-ink);
   font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .translate-video-meta span,
-.translate-video-progress-fallback,
+.translate-video-progress,
 .translate-video-hint {
   color: var(--s21-muted);
 }
 
-.translate-video-progress-fallback::before {
-  content: "";
-  flex: 1 1 auto;
+.translate-video-meta span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.translate-video-progress-row span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.translate-video-progress-row span:last-child {
+  flex: 0 0 auto;
+  color: var(--s21-ink-2);
+  font-family: var(--s21-font-mono);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.translate-video-progress .s21-progress-track {
   height: 8px;
-  order: 2;
-  margin: 0 12px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--s21-accent) 72%, var(--s21-border) 72%);
+  background: var(--s21-border);
 }
 
-.translate-video-progress-fallback span:first-child {
-  order: 1;
-}
-
-.translate-video-progress-fallback span:last-child {
-  order: 3;
+.translate-video-progress .s21-progress-fill {
+  width: 0%;
 }
 
 .translate-video-hint {
@@ -424,52 +470,67 @@ body.s21-product.page-translate .translate-document-pane .markdown-preview {
   margin-top: 26px;
 }
 
-.translate-tts-box {
-  margin-top: 20px;
-  color: var(--s21-ink);
-}
-
-.translate-tts-box small {
-  color: var(--s21-muted);
-}
-
-.translate-switch {
-  gap: 12px;
-  margin-top: 10px;
-  padding: 13px;
-  border: 1px solid var(--s21-border);
-  border-radius: 8px;
-  color: var(--s21-muted);
-}
-
-.translate-switch input {
-  display: none;
-}
-
-.translate-switch span {
-  width: 44px;
-  height: 24px;
-  border-radius: 999px;
-  background: var(--s21-border);
-}
-
-.translate-switch span::before {
-  content: "";
-  display: block;
-  width: 20px;
-  height: 20px;
-  margin: 2px;
-  border-radius: 50%;
-  background: white;
-}
-
-.translate-switch em {
-  font-style: normal;
-}
-
 .translate-video-submit {
   width: 100% !important;
   margin-top: 18px !important;
+}
+
+.translate-video-result-panel {
+  margin-top: 22px;
+  padding: 22px;
+  border: 1px solid var(--s21-border);
+  border-radius: var(--s21-radius-lg);
+  background: var(--s21-surface);
+  box-shadow: var(--s21-shadow-1);
+}
+
+.translate-video-result-panel[hidden] {
+  display: none !important;
+}
+
+.translate-video-result-head {
+  gap: 12px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.translate-video-result-head strong {
+  min-width: 0;
+  color: var(--s21-ink);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.translate-video-result-panel p {
+  margin: 0 0 16px;
+  color: var(--s21-ink-2);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.translate-video-download-links {
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.translate-video-download-links .btn {
+  margin: 0 !important;
+}
+
+.translate-video-download-links .btn-download {
+  width: auto;
+  min-height: 42px;
+  padding: 0 18px;
+  border-color: var(--s21-accent) !important;
+  color: var(--s21-ink) !important;
+  background: var(--s21-accent) !important;
+  box-shadow: none !important;
+}
+
+.translate-video-download-links .btn-download:hover {
+  border-color: var(--s21-accent-hover) !important;
+  background: var(--s21-accent-hover) !important;
 }
 
 @media (max-width: 1180px) {
@@ -480,6 +541,7 @@ body.s21-product.page-translate .translate-document-pane .markdown-preview {
 
   .translate-actions {
     justify-content: flex-start;
+    padding-top: 0;
   }
 
   body.s21-product.page-translate .translate-document-pane .markdown-preview {

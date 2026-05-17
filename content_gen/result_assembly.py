@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from .checklist import ProjectChecklist, build_project_checklist
 from .config.loader import get_loaded_agent_versions
 from .models.readme_document import ReadmeDocument
 from .models.result import OrchestratorResult
@@ -87,7 +88,7 @@ class ResultAssembler:
         md = normalize_markdown_display_blocks(fix_common_latex_issues_in_md(md))
         translated_md, translated_assets_binary = self._prepare_translated_markdown(translated_md, md)
 
-        assets_binary = context.get("assets_binary", {})
+        assets_binary = context.get("assets_binary") or {}
         self._attach_practice_files(assets_binary, context.get("practice_tasks"))
         self._attach_dataset_files(assets_binary, translated_assets_binary, dataset_files or [])
 
@@ -100,6 +101,16 @@ class ResultAssembler:
             theory_parts.extend(self.theory_parts_parser(md))
         if not practice_tasks:
             practice_tasks.extend(self.practice_tasks_parser(md))
+        checklist = build_project_checklist(
+            project_title=title or readme_document.title,
+            language=seed.language,
+            readme_document=readme_document,
+            practice_tasks=practice_tasks,
+        )
+        checklist_yml = checklist.to_yaml()
+        self._attach_checklist_file(assets_binary, checklist_yml)
+        context["checklist"] = checklist.model_dump(mode="json")
+        context["checklist_yml"] = checklist_yml
 
         spec = ProjectSpec(
             language=seed.language,
@@ -111,6 +122,7 @@ class ResultAssembler:
             intro=intro_section,
             theory=theory_parts,
             practice=practice_tasks,
+            checklist_yml=checklist_yml,
             bonus=seed.bonus_wish,
             context=context_meta,
             toc_md=None,
@@ -149,6 +161,8 @@ class ResultAssembler:
             methodology_resume_plan=methodology_resume_plan,
             agent_versions=agent_versions,
             readme_document=readme_document,
+            checklist=checklist,
+            checklist_yml=checklist_yml,
             node_traces=context.get("node_traces") or [],
             llm_traces=context.get("llm_traces") or [],
             fallback_traces=context.get("fallback_traces") or [],
@@ -337,6 +351,8 @@ class ResultAssembler:
         methodology_resume_plan: Any,
         agent_versions: dict[str, str],
         readme_document: ReadmeDocument,
+        checklist: ProjectChecklist,
+        checklist_yml: str,
         node_traces: list[dict[str, Any]],
         llm_traces: list[dict[str, Any]],
         fallback_traces: list[dict[str, Any]],
@@ -375,6 +391,8 @@ class ResultAssembler:
             "methodology_revision_results": self._serialize_report_value(methodology_revision_results),
             "methodology_resume_plan": self._serialize_report_value(methodology_resume_plan),
             "readme_document": readme_document.model_dump(mode="json"),
+            "checklist": checklist.model_dump(mode="json"),
+            "checklist_yml": checklist_yml,
             "node_traces": self._serialize_report_value(node_traces),
             "llm_traces": self._serialize_report_value(llm_traces),
             "fallback_traces": self._serialize_report_value(normalized_fallback_traces),
@@ -469,6 +487,20 @@ class ResultAssembler:
         assets_binary.setdefault("files", []).extend(dataset_files)
         logger.info("Added %s dataset files to assets", len(dataset_files))
         translated_assets_binary["files"] = assets_binary.get("files", [])
+
+    @staticmethod
+    def _attach_checklist_file(assets_binary: dict[str, Any], checklist_yml: str) -> None:
+        if not checklist_yml.strip():
+            return
+        files = assets_binary.setdefault("files", [])
+        existing_paths = {
+            str(asset.get("path") or "").replace("\\", "/").lower()
+            for asset in files
+            if isinstance(asset, dict)
+        }
+        if "check-list.yml" in existing_paths or "checklist.yml" in existing_paths:
+            return
+        files.append({"path": "check-list.yml", "data": checklist_yml.encode("utf-8")})
 
     @staticmethod
     def _encode_assets(assets_binary: dict[str, Any]) -> dict[str, Any]:

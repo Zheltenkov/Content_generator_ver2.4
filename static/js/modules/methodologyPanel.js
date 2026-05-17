@@ -17,6 +17,14 @@
     let currentReviewState = null;
     let reviewBusy = false;
     let checkpointMarkdownBlocks = [];
+    let checkpointRubricBlocks = [];
+
+    function notifyChatReviewState() {
+        window.MethodologyAssistantChat?.refreshReviewControls?.(currentReviewState, {
+            busy: reviewBusy,
+            requestId: pendingRequestId || config.getCurrentRequestId?.(),
+        });
+    }
 
     function configure(nextConfig) {
         config = { ...config, ...(nextConfig || {}) };
@@ -158,115 +166,15 @@
                 <span class="methodology-review-status">needs_review</span>
             </div>
             <div class="methodology-review-layout">
-                <section class="methodology-review-main" aria-label="Артефакт и история методолога">
+                <section class="methodology-review-main methodology-review-main-only" aria-label="Артефакт и история методолога">
                     <div class="methodology-review-state" id="methodologyReviewState"></div>
-                </section>
-                <section class="methodology-review-toolbar" aria-label="Действия методолога">
-                    <div class="btn-group methodology-primary-actions">
-                        <button class="btn" type="button" id="methodologyApproveBtn">Продолжить генерацию</button>
-                        <button class="btn" type="button" id="methodologyApproveDiffBtn">Принять изменения</button>
-                        <button class="btn" type="button" id="methodologyToggleChangeRequestBtn">Изменить правки</button>
-                        <button class="btn" type="button" id="methodologyPreviewChangesBtn">Показать изменения</button>
-                        <button class="btn btn-danger" type="button" id="methodologyRejectBtn">Остановить</button>
-                    </div>
-                    <div class="methodology-assistant-box">
-                        <div class="methodology-form-title">Методолог-ассистент</div>
-                        <div class="methodology-form-hint">
-                            Напишите решение обычным языком: продолжить, упростить задачу, добавить пример или исправить непройденные критерии.
-                        </div>
-                        <div class="methodology-assistant-feed" id="methodologyAssistantFeed">
-                            <div class="methodology-assistant-message system">Я привяжу сообщение к текущему checkpoint и выбранному блоку.</div>
-                        </div>
-                        <div class="methodology-assistant-input-row">
-                            <textarea id="methodologyAssistantInput" rows="3" placeholder="Например: упрости задачу 2 и добавь шаг с визуализацией"></textarea>
-                            <button class="btn" type="button" id="methodologyAssistantSubmitBtn">Отправить</button>
-                        </div>
-                    </div>
-                    <div class="methodology-change-form" id="methodologyChangeRequestForm" style="display: none;">
-                        <div class="methodology-form-title">Запрос правки</div>
-                        <div class="methodology-form-hint">
-                            Заполните только смысл правки. Технические поля система подставит сама по выбранному блоку.
-                        </div>
-
-                        <label for="methodologyTargetSelect">Что правим</label>
-                        <select id="methodologyTargetSelect">
-                            <option value="">Текущий блок</option>
-                        </select>
-                        <div class="methodology-field-hint">Обычно достаточно оставить выбранный блок.</div>
-
-                        <label for="methodologyChangeInstruction">Что исправить</label>
-                        <textarea id="methodologyChangeInstruction" rows="4" placeholder="Например: усилить связь аннотации с рабочим кейсом и итоговым артефактом"></textarea>
-
-                        <label for="methodologyChangeExpected">Как должно стать</label>
-                        <textarea id="methodologyChangeExpected" rows="2" placeholder="Например: читатель понимает роль, задачу и результат проекта"></textarea>
-
-                        <label for="methodologyChangeForbidden">Что не трогать</label>
-                        <input id="methodologyChangeForbidden" type="text" placeholder="Например: не менять структуру задач, не добавлять готовые ответы">
-
-                        <details class="methodology-advanced-fields">
-                            <summary>Дополнительно</summary>
-                            <label for="methodologyTargetStageFilter">Показать цели</label>
-                            <select id="methodologyTargetStageFilter">
-                                <option value="">Все этапы</option>
-                                <option value="title">Название</option>
-                                <option value="annotation">Аннотация</option>
-                                <option value="skeleton">Структура</option>
-                                <option value="theory">Теория</option>
-                                <option value="practice">Практика</option>
-                                <option value="dataset">Материалы</option>
-                                <option value="final">Финальная сборка</option>
-                            </select>
-                            <div class="methodology-form-grid">
-                                <div>
-                                    <label for="methodologyChangeStage">Этап</label>
-                                    <select id="methodologyChangeStage">
-                                        <option value="title">Название</option>
-                                        <option value="annotation">Аннотация</option>
-                                        <option value="theory">Теория</option>
-                                        <option value="practice">Практика</option>
-                                        <option value="dataset">Материалы</option>
-                                        <option value="final">Финальная сборка</option>
-                                        <option value="task_planning">План задач</option>
-                                        <option value="skeleton">Структура</option>
-                                        <option value="context">Контекст</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label for="methodologyChangeScope">Граница правки</label>
-                                    <select id="methodologyChangeScope">
-                                        <option value="local_section_only">Только выбранный блок</option>
-                                        <option value="task_only">Только задача</option>
-                                        <option value="materials_only">Только materials</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <label for="methodologyChangeSelector">Точный адрес</label>
-                            <input id="methodologyChangeSelector" type="text" placeholder="Например: annotation, theory.part.1 или materials/task_01_source_notes.md">
-                            <label for="methodologyChangeIssueCodes">Коды замечаний</label>
-                            <input id="methodologyChangeIssueCodes" type="text" placeholder="Например: 2.4.3, narrative_focus">
-                        </details>
-                        <div id="methodologyChangeFeedback" class="methodology-review-feedback" style="display: none;"></div>
-                        <div class="btn-group methodology-change-actions">
-                            <button class="btn" type="button" id="methodologySubmitChangeRequestBtn">Сохранить правку</button>
-                            <button class="btn" type="button" id="methodologyCancelChangeRequestBtn">Скрыть форму</button>
-                        </div>
-                    </div>
                 </section>
             </div>
         `;
         container.style.display = 'block';
         container.classList.add('is-active');
         container.innerHTML = html;
-        document.getElementById('methodologyApproveBtn')?.addEventListener('click', approve);
-        document.getElementById('methodologyApproveDiffBtn')?.addEventListener('click', approveDiff);
-        document.getElementById('methodologyToggleChangeRequestBtn')?.addEventListener('click', toggleChangeRequestForm);
-        document.getElementById('methodologyPreviewChangesBtn')?.addEventListener('click', previewChanges);
-        document.getElementById('methodologyRejectBtn')?.addEventListener('click', reject);
-        document.getElementById('methodologyAssistantSubmitBtn')?.addEventListener('click', submitAssistantCommand);
-        document.getElementById('methodologySubmitChangeRequestBtn')?.addEventListener('click', requestChanges);
-        document.getElementById('methodologyCancelChangeRequestBtn')?.addEventListener('click', toggleChangeRequestForm);
-        document.getElementById('methodologyTargetSelect')?.addEventListener('change', applySelectedTarget);
-        document.getElementById('methodologyTargetStageFilter')?.addEventListener('change', () => populateTargetSelect(currentReviewState));
+        window.MethodologyAssistantChat?.show?.('needs_review');
         updateReviewActionAvailability();
         fetchReviewState(requestId);
     }
@@ -276,6 +184,9 @@
         pendingRequestId = null;
         currentReviewState = null;
         reviewBusy = false;
+        notifyChatReviewState();
+        window.MethodologyAssistantChat?.refreshReviewControls?.(null);
+        window.MethodologyAssistantChat?.show?.(config.getState?.().currentGenerationStatus || 'in_progress');
     }
 
     async function fetchReviewState(requestId) {
@@ -288,6 +199,7 @@
             currentReviewState = await response.json();
             populateTargetSelect(currentReviewState);
             renderReviewState(currentReviewState);
+            notifyChatReviewState();
             return currentReviewState;
         } catch (error) {
             console.debug('Не удалось получить review state:', error);
@@ -348,7 +260,7 @@
             practice: 'Практика',
             dataset: 'Материалы',
             final: 'Финальная сборка',
-            task_planning: 'План задач',
+            task_planning: 'Замысел и план',
             context: 'Контекст',
         }[stage] || stage;
     }
@@ -370,6 +282,7 @@
         const container = document.getElementById('methodologyReviewState');
         if (!container) return;
         checkpointMarkdownBlocks = [];
+        checkpointRubricBlocks = [];
         const actions = Array.isArray(state?.review_actions) ? state.review_actions : [];
         const results = Array.isArray(state?.revision_results) ? state.revision_results : [];
         const changes = actions.filter(action => action.action === 'changes_requested');
@@ -435,6 +348,7 @@
             container.innerHTML = html;
         }
         hydrateCheckpointMarkdown(container);
+        hydrateRubricBlocks(container);
         bindMarkdownSectionSwitchers(container);
         updateReviewActionAvailability();
     }
@@ -465,7 +379,25 @@
 
     function renderDiff(diffLines) {
         if (!Array.isArray(diffLines) || !diffLines.length) return '';
-        return `<div class="methodology-diff-preview">${diffLines.map(renderDiffLine).join('')}</div>`;
+        const summary = diffChangeSummary(diffLines);
+        return `
+            <div class="methodology-diff-preview">
+                <div class="methodology-diff-summary">
+                    <span>Изменения</span>
+                    <span>Удалено: ${summary.removed}</span>
+                    <span>Добавлено: ${summary.added}</span>
+                </div>
+                <div class="methodology-diff-lines">${diffLines.map(renderDiffLine).join('')}</div>
+            </div>
+        `;
+    }
+
+    function diffChangeSummary(diffLines) {
+        return diffLines.reduce((summary, line) => {
+            if (line.startsWith('+') && !line.startsWith('+++')) summary.added += 1;
+            if (line.startsWith('-') && !line.startsWith('---')) summary.removed += 1;
+            return summary;
+        }, { added: 0, removed: 0 });
     }
 
     function renderDiffLine(line) {
@@ -479,47 +411,14 @@
     function setReviewBusy(isBusy) {
         reviewBusy = !!isBusy;
         updateReviewActionAvailability();
+        notifyChatReviewState();
     }
 
     function updateReviewActionAvailability() {
-        const state = currentReviewState || {};
-        const pendingCount = Array.isArray(state.pending_change_ids) ? state.pending_change_ids.length : 0;
-        const approveBtn = document.getElementById('methodologyApproveBtn');
-        const approveDiffBtn = document.getElementById('methodologyApproveDiffBtn');
-        const previewBtn = document.getElementById('methodologyPreviewChangesBtn');
-        const simpleButtons = [
-            'methodologyToggleChangeRequestBtn',
-            'methodologyRejectBtn',
-            'methodologyAssistantSubmitBtn',
-            'methodologySubmitChangeRequestBtn',
-        ];
-
-        if (approveBtn) {
-            approveBtn.disabled = reviewBusy || !!state.requires_diff_approval;
-            approveBtn.title = state.requires_diff_approval
-                ? 'Сначала посмотрите и примите изменения'
-                : '';
-        }
-        if (approveDiffBtn) {
-            approveDiffBtn.disabled = reviewBusy
-                || pendingCount === 0
-                || state.review_state !== 'preview_ready'
-                || !!state.preview_has_rejections;
-            approveDiffBtn.title = approveDiffBtn.disabled && pendingCount > 0
-                ? 'Изменения можно принять только после предпросмотра'
-                : '';
-        }
-        if (previewBtn) {
-            previewBtn.disabled = reviewBusy || pendingCount === 0;
-            previewBtn.title = pendingCount === 0 ? 'Сначала сохраните запрос правок' : '';
-        }
-        simpleButtons.forEach((id) => {
-            const button = document.getElementById(id);
-            if (button) button.disabled = reviewBusy;
-        });
+        notifyChatReviewState();
     }
 
-    async function approve() {
+    async function approve(options = {}) {
         const requestId = pendingRequestId || config.getCurrentRequestId();
         if (!requestId) return;
         const comment = document.getElementById('methodologyReviewComment')?.value || '';
@@ -537,11 +436,14 @@
                 const errorData = await response.json().catch(() => ({}));
                 throw new Error(errorMessage(errorData.detail, response.status));
             }
+            const responseData = await response.json().catch(() => ({}));
             hideActions();
             config.onApproved(requestId, comment);
+            return responseData;
         } catch (error) {
             console.error('Ошибка продолжения генерации:', error);
             config.onError(`Не удалось продолжить генерацию: ${error.message}`);
+            if (options.propagateError) throw error;
         } finally {
             setReviewBusy(false);
         }
@@ -551,9 +453,10 @@
         if (!checkpoint || typeof checkpoint !== 'object') return '';
         const artifact = checkpoint.artifact || {};
         const checkpointTitle = displayCheckpointTitle(checkpoint);
+        const requirementsMatrix = renderRequirementsMatrix(artifact.requirements_matrix);
         const artifactDetails = Object.entries(artifact)
             .filter(([key, value]) => (
-                !['title', 'annotation', 'markdown_sections'].includes(key)
+                !['title', 'annotation', 'markdown_sections', 'requirements_matrix'].includes(key)
                 && value !== null
                 && value !== undefined
                 && value !== ''
@@ -577,8 +480,8 @@
             ${artifact.title ? `<div class="methodology-artifact-title">${esc(artifact.title)}</div>` : ''}
             ${artifact.annotation ? `<div class="methodology-artifact-text">${esc(artifact.annotation)}</div>` : ''}
             ${artifactDetails}
-            ${markdownSections}
         `.trim() || '<div class="info-box">Содержимое для проверки пока не передано.</div>';
+        const contentOpen = markdownSections ? '' : ' open';
         return `
             <div class="methodology-checkpoint-layout">
                 <details class="methodology-context-details">
@@ -601,17 +504,20 @@
                             <span>${esc(targetInfo)}</span>
                         </div>
                         ${allowedTargets}
+                        ${requirementsMatrix}
                     </div>
                 </details>
 
-                <section class="methodology-generated-block" aria-label="Сгенерированный блок для проверки">
-                    <div class="methodology-generated-heading">
+                <details class="methodology-generated-block methodology-generated-details" aria-label="Сгенерированный блок для проверки"${contentOpen}>
+                    <summary class="methodology-generated-heading">
                         <span>Содержимое для проверки</span>
-                    </div>
+                    </summary>
                     <div class="methodology-generated-content">
                         ${generatedContent}
                     </div>
-                </section>
+                </details>
+
+                ${markdownSections ? `<section class="methodology-readme-fragment-section">${markdownSections}</section>` : ''}
             </div>
         `;
     }
@@ -648,6 +554,15 @@
         if (key === 'requirements_matrix') {
             return renderRequirementsMatrix(value);
         }
+        if (key === 'rubric') {
+            return renderRubricCriteria(value);
+        }
+        if (key === 'context_review') {
+            return renderContextReview(value);
+        }
+        if (key === 'planning_review') {
+            return renderPlanningReview(value);
+        }
         if (key === 'structure_outline' && Array.isArray(value)) {
             return renderStructureOutline(value);
         }
@@ -675,6 +590,152 @@
         `;
     }
 
+    function renderContextReview(value) {
+        if (!value || typeof value !== 'object') return '';
+        const facts = Array.isArray(value.facts) ? value.facts.filter(item => item?.value) : [];
+        const willUse = Array.isArray(value.will_use) ? value.will_use.filter(Boolean) : [];
+        const canChange = Array.isArray(value.can_change) ? value.can_change.filter(Boolean) : [];
+        return `
+            <div class="methodology-context-review">
+                <div class="methodology-artifact-title">Что генератор понял</div>
+                ${value.project_title ? `<h3>${esc(value.project_title)}</h3>` : ''}
+                ${facts.length ? `
+                    <dl class="methodology-context-facts">
+                        ${facts.map(item => `
+                            <div>
+                                <dt>${esc(item.label || '')}</dt>
+                                <dd>${esc(item.value || '')}</dd>
+                            </div>
+                        `).join('')}
+                    </dl>
+                ` : ''}
+                ${renderContextTextBlock('Описание проекта', value.project_description)}
+                ${renderContextTextBlock('Сторителлинг', value.storytelling)}
+                ${renderContextTextBlock('Контекст программы', value.program_context)}
+                ${renderContextTextBlock('Нарративная связка', value.narrative_anchor)}
+                <div class="methodology-context-columns">
+                    ${renderContextList('Что пойдёт дальше в генерацию', willUse)}
+                    ${renderContextList('Что методолог может поправить', canChange)}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderContextTextBlock(title, text) {
+        const normalized = String(text || '').trim();
+        if (!normalized) return '';
+        return `
+            <section class="methodology-context-text-block">
+                <h4>${esc(title)}</h4>
+                <p>${esc(normalized)}</p>
+            </section>
+        `;
+    }
+
+    function renderContextList(title, items) {
+        if (!items.length) return '';
+        return `
+            <section class="methodology-context-list-block">
+                <h4>${esc(title)}</h4>
+                <ul>
+                    ${items.map(item => `<li>${esc(item)}</li>`).join('')}
+                </ul>
+            </section>
+        `;
+    }
+
+    function renderPlanningReview(value) {
+        if (!value || typeof value !== 'object') return '';
+        const facts = Array.isArray(value.facts) ? value.facts.filter(item => item?.value) : [];
+        const taskFlow = Array.isArray(value.task_flow) ? value.task_flow.filter(Boolean) : [];
+        const evidence = Array.isArray(value.evidence) ? value.evidence.filter(Boolean) : [];
+        const willUse = Array.isArray(value.will_use) ? value.will_use.filter(Boolean) : [];
+        const canChange = Array.isArray(value.can_change) ? value.can_change.filter(Boolean) : [];
+        return `
+            <div class="methodology-planning-review">
+                <div class="methodology-artifact-title">Как генератор спланировал практику</div>
+                ${facts.length ? `
+                    <dl class="methodology-context-facts">
+                        ${facts.map(item => `
+                            <div>
+                                <dt>${esc(item.label || '')}</dt>
+                                <dd>${esc(item.value || '')}</dd>
+                            </div>
+                        `).join('')}
+                    </dl>
+                ` : ''}
+                ${renderContextTextBlock('Почему такой план', value.explanation)}
+                ${renderStorySummary(value.story)}
+                ${renderTaskFlow(taskFlow)}
+                ${renderEvidenceList(evidence)}
+                <div class="methodology-context-columns">
+                    ${renderContextList('Что пойдёт дальше в генерацию', willUse)}
+                    ${renderContextList('Что методолог может поправить', canChange)}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderStorySummary(story) {
+        if (!story || typeof story !== 'object') return '';
+        const rows = [
+            ['Роль студента', story.role],
+            ['Рабочий кейс', story.case],
+            ['Центральное напряжение', story.tension],
+            ['Финал истории', story.completion],
+        ].filter(([, value]) => String(value || '').trim());
+        if (!rows.length) return '';
+        return `
+            <section class="methodology-context-text-block">
+                <h4>Сторителлинг практики</h4>
+                <dl class="methodology-story-summary">
+                    ${rows.map(([label, text]) => `
+                        <div>
+                            <dt>${esc(label)}</dt>
+                            <dd>${esc(text)}</dd>
+                        </div>
+                    `).join('')}
+                </dl>
+            </section>
+        `;
+    }
+
+    function renderTaskFlow(items) {
+        if (!items.length) return '';
+        return `
+            <section class="methodology-task-flow">
+                <h4>Последовательность задач</h4>
+                <ol>
+                    ${items.map(item => `
+                        <li>
+                            <strong>${esc(item.title || `Задача ${item.index || ''}`)}</strong>
+                            ${item.artifact ? `<span>Артефакт: <code class="path-token">${esc(item.artifact)}</code></span>` : ''}
+                            ${item.depends_on ? `<span>Опирается на: <code class="path-token">${esc(item.depends_on)}</code></span>` : ''}
+                            ${item.focus ? `<span>Фокус проверки: ${esc(item.focus)}</span>` : ''}
+                        </li>
+                    `).join('')}
+                </ol>
+            </section>
+        `;
+    }
+
+    function renderEvidenceList(items) {
+        if (!items.length) return '';
+        return `
+            <section class="methodology-context-list-block">
+                <h4>Исходные материалы</h4>
+                <ul>
+                    ${items.map(item => `
+                        <li>
+                            <code class="path-token">${esc(item.path || '')}</code>
+                            ${item.contains ? `<span>${esc(item.contains)}</span>` : ''}
+                        </li>
+                    `).join('')}
+                </ul>
+            </section>
+        `;
+    }
+
     function renderRequirementsMatrix(items) {
         if (!Array.isArray(items) || !items.length) return '';
         const rows = items.map(item => {
@@ -696,6 +757,25 @@
                     ${rows}
                 </ul>
             </div>
+        `;
+    }
+
+    function renderRubricCriteria(rubric) {
+        if (!rubric || typeof rubric !== 'object') return '';
+        const rubricIndex = registerRubricBlock(rubric);
+        return `
+            <details class="methodology-rubric-card methodology-rubric-details" open>
+                <summary class="methodology-rubric-summary">
+                    <span class="methodology-artifact-title">Проверка критериев</span>
+                </summary>
+                <div
+                    id="methodologyRubric-${rubricIndex}"
+                    class="methodology-rubric-view"
+                    data-rubric-index="${rubricIndex}"
+                >
+                    <div class="s21-metric-empty">Критерии загружаются...</div>
+                </div>
+            </details>
         `;
     }
 
@@ -846,6 +926,54 @@
         return checkpointMarkdownBlocks.length - 1;
     }
 
+    function registerRubricBlock(rubric) {
+        checkpointRubricBlocks.push(rubric && typeof rubric === 'object' ? rubric : {});
+        return checkpointRubricBlocks.length - 1;
+    }
+
+    function hydrateRubricBlocks(root) {
+        if (!root) return;
+        root.querySelectorAll('.methodology-rubric-view').forEach((node, fallbackIndex) => {
+            hydrateRubricPreviewNode(node, fallbackIndex);
+        });
+    }
+
+    function hydrateRubricPreviewNode(node, fallbackIndex = 0) {
+        if (!node) return;
+        const rawIndex = node.getAttribute('data-rubric-index');
+        const index = rawIndex === null ? fallbackIndex : Number(rawIndex);
+        const rubric = checkpointRubricBlocks[index] || {};
+        const render = (filter = null) => {
+            if (filter && window.ContentGenStores?.resultStore?.setState) {
+                window.ContentGenStores.resultStore.setState({ currentFilter: filter });
+            }
+            if (typeof window.displayMetrics === 'function') {
+                window.displayMetrics(rubric, node.id);
+                bindRubricFilterButtons(node, rubric);
+                return;
+            }
+            node.innerHTML = '<div class="s21-metric-empty">Таблица критериев недоступна.</div>';
+        };
+        render();
+    }
+
+    function bindRubricFilterButtons(node, rubric) {
+        node.querySelectorAll('.metrics-filter-btn').forEach((button) => {
+            button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const filter = button.getAttribute('data-filter') || 'all';
+                if (window.ContentGenStores?.resultStore?.setState) {
+                    window.ContentGenStores.resultStore.setState({ currentFilter: filter });
+                }
+                if (typeof window.displayMetrics === 'function') {
+                    window.displayMetrics(rubric, node.id);
+                    bindRubricFilterButtons(node, rubric);
+                }
+            });
+        });
+    }
+
     function hydrateCheckpointMarkdown(root) {
         if (!root) return;
         root.querySelectorAll('.methodology-markdown-preview').forEach((node, fallbackIndex) => {
@@ -861,6 +989,7 @@
         if (typeof window.renderMarkdownPreview === 'function') {
             window.renderMarkdownPreview(node, markdown, {
                 emptyMessage: 'Markdown-фрагмент пуст.',
+                diagramContext: 'methodology',
             });
             return;
         }
@@ -869,6 +998,7 @@
             if (typeof window.renderMarkdownPreview === 'function') {
                 window.renderMarkdownPreview(node, markdown, {
                     emptyMessage: 'Markdown-фрагмент пуст.',
+                    diagramContext: 'methodology',
                 });
                 return;
             }
@@ -966,12 +1096,27 @@
     function artifactLabel(key) {
         return {
             summary: 'Сводка',
+            context_review: 'Контекст проекта',
+            planning_review: 'План практики',
+            seed_summary: 'Входные данные',
+            learning_outcomes: 'Образовательные результаты',
+            skills: 'Навыки',
+            context_summary: 'Контекст программы',
+            similar_projects: 'Соседние проекты',
+            task_plan: 'План задач',
+            practice_plan: 'План практики',
+            artifact_chain: 'Цепочка артефактов',
+            evidence_specs: 'Исходные данные',
+            evidence_specs_count: 'Количество источников',
             structure_outline: 'Структура README',
             theory_parts: 'Части теории',
             practice_tasks: 'Практические задачи',
             dataset_files: 'Materials',
             markdown_excerpt: 'Фрагмент README',
             markdown_chars: 'Размер README',
+            target_language: 'Целевой язык',
+            assets_count: 'Артефакты',
+            project_spec_summary: 'Итоговая спецификация',
             warnings_count: 'Предупреждения',
             rubric_score: 'Оценка валидатора',
             rubric_failed_count: 'Непройденные критерии',
@@ -1007,13 +1152,6 @@
         }
     }
 
-    function toggleChangeRequestForm() {
-        const form = document.getElementById('methodologyChangeRequestForm');
-        if (!form) return;
-        form.style.display = form.style.display === 'none' ? 'block' : 'none';
-        renderChangeFeedback('', [], 'info', false);
-    }
-
     function splitCsv(value) {
         return String(value || '')
             .split(',')
@@ -1021,7 +1159,22 @@
             .filter(Boolean);
     }
 
-    function changeRequestPayload() {
+    function normalizeChangeRequestPayload(payload = {}) {
+        return {
+            target_stage: payload.target_stage || 'final',
+            target_selector: payload.target_selector || '',
+            scope: payload.scope || 'local_section_only',
+            instruction: payload.instruction || '',
+            issue_codes: Array.isArray(payload.issue_codes) ? payload.issue_codes : splitCsv(payload.issue_codes || ''),
+            forbidden_changes: Array.isArray(payload.forbidden_changes) ? payload.forbidden_changes : splitCsv(payload.forbidden_changes || ''),
+            expected_outcome: payload.expected_outcome || '',
+        };
+    }
+
+    function changeRequestPayload(payloadOverride = null) {
+        if (payloadOverride && typeof payloadOverride === 'object') {
+            return normalizeChangeRequestPayload(payloadOverride);
+        }
         return {
             target_stage: document.getElementById('methodologyChangeStage')?.value || 'final',
             target_selector: document.getElementById('methodologyChangeSelector')?.value || '',
@@ -1056,32 +1209,6 @@
         }
     }
 
-    function commandLabel(command) {
-        return {
-            approve: 'продолжить генерацию',
-            request_changes: 'запросить правку',
-            simplify_task: 'упростить задачу',
-            add_example: 'добавить пример',
-            fix_failed_criteria: 'исправить непройденные критерии',
-            regenerate_section: 'перегенерировать раздел',
-        }[command] || command || 'команда';
-    }
-
-    function appendAssistantMessage(role, text, details = '') {
-        const feed = document.getElementById('methodologyAssistantFeed');
-        if (!feed) return;
-        const item = document.createElement('div');
-        item.className = `methodology-assistant-message ${role}`;
-        const html = `<div>${esc(text)}</div>${details ? `<small>${esc(details)}</small>` : ''}`;
-        if (window.sanitize) {
-            window.sanitize.safeSetHTML(item, html);
-        } else {
-            item.innerHTML = html;
-        }
-        feed.appendChild(item);
-        feed.scrollTop = feed.scrollHeight;
-    }
-
     function mergeReviewStateFromResponse(responseData) {
         currentReviewState = {
             ...(currentReviewState || {}),
@@ -1096,74 +1223,16 @@
             checkpoint: responseData.checkpoint || currentReviewState?.checkpoint || {},
         };
         renderReviewState(currentReviewState);
+        notifyChatReviewState();
     }
 
-    async function submitAssistantCommand() {
+    async function requestChanges(payloadOverride = null) {
         const requestId = pendingRequestId || config.getCurrentRequestId();
         if (!requestId) return;
-        const input = document.getElementById('methodologyAssistantInput');
-        const message = input?.value?.trim() || '';
-        if (!message) {
-            appendAssistantMessage('system', 'Напишите команду или правку для текущего checkpoint.');
-            return;
-        }
-        const selectedTargetId = document.getElementById('methodologyTargetSelect')?.value || '';
-        appendAssistantMessage('user', message);
-        if (input) input.value = '';
-        try {
-            setReviewBusy(true);
-            const response = await fetch(`${config.apiUrl}/generate/review/${requestId}/assistant-command`, {
-                method: 'POST',
-                headers: {
-                    ...config.getAuthHeaders(),
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    message,
-                    selected_target_id: selectedTargetId || null,
-                })
-            });
-            const responseData = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                const detail = responseData.detail || {};
-                if (response.status === 409 && Array.isArray(detail.conflicts)) {
-                    appendAssistantMessage('system', detail.message || 'Команда конфликтует с hard rules.', detail.conflicts.map(item => item.code || item.message).join(', '));
-                    renderChangeFeedback(detail.message || 'Запрос конфликтует с hard rules.', detail.conflicts, 'error');
-                    return;
-                }
-                throw new Error(errorMessage(detail, response.status));
-            }
-
-            const parsed = responseData.assistant_command || {};
-            const targetText = parsed.target_id || parsed.target_selector || parsed.target_stage || 'текущий checkpoint';
-            appendAssistantMessage('system', `Распознано: ${commandLabel(parsed.command)}.`, `Цель: ${targetText}`);
-            if (parsed.command === 'approve' && responseData.status === 'in_progress') {
-                hideActions();
-                config.onApproved(requestId, message);
-                return;
-            }
-            mergeReviewStateFromResponse(responseData);
-            renderChangeFeedback(responseData.message || 'Команда сохранена как правка методолога.', responseData.conflicts || [], 'info');
-            fetchReviewState(requestId);
-            if (responseData.change_request) {
-                config.onChangeRequested(requestId, responseData.change_request, responseData);
-            }
-        } catch (error) {
-            console.error('Ошибка команды методолога:', error);
-            appendAssistantMessage('system', `Не удалось выполнить команду: ${error.message}`);
-            config.onError(`Не удалось выполнить команду методолога: ${error.message}`);
-        } finally {
-            setReviewBusy(false);
-        }
-    }
-
-    async function requestChanges() {
-        const requestId = pendingRequestId || config.getCurrentRequestId();
-        if (!requestId) return;
-        const payload = changeRequestPayload();
+        const payload = changeRequestPayload(payloadOverride);
         if (!payload.instruction.trim()) {
             renderChangeFeedback('Опишите запрос правки.', [], 'error');
-            return;
+            throw new Error('Опишите запрос правки.');
         }
         try {
             setReviewBusy(true);
@@ -1180,7 +1249,7 @@
                 const detail = responseData.detail || {};
                 if (response.status === 409 && Array.isArray(detail.conflicts)) {
                     renderChangeFeedback(detail.message || 'Запрос конфликтует с hard rules.', detail.conflicts, 'error');
-                    return;
+                    throw new Error(detail.message || 'Запрос конфликтует с hard rules.');
                 }
                 const message = typeof detail === 'string'
                     ? detail
@@ -1191,15 +1260,17 @@
             mergeReviewStateFromResponse(responseData);
             fetchReviewState(requestId);
             config.onChangeRequested(requestId, payload, responseData);
+            return responseData;
         } catch (error) {
             console.error('Ошибка сохранения запроса правок:', error);
             config.onError(`Не удалось сохранить запрос правок: ${error.message}`);
+            throw error;
         } finally {
             setReviewBusy(false);
         }
     }
 
-    async function previewChanges() {
+    async function previewChanges(options = {}) {
         const requestId = pendingRequestId || config.getCurrentRequestId();
         if (!requestId) return;
         renderChangeFeedback('Выполняется предпросмотр правок...', [], 'info');
@@ -1243,15 +1314,18 @@
                 ? 'Некоторые правки отклонены защитными правилами. Уточните запрос и попробуйте снова.'
                 : 'Изменения готовы. Проверьте их и нажмите «Принять изменения».';
             renderChangeFeedback(message, [], responseData.preview_has_rejections ? 'error' : 'info');
+            notifyChatReviewState();
+            return responseData;
         } catch (error) {
             console.error('Ошибка предпросмотра правок:', error);
             renderChangeFeedback(`Не удалось выполнить предпросмотр: ${error.message}`, [], 'error');
+            if (options.propagateError) throw error;
         } finally {
             setReviewBusy(false);
         }
     }
 
-    async function approveDiff() {
+    async function approveDiff(options = {}) {
         const requestId = pendingRequestId || config.getCurrentRequestId();
         if (!requestId) return;
         const comment = document.getElementById('methodologyReviewComment')?.value || '';
@@ -1274,9 +1348,12 @@
             renderReviewState(currentReviewState);
             renderChangeFeedback(responseData.message || 'Изменения приняты.', [], 'info');
             config.onDiffApproved(requestId, responseData);
+            notifyChatReviewState();
+            return responseData;
         } catch (error) {
             console.error('Ошибка подтверждения diff:', error);
             renderChangeFeedback(`Не удалось принять изменения: ${error.message}`, [], 'error');
+            if (options.propagateError) throw error;
         } finally {
             setReviewBusy(false);
         }
@@ -1294,5 +1371,11 @@
         render,
         showActions,
         hideActions,
+        getCurrentReviewState: () => currentReviewState,
+        getTargetOptions: () => currentReviewState?.target_registry?.targets || [],
+        approveReview: () => approve({ propagateError: true }),
+        approveDiff: () => approveDiff({ propagateError: true }),
+        previewChanges: () => previewChanges({ propagateError: true }),
+        requestChanges: (payload) => requestChanges(payload),
     };
 })();

@@ -162,6 +162,8 @@ function onCurriculumProjectChange() {
         project.required_tools && project.required_tools.length > 0 ? project.required_tools.join(', ') : ''
     );
     setCurriculumFieldValue('requiredSoftware', project.required_software || '');
+    setCurriculumFieldValue('storytellingType', project.storytelling_type || 'sjm');
+    window.updateStorytellingTypeHelp?.();
     setCurriculumFieldValue('storytelling', project.sjm || '');
 
     if (project.format) {
@@ -173,7 +175,6 @@ function onCurriculumProjectChange() {
     }
 
     setCurriculumFieldValue('platformName', project.platform_name || project.title || '');
-    setCurriculumFieldValue('gitlabLink', project.gitlab_link || '');
     setCurriculumFieldValue('workloadHours', project.workload_hours || '');
     setCurriculumFieldValue('additionalMaterials', project.additional_materials || '');
 
@@ -263,6 +264,7 @@ function buildCurriculumContext(block, currentProject) {
         all_block_learning_outcomes: [...new Set(allBlockLearningOutcomes)],
         previous_block_projects: previousBlockProjects,
         next_block_projects: nextBlockProjects,
+        storytelling_type: currentProject.storytelling_type || 'sjm',
         sjm_context: currentProject.sjm || null,
         expert_development_notes: currentProject.expert_notes || null,
         additional_materials: currentProject.additional_materials || null

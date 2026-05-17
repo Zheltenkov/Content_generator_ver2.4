@@ -24,6 +24,7 @@ class GenerateStartResponse(BaseModel):
     """Ответ при запуске генерации (асинхронный режим)."""
     request_id: str
     status: str  # pending
+    workflow_profile: dict[str, Any] | None = None
 
 
 class GenerationStatusResponse(BaseModel):
@@ -35,3 +36,4 @@ class GenerationStatusResponse(BaseModel):
     warnings: list[str] | None = None
     methodology: dict[str, Any] | None = None
     workflow: dict[str, Any] | None = None
+    workflow_profile: dict[str, Any] | None = None

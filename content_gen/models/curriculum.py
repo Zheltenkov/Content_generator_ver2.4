@@ -68,6 +68,10 @@ class CurriculumContext(BaseModel):
     )
 
     # SJM - сторителлинг/кейс
+    storytelling_type: str = Field(
+        default="sjm",
+        description="Тип сторителлинга: sjm, case, role_play, project_scenario, story_arc или none",
+    )
     sjm_context: str | None = Field(
         default=None,
         description="Сторителлинг/моделирование среды - кейс для погружения студента"
@@ -117,6 +121,7 @@ class CurriculumProject(BaseModel):
     passing_threshold: str | None = Field(default=None, description="Процент прохождения проекта")
 
     # Контент
+    storytelling_type: str | None = Field(default=None, description="Тип сторителлинга")
     sjm: str | None = Field(default=None, description="Сторителлинг/моделирование среды")
     expert_notes: str | None = Field(default=None, description="Что нужно разработать эксперту")
     additional_materials: str | None = Field(default=None, description="Дополнительные материалы")
@@ -239,6 +244,7 @@ class CurriculumPlan(BaseModel):
             all_block_learning_outcomes=block.get_all_learning_outcomes(),
             previous_block_projects=previous_block_projects,
             next_block_projects=next_block_projects,
+            storytelling_type=project.storytelling_type or "sjm",
             sjm_context=project.sjm,
             expert_development_notes=project.expert_notes,
             additional_materials=project.additional_materials
@@ -269,6 +275,7 @@ class CurriculumPlan(BaseModel):
                             "workload_hours": p.workload_hours,
                             "workload_days": p.workload_days,
                             "xp": p.xp,
+                            "storytelling_type": p.storytelling_type,
                             "sjm": p.sjm,
                             "expert_notes": p.expert_notes,
                             "additional_materials": p.additional_materials,

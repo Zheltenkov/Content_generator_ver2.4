@@ -114,13 +114,16 @@ class GenerationFailureHandler:
         if error.context.get("error_type") in {"MethodologyGatePause", "HumanApprovalCheckpoint"}:
             if self._pause_persister is None:
                 raise RuntimeError("Methodology pause persister is required for pause errors")
-            await self._pause_persister.store_methodology_pause(
+            stored = await self._store_pause_or_fail(
                 request_id=request_id,
                 user_id=user_id,
                 project_seed_dict=project_seed_dict,
                 track_paths=track_paths,
                 error=error,
+                phase="methodology_pause_persistence",
             )
+            if stored:
+                return
             return
 
         error_message = str(error)
@@ -155,13 +158,16 @@ class GenerationFailureHandler:
         if error.context.get("error_type") in {"MethodologyGatePause", "HumanApprovalCheckpoint"}:
             if self._pause_persister is None:
                 raise RuntimeError("Methodology pause persister is required for pause errors")
-            await self._pause_persister.store_methodology_pause(
+            stored = await self._store_pause_or_fail(
                 request_id=request_id,
                 user_id=user_id,
                 project_seed_dict=paused_session.get("project_seed") or {},
                 track_paths=paused_session.get("track_paths") or [],
                 error=error,
+                phase="resume_methodology_pause_persistence",
             )
+            if stored:
+                return
             return
 
         self._status_setter(request_id, "failed")
@@ -208,6 +214,49 @@ class GenerationFailureHandler:
         self._status_setter(request_id, "failed")
         self._error_store(request_id, user_friendly_message)
         self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=user_friendly_message)
+
+    async def _store_pause_or_fail(
+        self,
+        *,
+        request_id: str,
+        user_id: str,
+        project_seed_dict: dict[str, Any],
+        track_paths: list[str],
+        error: ContentGenerationError,
+        phase: str,
+    ) -> bool:
+        """Persist methodology pause or fail explicitly instead of leaving stale in_progress status."""
+        try:
+            await self._pause_persister.store_methodology_pause(
+                request_id=request_id,
+                user_id=user_id,
+                project_seed_dict=project_seed_dict,
+                track_paths=track_paths,
+                error=error,
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.error("💥 Не удалось сохранить методологическую паузу: %s", str(exc), exc_info=True)
+            message = (
+                "Генерация дошла до контрольной точки методолога, "
+                f"но состояние паузы не удалось сохранить: {exc}"
+            )
+            await self._log_writer(
+                request_id=request_id,
+                level="ERROR",
+                message=message,
+                user_id=user_id,
+                phase=phase,
+                metadata={
+                    "error_type": type(exc).__name__,
+                    "error_message": str(exc),
+                    "original_context": error.context,
+                },
+            )
+            self._status_setter(request_id, "failed")
+            self._error_store(request_id, message)
+            self._workflow_service.mark_failed(request_id=request_id, user_id=user_id, error=message)
+            return False
 
     @staticmethod
     def friendly_openai_error(error_message: str, *, default: str | None = None) -> str:

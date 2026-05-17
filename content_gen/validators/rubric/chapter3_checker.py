@@ -19,6 +19,14 @@ from .utils import TaskBlock, bag, cosine, tokens
 class Chapter3Checker:
     """Проверяет Главу 3 (практика)."""
 
+    EXPECTED_RESULT_LABELS = (
+        "Что должно получиться",
+        "Ожидаемый результат",
+        "Результат",
+        "Итог",
+        "Артефакт",
+    )
+
     def __init__(self, llm_client=None, embedding_function=None, language: str = "ru", regex_patterns: dict = None):
         """
         Инициализация checker'а.
@@ -116,6 +124,18 @@ class Chapter3Checker:
         return match.group(1).strip() if match else ""
 
     @classmethod
+    def _has_expected_result_label(cls, task_text: str) -> bool:
+        return any(cls._has_label(task_text, label) for label in cls.EXPECTED_RESULT_LABELS)
+
+    @classmethod
+    def _extract_expected_result_block(cls, task_text: str) -> str:
+        for label in cls.EXPECTED_RESULT_LABELS:
+            block = cls._extract_label_block(task_text, label)
+            if block:
+                return block
+        return ""
+
+    @classmethod
     def _extract_goal_text(cls, task_text: str) -> str:
         return cls._extract_action_field(task_text, "Цель")
 
@@ -130,7 +150,7 @@ class Chapter3Checker:
         artifact_paths: list[str] | None = None,
         expected_result: str = "",
     ) -> bool:
-        result = expected_result or cls._extract_label_block(task_text, "Что должно получиться")
+        result = expected_result or cls._extract_expected_result_block(task_text)
         has_artifact = bool(re.search(r"\b(файл|документ|таблиц|схем|артефакт|отчет|отчёт|README|Markdown)\b", result, re.I))
         has_location = bool(artifact_paths) or bool(re.search(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_./{}:\-]+", result))
         return bool(result.strip()) and (has_artifact or has_location)
@@ -228,7 +248,7 @@ class Chapter3Checker:
 
             canonical = (
                 (task.has_action_block or self._has_label(task_text, "Что нужно сделать"))
-                and (task.has_expected_result_block or self._has_label(task_text, "Что должно получиться"))
+                and (task.has_expected_result_block or self._has_expected_result_label(task_text))
                 and (task.has_submission_block or self._has_label(task_text, "Формат сдачи"))
                 and self._has_task_situation(task_text, task.situation)
             )
@@ -241,7 +261,8 @@ class Chapter3Checker:
                     "Формат сдачи": task.has_submission_block,
                 }
                 for label, typed_present in label_flags.items():
-                    if not typed_present and not self._has_label(task_text, label):
+                    label_present = self._has_expected_result_label(task_text) if label == "Что должно получиться" else self._has_label(task_text, label)
+                    if not typed_present and not label_present:
                         missing.append(label)
                 if not self._has_task_situation(task_text, task.situation):
                     missing.append("Ситуация")
@@ -371,6 +392,9 @@ class Chapter3Checker:
         if self.llm:
             for i, task in enumerate(task_blocks, 1):
                 task_text = task.body
+
+                if self._has_expected_result_text(task_text, task.artifact_paths, task.expected_result):
+                    continue
 
                 # Используем LLM-агента для проверки ожидаемого результата
                 check_result = self._ai_check_expected_result(task_text)
@@ -575,7 +599,7 @@ class Chapter3Checker:
 {task_text[:1500]}
 
 КРИТЕРИИ ПРОВЕРКИ:
-1. Наличие блока "Ожидаемый результат" (может быть оформлен как "**Ожидаемый результат:**", "Ожидаемый результат:", "Результат:" и т.д.)
+1. Наличие блока результата. Валидные названия: "**Что должно получиться**", "**Ожидаемый результат:**", "Результат:", "Итог:", "Артефакт:".
 2. Указание на артефакт - должно быть четко указано, ЧТО должно быть создано/получено:
    - Тип артефакта (файл, отчет, код, скриншот, программа, скрипт, документ и т.д.)
    - Название или описание артефакта
@@ -586,6 +610,7 @@ class Chapter3Checker:
    - Отчет или документ
 
 ПРИМЕРЫ ПРАВИЛЬНОГО ОПИСАНИЯ:
+- "**Что должно получиться** Файл `ProjectName/part-03/task-01/README.md` содержит итоговый артефакт и критерии проверки."
 - "**Ожидаемый результат:** Файл `ProjectName/part-03/task-01/README.md` содержит описание проекта и инструкции по запуску."
 - "**Ожидаемый результат:** В консоли выводится таблица с результатами вычислений. Файл с кодом находится по пути `ProjectName/src/main.py`."
 - "**Ожидаемый результат:** Создан скриншот работы программы, сохраненный в файле `ProjectName/screenshots/result.png`."

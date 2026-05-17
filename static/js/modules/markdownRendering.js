@@ -172,11 +172,11 @@
             let body = raw.replace(/%%\{init:[\s\S]*?\}%%/gi, ' ').replace(/[ \t]+/g, ' ').trim();
             body = body.replace(/\b((?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR))\s+(?=\S)/i, '$1\n    ');
             body = body.replace(/\b(sequenceDiagram|stateDiagram-v2|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\s+(?=\S)/i, '$1\n    ');
-            body = body.replace(/((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-.->|==>|--|==))/g, '$1\n    ');
+            body = body.replace(/((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-\.->|-\.|==>|--|==))/g, '$1\n    ');
 
             const lines = [];
             body.split(/\r?\n/).forEach((line) => {
-                const cleaned = line.trim();
+                const cleaned = normalizeMermaidEdgeLabelLine(line.trim());
                 if (!cleaned) return;
                 const isDeclaration = /^(flowchart|graph|sequenceDiagram|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\b/i.test(cleaned);
                 if (lines.length && !isDeclaration && !cleaned.startsWith('%%{')) {
@@ -187,6 +187,36 @@
             });
 
             return lines.join('\n').trim();
+        }
+
+        function cleanMermaidEdgeLabel(label) {
+            return String(label || '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .replace(/^[.:;—–\-\s]+|[.:;—–\-\s]+$/g, '')
+                .replace(/\|/g, '/');
+        }
+
+        function normalizeMermaidEdgeLabelLine(line) {
+            const text = String(line || '').trim();
+            if (!text || text.includes('|')) return text;
+
+            const node = '([A-Za-z][A-Za-z0-9_]*(?:\\s*(?:\\[[^\\]\\n]*\\]|\\([^\\)\\n]*\\)|\\{[^\\}\\n]*\\}))?)';
+            const repairs = [
+                { rx: new RegExp(`^${node}\\s*-\\.\\s*([^|<>\\n]+?)\\s*\\.->\\s*${node}$`), arrow: '-.->' },
+                { rx: new RegExp(`^${node}\\s*--\\s*([^|<>\\n]+?)\\s*-->\\s*${node}$`), arrow: '-->' },
+                { rx: new RegExp(`^${node}\\s*==\\s*([^|<>\\n]+?)\\s*==>\\s*${node}$`), arrow: '==>' },
+            ];
+
+            for (const repair of repairs) {
+                const match = text.match(repair.rx);
+                if (!match) continue;
+                const label = cleanMermaidEdgeLabel(match[2]);
+                if (!label) return text;
+                return `${match[1].trim()} ${repair.arrow}|${label}| ${match[3].trim()}`;
+            }
+
+            return text;
         }
 
         function normalizeInlineMermaidFences(markdown) {
@@ -280,6 +310,12 @@
             });
         }
 
+        function normalizeStrayLeadingSentenceDots(markdown) {
+            return applyOutsideFencedBlocks(markdown || '', (chunk) => (
+                chunk.replace(/(^|\n)([ \t]*)\.\s+(?=(?:\*\*)?[A-ZА-ЯЁ])/g, '$1$2')
+            ));
+        }
+
         function normalizeStaticInstructionMarkdown(markdown) {
             const blockNames = [
                 'Контекст и ограничения проекта',
@@ -309,6 +345,7 @@
             normalized = normalizeInlineMermaidFences(normalized);
             normalized = normalizeInlineMarkdownTables(normalized);
             normalized = normalizeExampleBlocks(normalized);
+            normalized = normalizeStrayLeadingSentenceDots(normalized);
             return normalized;
         }
 
@@ -398,7 +435,7 @@ function displayMarkdown(markdown, containerId) {
             convertLatexLikeTableCells(container);
 
             // 5. Рендерим Mermaid-диаграммы
-            renderMermaidDiagrams(container);
+            renderMermaidDiagrams(container, options);
             wrapDiagramImages(container);
 
             // 6. Рендерим MathJax-формулы
@@ -444,8 +481,38 @@ function displayMarkdown(markdown, containerId) {
                     item.classList.add('task-list-item');
                     item.parentElement?.classList.add('contains-task-list');
                     firstMeaningfulChild.disabled = true;
+                    wrapTaskListItemContent(item, firstMeaningfulChild);
                 }
             });
+        }
+
+        function wrapTaskListItemContent(item, checkbox) {
+            if (!item || !checkbox) return;
+            if ([...item.children].some(child => child.classList?.contains('task-list-content'))) {
+                return;
+            }
+
+            const content = document.createElement('span');
+            content.className = 'task-list-content';
+            const trailingNodes = [];
+            let checkboxSeen = false;
+
+            [...item.childNodes].forEach(node => {
+                if (node === checkbox) {
+                    checkboxSeen = true;
+                    return;
+                }
+                if (!checkboxSeen && node.nodeType === Node.TEXT_NODE && !String(node.textContent || '').trim()) {
+                    node.remove();
+                    return;
+                }
+                if (checkboxSeen) {
+                    trailingNodes.push(node);
+                }
+            });
+
+            checkbox.insertAdjacentElement('afterend', content);
+            trailingNodes.forEach(node => content.appendChild(node));
         }
 
         function convertLatexLikeTableCells(root) {
@@ -474,7 +541,20 @@ function displayMarkdown(markdown, containerId) {
          * Ожидается, что markdown размечен либо как ```mermaid, либо как ```mermaid\n...\n```.
          * Marked в таком случае сделает <pre><code class="language-mermaid">...</code></pre>.
          */
-        function renderMermaidDiagrams(root) {
+        function diagramRenderContext(root, options = {}) {
+            if (options.diagramContext) {
+                return String(options.diagramContext);
+            }
+            if (
+                root?.classList?.contains('methodology-markdown-preview')
+                || root?.closest?.('.methodology-markdown-preview')
+            ) {
+                return 'methodology';
+            }
+            return 'default';
+        }
+
+        function renderMermaidDiagrams(root, options = {}) {
             if (typeof mermaid === 'undefined') {
                 // Просто оставляем код как есть, без падения
                 console.warn('[Mermaid] mermaid.js не загружен — диаграммы будут показаны как код');
@@ -484,6 +564,8 @@ function displayMarkdown(markdown, containerId) {
             // Ищем кодовые блоки с классом language-mermaid или mermaid
             const codeBlocks = root.querySelectorAll('pre code.language-mermaid, pre code.mermaid');
             if (!codeBlocks.length) return;
+
+            const renderContext = diagramRenderContext(root, options);
 
             codeBlocks.forEach((codeBlock, index) => {
                 const pre = codeBlock.closest('pre');
@@ -495,6 +577,7 @@ function displayMarkdown(markdown, containerId) {
 
                 const holder = document.createElement('div');
                 holder.className = 'mermaid-diagram';
+                holder.dataset.diagramContext = renderContext;
 
                 pre.parentNode.replaceChild(figure, pre);
                 figure.appendChild(holder);
@@ -510,8 +593,9 @@ function displayMarkdown(markdown, containerId) {
                 const renderId = 'mermaid-' + Date.now() + '-' + index;
 
                 // Без повторной initialize — предполагаем, что она уже была вызвана один раз где-то сверху
-                mermaid
-                    .render(renderId, code)
+                Promise.resolve()
+                    .then(() => (typeof mermaid.parse === 'function' ? mermaid.parse(code) : true))
+                    .then(() => mermaid.render(renderId, code))
                     .then(res => {
                         // В новых версиях mermaid res уже объект { svg, bindFunctions }, в старых — просто svg-строка
                         const svg = typeof res === 'string' ? res : res.svg;
@@ -520,8 +604,8 @@ function displayMarkdown(markdown, containerId) {
                         // Делаем svg адаптивным
                         const svgEl = holder.querySelector('svg');
                         if (svgEl) {
-                            normalizeMermaidSvg(svgEl, holder);
-                            centerMermaidLabels(svgEl);
+                            normalizeMermaidSvg(svgEl, holder, code, renderContext);
+                            centerMermaidLabels(svgEl, holder);
                             svgEl.removeAttribute('height');
                             svgEl.removeAttribute('width');
                             svgEl.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -531,6 +615,7 @@ function displayMarkdown(markdown, containerId) {
                             svgEl.style.margin = '0 auto';
                             svgEl.style.display = 'block';
                             holder.classList.add('mermaid-ready');
+                            enableDiagramZoom(holder, svgEl, captionText || 'Диаграмма');
                             centerScrollableMermaid(holder);
                         }
                     })
@@ -551,9 +636,10 @@ function displayMarkdown(markdown, containerId) {
                 if (img.closest('figure.diagram-figure')) return;
                 const src = img.getAttribute('src') || '';
                 const alt = img.getAttribute('alt') || '';
+                const isDiagramAlt = /^(?:диаграмма|схема|процесс|алгоритм)(?:\s|[:.—-]|$)/i.test(alt);
                 const isGeneratedDiagram = /^images\/diagram_\d+\.png(?:[?#].*)?$/i.test(src)
-                    || /^data:image\/png;base64,/i.test(src) && /^диаграмма\b/i.test(alt)
-                    || /^диаграмма\b/i.test(alt);
+                    || /^data:image\/png;base64,/i.test(src) && isDiagramAlt
+                    || isDiagramAlt;
                 if (!isGeneratedDiagram || !img.parentNode) return;
 
                 const figure = document.createElement('figure');
@@ -581,6 +667,7 @@ function displayMarkdown(markdown, containerId) {
                     caption.textContent = simplifyDiagramCaption(captionText);
                     figure.appendChild(caption);
                 }
+                enableDiagramZoom(surface, img, captionText || alt || 'Диаграмма');
             });
         }
 
@@ -590,20 +677,22 @@ function displayMarkdown(markdown, containerId) {
                 .replace(/^(рис\.?\s*\d*|схема|диаграмма|процесс|алгоритм|таблица)\s*[:.—-]?\s*/i, '')
                 .trim();
             const firstSentence = cleaned.split(/(?<=[.!?])\s+/)[0] || cleaned;
-            if (firstSentence.length <= 72) return firstSentence;
-            return `${firstSentence.slice(0, 69).replace(/\s+\S*$/, '').trim()}...`;
+            const caption = firstSentence.length <= 72
+                ? firstSentence
+                : `${firstSentence.slice(0, 69).replace(/\s+\S*$/, '').trim()}...`;
+            return sentenceCaseCaption(caption);
         }
 
         function extractDiagramCaption(nextElement) {
             return extractDisplayCaption(nextElement, {
-                prefixRegex: /^(рис\.?|схема|диаграмма|процесс|алгоритм|таблица)\b/i,
+                prefixRegex: /^(?:рис\.?\s*\d*|схема|диаграмма|процесс|алгоритм|таблица)(?:\s|[:.—-]|$)/i,
                 allowLeadingEmphasis: true
             });
         }
 
         function extractTableCaption(nextElement) {
             return extractDisplayCaption(nextElement, {
-                prefixRegex: /^(табл\.?|таблица)\b/i,
+                prefixRegex: /^(?:табл\.?|таблица)(?:\s|\d|[:.—-]|$)/i,
                 allowLeadingEmphasis: true
             });
         }
@@ -613,8 +702,17 @@ function displayMarkdown(markdown, containerId) {
                 .replace(/\s+/g, ' ')
                 .replace(/^(таблица\s*\d*|табл\.?\s*\d*)\s*[:.—-]?\s*/i, '')
                 .trim();
-            if (cleaned.length <= 96) return cleaned;
-            return `${cleaned.slice(0, 93).replace(/\s+\S*$/, '').trim()}...`;
+            const caption = cleaned.length <= 96
+                ? cleaned
+                : `${cleaned.slice(0, 93).replace(/\s+\S*$/, '').trim()}...`;
+            return sentenceCaseCaption(caption);
+        }
+
+        function sentenceCaseCaption(text) {
+            const value = String(text || '').trim();
+            const firstLetterIndex = value.search(/[A-Za-zА-Яа-яЁё]/);
+            if (firstLetterIndex < 0) return value;
+            return `${value.slice(0, firstLetterIndex)}${value.charAt(firstLetterIndex).toUpperCase()}${value.slice(firstLetterIndex + 1)}`;
         }
 
         function extractDisplayCaption(nextElement, options = {}) {
@@ -663,7 +761,7 @@ function displayMarkdown(markdown, containerId) {
             }
         }
 
-        function normalizeMermaidSvg(svgEl, holder) {
+        function normalizeMermaidSvg(svgEl, holder, code = '', renderContext = 'default') {
             if (!svgEl || !holder) return;
             const viewBox = svgEl.getAttribute('viewBox');
             const rawWidth = parseFloat(svgEl.getAttribute('width') || '');
@@ -676,16 +774,59 @@ function displayMarkdown(markdown, containerId) {
             const vb = svgEl.viewBox && svgEl.viewBox.baseVal;
             const width = vb && vb.width ? vb.width : rawWidth;
             const height = vb && vb.height ? vb.height : rawHeight;
-            const naturalWidth = Math.max(260, Math.min(width || 720, 1320));
+            const metrics = mermaidCodeMetrics(code);
+            const isMethodology = renderContext === 'methodology';
+            const profile = isMethodology
+                ? {
+                    baseWidth: 840,
+                    compactWidth: 660,
+                    tallWidth: 820,
+                    complexWidth: 900,
+                    wideMinWidth: 980,
+                    wideMaxWidth: 1240,
+                    boxWidth: 980,
+                    maxNaturalWidth: 1420,
+                    maxEstimatedHeight: 720,
+                    wideFontSize: '17px',
+                    normalFontSize: '18px',
+                }
+                : {
+                    baseWidth: 960,
+                    compactWidth: 740,
+                    tallWidth: 940,
+                    complexWidth: 1040,
+                    wideMinWidth: 1120,
+                    wideMaxWidth: 1440,
+                    boxWidth: 1080,
+                    maxNaturalWidth: 1680,
+                    maxEstimatedHeight: 780,
+                    wideFontSize: '18px',
+                    normalFontSize: '19px',
+                };
+            const naturalWidth = Math.max(320, Math.min(width || 720, profile.maxNaturalWidth));
             const naturalHeight = Math.max(180, Math.min(height || 520, 2200));
             const aspectRatio = naturalHeight / Math.max(naturalWidth, 1);
-            const isWide = naturalWidth > 980;
-            const isTall = aspectRatio > 1.15 || naturalHeight > 900;
-            const renderWidth = isWide ? Math.min(naturalWidth, 1320) : (isTall ? 680 : 760);
-            const boxWidth = 860;
+            const complexity = metrics.statementCount + Math.ceil(metrics.maxLineLength / 48);
+            const isWide = naturalWidth > 980 || metrics.maxLineLength > 84;
+            const isTall = aspectRatio > 1.18 || naturalHeight > 900;
+            let renderWidth = profile.baseWidth;
+            if (isWide) {
+                renderWidth = Math.min(Math.max(naturalWidth, profile.wideMinWidth), profile.wideMaxWidth);
+            } else if (complexity <= 4 && naturalWidth < 620) {
+                renderWidth = profile.compactWidth;
+            } else if (isTall) {
+                renderWidth = profile.tallWidth;
+            } else if (complexity >= 10) {
+                renderWidth = profile.complexWidth;
+            }
+            const estimatedHeight = Math.round((naturalHeight / Math.max(naturalWidth, 1)) * renderWidth);
+            const minHeight = Math.max(190, Math.min(estimatedHeight, profile.maxEstimatedHeight));
+            const boxWidth = profile.boxWidth;
 
             holder.style.setProperty('--diagram-width', `${Math.round(renderWidth)}px`);
             holder.style.setProperty('--diagram-box-width', `${Math.round(boxWidth)}px`);
+            holder.style.setProperty('--diagram-min-height', `${minHeight}px`);
+            holder.style.setProperty('--diagram-font-size', isWide ? profile.wideFontSize : profile.normalFontSize);
             holder.dataset.diagramOverflow = isWide ? 'scroll' : 'fit';
 
             if (isWide) {
@@ -699,6 +840,17 @@ function displayMarkdown(markdown, containerId) {
             }
         }
 
+        function mermaidCodeMetrics(code) {
+            const lines = String(code || '')
+                .split(/\r?\n/)
+                .map(line => line.trim())
+                .filter(line => line && !line.startsWith('%%'));
+            return {
+                statementCount: lines.length,
+                maxLineLength: lines.reduce((max, line) => Math.max(max, line.length), 0),
+            };
+        }
+
         function centerScrollableMermaid(holder) {
             if (!holder) return;
             window.requestAnimationFrame(() => {
@@ -708,16 +860,130 @@ function displayMarkdown(markdown, containerId) {
             });
         }
 
-        function centerMermaidLabels(svgEl) {
+        function ensureDiagramLightbox() {
+            const existing = document.getElementById('diagramLightbox');
+            if (existing) return existing;
+
+            const lightbox = document.createElement('div');
+            lightbox.id = 'diagramLightbox';
+            lightbox.className = 'diagram-lightbox';
+            lightbox.hidden = true;
+            lightbox.innerHTML = [
+                '<div class="diagram-lightbox-surface" role="dialog" aria-modal="true" aria-label="Увеличенная диаграмма">',
+                '  <button type="button" class="diagram-lightbox-close" aria-label="Закрыть увеличенную диаграмму">×</button>',
+                '  <div class="diagram-lightbox-content"></div>',
+                '  <div class="diagram-lightbox-caption"></div>',
+                '</div>',
+            ].join('');
+            document.body.appendChild(lightbox);
+
+            const close = () => closeDiagramLightbox(lightbox);
+            lightbox.addEventListener('click', (event) => {
+                if (event.target === lightbox) close();
+            });
+            lightbox.querySelector('.diagram-lightbox-close')?.addEventListener('click', close);
+            document.addEventListener('keydown', (event) => {
+                if (!lightbox.hidden && event.key === 'Escape') {
+                    close();
+                }
+            });
+            return lightbox;
+        }
+
+        function closeDiagramLightbox(lightbox = null) {
+            const target = lightbox || document.getElementById('diagramLightbox');
+            if (!target) return;
+            target.hidden = true;
+            document.body.classList.remove('diagram-lightbox-open');
+            const content = target.querySelector('.diagram-lightbox-content');
+            if (content) {
+                content.innerHTML = '';
+            }
+        }
+
+        function diagramLightboxWidth(sourceNode) {
+            if (!sourceNode || typeof sourceNode.getBoundingClientRect !== 'function') {
+                return 760;
+            }
+            const rect = sourceNode.getBoundingClientRect();
+            const sourceWidth = Math.max(rect.width || 0, sourceNode.clientWidth || 0);
+            // В lightbox показываем диаграмму на треть больше текущего размера, без резкого скачка до фиксированной ширины.
+            return Math.round(Math.max(360, Math.min(sourceWidth * 4 / 3, 1800)));
+        }
+
+        function openDiagramLightbox(sourceNode, caption = '') {
+            if (!sourceNode) return;
+            const lightbox = ensureDiagramLightbox();
+            const content = lightbox.querySelector('.diagram-lightbox-content');
+            const captionNode = lightbox.querySelector('.diagram-lightbox-caption');
+            if (!content) return;
+
+            const mediaWidth = diagramLightboxWidth(sourceNode);
+            const clone = sourceNode.cloneNode(true);
+            clone.removeAttribute('id');
+            clone.classList.add('diagram-lightbox-media');
+            clone.removeAttribute('width');
+            clone.removeAttribute('height');
+            clone.style.width = 'var(--diagram-lightbox-media-width)';
+            clone.style.maxWidth = '';
+            clone.style.height = '';
+            content.style.setProperty('--diagram-lightbox-media-width', `${mediaWidth}px`);
+            content.innerHTML = '';
+            content.appendChild(clone);
+            if (captionNode) {
+                captionNode.textContent = caption || '';
+                captionNode.hidden = !caption;
+            }
+            document.body.classList.add('diagram-lightbox-open');
+            lightbox.hidden = false;
+            lightbox.querySelector('.diagram-lightbox-close')?.focus({ preventScroll: true });
+        }
+
+        function enableDiagramZoom(surface, sourceNode, caption = '') {
+            if (!surface || !sourceNode || surface.dataset.diagramZoomReady === 'true') return;
+            surface.dataset.diagramZoomReady = 'true';
+            surface.classList.add('diagram-zoomable');
+            surface.tabIndex = 0;
+            surface.setAttribute('role', 'button');
+            surface.setAttribute('aria-label', 'Увеличить диаграмму');
+
+            const control = document.createElement('button');
+            control.type = 'button';
+            control.className = 'diagram-zoom-control';
+            control.setAttribute('aria-label', 'Увеличить диаграмму');
+            control.textContent = '↗';
+            surface.appendChild(control);
+
+            const open = (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                openDiagramLightbox(sourceNode, caption);
+            };
+            control.addEventListener('click', open);
+            surface.addEventListener('click', (event) => {
+                if (event.target === control) return;
+                open(event);
+            });
+            surface.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    open(event);
+                }
+            });
+        }
+
+        function centerMermaidLabels(svgEl, holder = null) {
             if (!svgEl) return;
 
+            const fontSize = holder?.style?.getPropertyValue('--diagram-font-size') || '16px';
             const labelNodes = svgEl.querySelectorAll(
                 '.nodeLabel, .edgeLabel, .label, foreignObject div, foreignObject span'
             );
             labelNodes.forEach(label => {
                 label.style.textAlign = 'center';
-                label.style.lineHeight = '1.32';
+                label.style.lineHeight = '1.28';
                 label.style.whiteSpace = 'normal';
+                label.style.fontSize = fontSize;
+                label.style.fontWeight = '600';
             });
         }
 
@@ -874,9 +1140,13 @@ function displayMarkdown(markdown, containerId) {
                 normalizeRenderedTaskLists,
                 convertLatexLikeTableCells,
                 normalizeMermaidCodeBlock,
+                normalizeMermaidEdgeLabelLine,
                 normalizeInlineMermaidFences,
+                normalizeStrayLeadingSentenceDots,
                 repairBrokenMermaidFences,
                 closeBrokenMermaidFences,
+                openDiagramLightbox,
+                enableDiagramZoom,
                 scheduleFormulaCheck,
                 hydrateLocalImages,
                 normalizeMathBlocks,

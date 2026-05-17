@@ -1,8 +1,16 @@
+from pydantic import BaseModel
+
 from api.db.paused_generation_codec import hydrate_context, hydrate_steps, serialize_context, serialize_steps
 from content_gen.agents.flow import FlowExecutionStep
 from content_gen.agents.task_planner import TaskPlan
 from content_gen.models.flow_state import ProjectFlowState
 from content_gen.models.schemas import ProjectSeed
+from content_gen.observability import UnifiedTraceSink
+
+
+class BinaryPayload(BaseModel):
+    name: str
+    data: bytes
 
 
 def test_paused_generation_codec_roundtrips_typed_context() -> None:
@@ -42,6 +50,16 @@ def test_paused_generation_codec_roundtrips_typed_context() -> None:
     assert hydrated["dataset_files"][0]["data"] == b"raw bytes"
     assert isinstance(hydrated["state"], ProjectFlowState)
     assert hydrated["state"].seed == hydrated["seed"]
+
+
+def test_paused_generation_codec_serializes_pydantic_binary_payload_without_utf8_decode() -> None:
+    png_header = b"\x89PNG\r\n\x1a\n"
+
+    serialized = serialize_context({"asset": BinaryPayload(name="diagram.png", data=png_header)})
+    hydrated = hydrate_context(serialized)
+
+    assert serialized["asset"]["data"]["data"]["__paused_type__"] == "builtins:bytes"
+    assert hydrated["asset"]["data"] == png_header
 
 
 def test_paused_generation_codec_roundtrips_steps() -> None:
@@ -86,6 +104,20 @@ def test_paused_generation_codec_drops_runtime_observability_sink() -> None:
     serialized = serialize_context({"markdown": "# README", "observability_sink": object()})
 
     assert serialized == {"markdown": "# README"}
+
+
+def test_paused_generation_codec_drops_observability_sink_nested_in_state() -> None:
+    state = ProjectFlowState.from_initial_input({"language": "ru"})
+    sink = UnifiedTraceSink(run_id="run-1", user_id="user-1")
+    context = {"state": state, "markdown": "# README", "observability_sink": sink}
+    state.sync_from_context(context)
+
+    serialized = serialize_context(context)
+
+    assert "observability_sink" not in state.__dict__
+    assert "observability_sink" not in serialized
+    assert "observability_sink" not in serialized["state"]["data"]
+    assert serialized["markdown"] == "# README"
 
 
 def test_paused_generation_codec_records_unknown_type_compatibility_event() -> None:

@@ -10,6 +10,8 @@ from content_gen.methodology.models import StageRepairResult, StageReviewResult
 
 from .schemas import Annotation, IntroSection, ProjectSpec, TheoryPart
 
+_RUNTIME_ONLY_CONTEXT_KEYS = frozenset({"observability_sink"})
+
 
 class ProjectContextBundle(BaseModel):
     """Normalized curriculum-aware context passed through the pipeline."""
@@ -121,6 +123,6 @@ class ProjectFlowState(BaseModel):
     def sync_from_context(self, context: dict[str, Any]) -> None:
         """Synchronize typed state from the mutable execution context."""
         for key, value in context.items():
-            if key == "state":
+            if key == "state" or key in _RUNTIME_ONLY_CONTEXT_KEYS:
                 continue
             setattr(self, key, value)

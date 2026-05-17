@@ -133,6 +133,13 @@ def build_methodology_review_state(paused_session: JsonDict) -> JsonDict:
     else:
         review_state = "changes_requested"
 
+    checkpoint = context.get("human_approval_checkpoint")
+    preview_context_payload = latest_preview_details.get("preview_context_payload")
+    if review_state == "preview_ready" and isinstance(preview_context_payload, dict):
+        preview_checkpoint = preview_context_payload.get("human_approval_checkpoint")
+        if isinstance(preview_checkpoint, dict):
+            checkpoint = preview_checkpoint
+
     return {
         "request_id": paused_session.get("request_id"),
         "status": paused_session.get("status", "needs_review"),
@@ -154,6 +161,6 @@ def build_methodology_review_state(paused_session: JsonDict) -> JsonDict:
         "revision_results": preview_results,
         "preview_markdown": preview_markdown or context_preview_markdown(context),
         "target_registry": target_registry,
-        "checkpoint": context.get("human_approval_checkpoint"),
+        "checkpoint": checkpoint,
         "methodology": paused_session.get("methodology"),
     }

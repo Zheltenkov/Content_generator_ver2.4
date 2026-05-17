@@ -8,21 +8,31 @@ from dataclasses import asdict, is_dataclass
 from typing import Any
 
 from pydantic import BaseModel
+from pydantic_core import PydanticSerializationError
 
-from content_gen.observability import CompatibilityEvent
+from content_gen.observability import CompatibilityEvent, LLMTraceRecorder, ObservabilityExporter, UnifiedTraceSink
 from content_gen.workflow.flow_runner import FlowExecutionStep
 
 _TYPE_KEY = "__paused_type__"
 _DATA_KEY = "data"
+_DROP_VALUE = object()
 _NON_SERIALIZABLE_CONTEXT_KEYS = {"observability_sink"}
+_NON_SERIALIZABLE_TYPES = (UnifiedTraceSink, LLMTraceRecorder, ObservabilityExporter)
 
 
 def serialize_value(value: Any) -> Any:
     """Serialize known runtime values into JSON-compatible structures."""
+    if isinstance(value, _NON_SERIALIZABLE_TYPES):
+        return _DROP_VALUE
     if isinstance(value, BaseModel):
+        exclude = set(_NON_SERIALIZABLE_CONTEXT_KEYS)
+        try:
+            payload = value.model_dump(mode="json", exclude=exclude)
+        except (PydanticSerializationError, UnicodeDecodeError):
+            payload = value.model_dump(mode="python", exclude=exclude)
         return {
             _TYPE_KEY: f"{value.__class__.__module__}:{value.__class__.__qualname__}",
-            _DATA_KEY: serialize_value(value.model_dump(mode="json")),
+            _DATA_KEY: serialize_value(payload),
         }
     if isinstance(value, bytes):
         return {
@@ -37,9 +47,18 @@ def serialize_value(value: Any) -> Any:
     if is_dataclass(value):
         return serialize_value(asdict(value))
     if isinstance(value, dict):
-        return {str(key): serialize_value(item) for key, item in value.items()}
+        serialized: dict[str, Any] = {}
+        for key, item in value.items():
+            if str(key) in _NON_SERIALIZABLE_CONTEXT_KEYS:
+                continue
+            serialized_item = serialize_value(item)
+            if serialized_item is _DROP_VALUE:
+                continue
+            serialized[str(key)] = serialized_item
+        return serialized
     if isinstance(value, (list, tuple)):
-        return [serialize_value(item) for item in value]
+        serialized_items = [serialize_value(item) for item in value]
+        return [item for item in serialized_items if item is not _DROP_VALUE]
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
@@ -130,7 +149,8 @@ def serialize_context(context: dict[str, Any]) -> dict[str, Any]:
         for key, value in context.items()
         if key not in _NON_SERIALIZABLE_CONTEXT_KEYS
     }
-    return serialize_value(safe_context)
+    serialized = serialize_value(safe_context)
+    return serialized if isinstance(serialized, dict) else {}
 
 
 def hydrate_context(payload: dict[str, Any]) -> dict[str, Any]:

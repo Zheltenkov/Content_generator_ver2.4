@@ -141,6 +141,30 @@ def test_p2p_check_accepts_observable_phrases_used_by_generator():
     assert _get_item(items, "2.5.6").score == 1
 
 
+def test_expected_result_check_accepts_result_label_aliases():
+    checker = Chapter3Checker(llm_client=None, embedding_function=None, language="ru")
+    ch3 = (
+        "### Задание 1. Снять напряжение перед выходом\n\n"
+        "**Что нужно сделать**\n\n"
+        "Ситуация: Ты готовишь публичное выступление и должен собрать проверяемый черновик.\n\n"
+        "Цель: Подготовь структуру выступления.\n\n"
+        "Подход:\n"
+        "- Собери основные тезисы.\n"
+        "- Проверь связь тезисов с задачей.\n\n"
+        "**Что должно получиться**\n\n"
+        "- [ ] Документ `PjM15_PubApp/part-03/task-01/README.md` содержит черновик структуры выступления.\n"
+        "- [ ] В документе есть минимум 3 наблюдаемых пункта.\n"
+        "- [ ] Файл размещён по указанному пути.\n\n"
+        "**Формат сдачи**\n\n"
+        "На p2p-ревью покажи документ `PjM15_PubApp/part-03/task-01/README.md`.\n"
+    )
+
+    items = checker.check(ch3, ch2_content="## Глава 2\n### 2.1. Выступление\n")
+
+    assert _get_item(items, "2.5.5").score == 1
+    assert Chapter3Checker._has_expected_result_text(ch3, [], "")
+
+
 def test_theory_practice_connection_uses_titles_and_term_overlap_with_low_embeddings():
     def low_similarity_embeddings(texts):
         return [[1.0, 0.0]] + [[0.30, 0.95] for _ in texts[1:]]

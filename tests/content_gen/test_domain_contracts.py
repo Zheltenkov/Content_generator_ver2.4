@@ -24,17 +24,31 @@ def _seed(**overrides) -> ProjectSeed:
 
 def test_build_narrative_contract_from_curriculum_and_sjm() -> None:
     contract = build_narrative_contract(
-        _seed(required_tools=["Miro"]),
+        _seed(required_tools=["Miro"], storytelling_type="role_play"),
         {"block_name": "Project Manager", "sjm_context": "fallback"},
         [{"title": "Previous"}],
     )
 
     assert contract.is_actionable
+    assert contract.storytelling_type == "role_play"
     assert "project manager" in contract.student_role.lower()
     assert "IT-команде" in contract.working_case
     assert contract.data_sources
     assert len(contract.artifact_chain) >= 2
-    assert "NARRATIVE CONTRACT" in render_narrative_contract_section(contract)
+    rendered = render_narrative_contract_section(contract)
+    assert "NARRATIVE CONTRACT" in rendered
+    assert "Тип сторителлинга: role_play" in rendered
+
+
+def test_build_narrative_contract_respects_disabled_storytelling() -> None:
+    contract = build_narrative_contract(
+        _seed(storytelling_type="none"),
+        {"block_name": "Project Manager", "sjm_context": "fallback"},
+        [],
+    )
+
+    assert contract.storytelling_type == "none"
+    assert contract.working_case == "Команда запускает IT-проект и должна управлять рисками при ограниченных сроках."
 
 
 def test_static_instruction_leak_guard_respects_project_topic() -> None:

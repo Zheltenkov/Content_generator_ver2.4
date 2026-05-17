@@ -113,7 +113,9 @@ input:focus {
 }
 
 .btn:disabled {
-    opacity: 0.6;
+    opacity: 1;
+    background: #f3f3f0 !important;
+    color: #6b6f78 !important;
     cursor: not-allowed;
 }
 
@@ -243,7 +245,7 @@ body.auth-login {
     inset: 0;
     background-image: radial-gradient(rgba(47, 209, 138, 0.22) 1px, transparent 1px);
     background-size: 22px 22px;
-    opacity: 0.65;
+    opacity: 0.52;
 }
 
 .auth-brand-row,
@@ -317,7 +319,7 @@ body.auth-login {
     color: rgba(255, 255, 255, 0.9);
     font-size: 16px;
     font-weight: 800;
-    letter-spacing: 0.01em;
+    letter-spacing: 0;
 }
 
 .auth-brand-copy h1 {
@@ -331,7 +333,7 @@ body.auth-login {
 
 .auth-brand-copy p {
     margin-top: 26px;
-    color: rgba(255, 255, 255, 0.62);
+    color: rgba(255, 255, 255, 0.82);
     font-size: 21px;
     line-height: 1.45;
     font-weight: 600;

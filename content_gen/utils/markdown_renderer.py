@@ -34,23 +34,33 @@ _CAPTION_TMPL = (
 # ============================================================
 
 MERMAID_THEME: dict[str, object] = {
-    "theme": "dark",
+    "theme": "base",
+    "flowchart": {
+        "htmlLabels": True,
+        "curve": "basis",
+        "padding": 18,
+        "nodeSpacing": 68,
+        "rankSpacing": 82,
+        "wrappingWidth": 230,
+        "useMaxWidth": True,
+    },
     "themeVariables": {
-        "primaryColor": "#1e1e1e",         # Темный фон блоков
-        "primaryTextColor": "#ffffff",     # Белый текст
-        "primaryBorderColor": "#ffffff",   # Белые границы блоков
-        "lineColor": "#ffffff",            # Белые стрелки и линии
-        "secondaryColor": "#2d2d2d",       # Вторичный цвет
-        "tertiaryColor": "#3d3d3d",        # Третичный цвет
-        "background": "#1e1e1e",           # Фон диаграммы
-        "mainBkg": "#1e1e1e",              # Основной фон
-        "secondBkg": "#2d2d2d",            # Вторичный фон
-        "textColor": "#ffffff",            # Цвет текста
-        "border1": "#ffffff",              # Граница 1
-        "border2": "#ffffff",              # Граница 2
-        "arrowheadColor": "#ffffff",       # Цвет наконечников стрелок
-        "fontSize": "18px",                # Для читаемости
-        "fontFamily": "Arial, sans-serif",
+        "primaryColor": "#ffffff",
+        "primaryTextColor": "#111820",
+        "primaryBorderColor": "#9aa79d",
+        "lineColor": "#334238",
+        "secondaryColor": "#eef4ef",
+        "tertiaryColor": "#f7faf6",
+        "background": "#ffffff",
+        "mainBkg": "#ffffff",
+        "secondBkg": "#eef4ef",
+        "textColor": "#111820",
+        "border1": "#9aa79d",
+        "border2": "#7f8d83",
+        "arrowheadColor": "#334238",
+        "edgeLabelBackground": "#ffffff",
+        "fontSize": "18px",
+        "fontFamily": "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif",
     },
     "scale": 1.0,
 }

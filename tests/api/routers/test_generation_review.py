@@ -674,6 +674,62 @@ def test_methodology_review_state_keeps_cumulative_diff_approvals() -> None:
     assert approved_state["approved_action_ids"] == [first_id, second_id]
 
 
+def test_methodology_review_state_uses_preview_checkpoint_payload() -> None:
+    request = MethodologistChangeRequest(
+        target_stage="final",
+        target_selector="README",
+        scope="local_section_only",
+        instruction="Исправь непройденные критерии.",
+    )
+    action = _change_action(request, timestamp="2026-04-27T00:00:00")
+    action_id = generation.ScopedRevisionExecutor.action_id_for_action(action, 0, request)
+    revision_result = {
+        "action_id": action_id,
+        "status": "applied",
+        "target_kind": "markdown_section",
+        "target_stage": "final",
+        "target_selector": "README",
+        "target_id": "readme",
+        "scope": "local_section_only",
+        "changed": True,
+    }
+    paused = {
+        "user_id": "user_1",
+        "status": "needs_review",
+        "context": {
+            "markdown": "# Старый README",
+            "human_approval_checkpoint": {
+                "id": "evaluation",
+                "stage": "final",
+                "artifact": {"rubric": {"total": 1, "max_score": 39}},
+            },
+        },
+        "review_actions": [
+            action,
+            {
+                "action": "preview_ready",
+                "timestamp": "2026-04-27T00:01:00",
+                "details": {
+                    "revision_results": [revision_result],
+                    "preview_hash": generation._preview_hash([revision_result]),
+                    "preview_context_payload": {
+                        "human_approval_checkpoint": {
+                            "id": "evaluation",
+                            "stage": "final",
+                            "artifact": {"rubric": {"total": 35, "max_score": 39}},
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+    review_state = generation._build_methodology_review_state(paused)
+
+    assert review_state["review_state"] == "preview_ready"
+    assert review_state["checkpoint"]["artifact"]["rubric"]["total"] == 35
+
+
 @pytest.mark.asyncio
 async def test_e2e_paused_flow_request_preview_approve_resume_final_report(monkeypatch) -> None:
     status_holder = {"status": "needs_review"}

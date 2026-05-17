@@ -63,6 +63,38 @@ def _merge_runtime_fallback_traces(flow_context: dict[str, Any], runtime_state: 
             existing.append(normalized)
 
 
+def _hard_issues(issues: list[Any]) -> list[Any]:
+    """Return validator issues marked as hard by legacy validators."""
+    return [
+        issue
+        for issue in issues
+        if (isinstance(issue, dict) and issue.get("severity") == "hard")
+        or getattr(issue, "severity", None) == "hard"
+    ]
+
+
+def _non_blocking_quality_warnings(
+    *,
+    label: str,
+    issues: list[Any],
+    existing_warnings: list[str],
+    issue_messages: IssueMessages,
+) -> list[str]:
+    """Represent content-quality failures as warnings instead of flow errors."""
+    warnings = list(existing_warnings or [])
+    hard = _hard_issues(issues)
+    if not hard:
+        return warnings
+
+    messages = issue_messages(hard)[:3]
+    details = "; ".join(messages) if messages else f"{len(hard)} замечаний"
+    warnings.append(
+        f"⚠️ {label}: найдены замечания качества. "
+        f"Генерация продолжена, проверь критерии и запроси правки при необходимости: {details}"
+    )
+    return warnings
+
+
 class SectionContextRecorder:
     """Build and store schema-filtered context for section-scoped nodes."""
 
@@ -96,6 +128,7 @@ class SectionContextRecorder:
             "curriculum_context": self.json_safe(curriculum_context),
             "narrative_contract": self.json_safe(narrative_contract),
             "sjm_context": self.json_safe(getattr(seed, "sjm", "") if seed else ""),
+            "storytelling_type": self.json_safe(getattr(seed, "storytelling_type", "sjm") if seed else "sjm"),
             "learning_outcomes": self.json_safe(getattr(seed, "learning_outcomes", []) if seed else []),
             "skills": self.json_safe(getattr(seed, "skills", []) if seed else []),
             "required_tools": self.json_safe(getattr(seed, "required_tools", []) if seed else []),
@@ -493,7 +526,12 @@ class PracticeNodeService:
         dataset_files = list(phase_result.dataset_files or _runtime_attr(self.runtime_state, "dataset_files", []) or [])
         blueprint = self._update_blueprint_task_maps(context.blueprint, practice_tasks)
         serialized_issues = self.serialize_issues(practice_issues)
-        status = "error" if self.has_hard_issues(practice_issues) else "success"
+        practice_warnings = _non_blocking_quality_warnings(
+            label="PracticeChecks",
+            issues=practice_issues,
+            existing_warnings=list(practice_warnings or []),
+            issue_messages=self.issue_messages,
+        )
 
         flow_context.update(
             {
@@ -525,8 +563,8 @@ class PracticeNodeService:
             section_contexts=flow_context.get("section_contexts", {}),
             warnings=list(practice_warnings or []),
             serialized_issues=serialized_issues,
-            issues=self.issue_messages(practice_issues) if status == "error" else list(practice_warnings or []),
-            status=status,
+            issues=list(practice_warnings or []),
+            status="success",
         )
 
     def _hydrate_contracts(self, flow_context: dict[str, Any]) -> None:
@@ -718,14 +756,13 @@ class TheoryNodeService:
         theory_warnings = phase_result.warnings
 
         serialized_issues = self.serialize_issues(theory_issues)
-        status = "error" if self.has_hard_issues(theory_issues) else "success"
-        hard_theory_issues = [
-            issue
-            for issue in theory_issues
-            if (isinstance(issue, dict) and issue.get("severity") == "hard")
-            or getattr(issue, "severity", None) == "hard"
-        ]
-        flow_issues = self.issue_messages(hard_theory_issues) if status == "error" else list(theory_warnings)
+        theory_warnings = _non_blocking_quality_warnings(
+            label="TheoryChecks",
+            issues=theory_issues,
+            existing_warnings=list(theory_warnings or []),
+            issue_messages=self.issue_messages,
+        )
+        flow_issues = list(theory_warnings)
         _merge_runtime_fallback_traces(flow_context, self.runtime_state)
 
         return TheoryNodeResult(
@@ -735,5 +772,5 @@ class TheoryNodeService:
             warnings=list(theory_warnings or []),
             serialized_issues=serialized_issues,
             issues=flow_issues,
-            status=status,
+            status="success",
         )

@@ -180,7 +180,7 @@ def test_orchestrator_flow_logs_versions(monkeypatch):
     assert result.report_json["methodology_summary"]["total_reviews"] == len(result.methodology_reviews)
 
 
-def test_orchestrator_pauses_for_title_checkpoint_when_ui_callback_enabled(monkeypatch):
+def test_orchestrator_pauses_for_planning_checkpoint_when_ui_callback_enabled(monkeypatch):
     seed = build_seed()
     context_meta = build_context_meta()
     context_analysis = build_context_analysis()
@@ -239,8 +239,9 @@ def test_orchestrator_pauses_for_title_checkpoint_when_ui_callback_enabled(monke
         orchestrator.run_v2(raw_input={}, track_files=None)
 
     assert exc_info.value.context["error_type"] == "HumanApprovalCheckpoint"
-    assert exc_info.value.context["checkpoint"]["id"] == "title"
-    assert exc_info.value.resume_from_index == 3
+    assert exc_info.value.context["checkpoint"]["id"] == "task_planning"
+    assert exc_info.value.context["checkpoint"]["resume_from_node"] == "title_annotation"
+    assert exc_info.value.resume_from_index == 2
 
 
 def test_finalize_prefers_structured_artifacts(monkeypatch):

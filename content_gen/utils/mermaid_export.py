@@ -17,6 +17,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 MERMAID_BLOCK_RE = re.compile(r"```mermaid\s*\n(?P<body>.+?)```", re.DOTALL | re.IGNORECASE)
+MERMAID_INIT_RE = re.compile(r"^\s*%%\{init:[\s\S]*?\}%%\s*", re.IGNORECASE)
 
 KROKI_ENDPOINT = "https://kroki.io/mermaid/png"
 DEFAULT_EXPORT_MODE = "none"
@@ -24,11 +25,15 @@ DEFAULT_KROKI_TIMEOUT_SECONDS = 4.0
 DEFAULT_LOCAL_TIMEOUT_SECONDS = 8.0
 DEFAULT_MAX_DIAGRAMS = 4
 THEME_INIT = (
-    '%%{init: {"theme":"dark","themeVariables":{'
-    '"primaryColor":"#0a0e27","primaryTextColor":"#ffffff","primaryBorderColor":"#64ffda",'
-    '"lineColor":"#64ffda","secondaryColor":"#14192e","tertiaryColor":"#1e1e3a",'
-    '"background":"#0a0e27","mainBkg":"#0a0e27","secondBkg":"#14192e","textColor":"#e0e6ed",'
-    '"border1":"#764ba2","border2":"#64ffda","arrowheadColor":"#64ffda","fontFamily":"Arial, sans-serif"'
+    '%%{init: {"theme":"base","flowchart":{'
+    '"htmlLabels":true,"curve":"basis","padding":18,"nodeSpacing":68,"rankSpacing":82,'
+    '"wrappingWidth":230,"useMaxWidth":true},"themeVariables":{'
+    '"primaryColor":"#ffffff","primaryTextColor":"#111820","primaryBorderColor":"#9aa79d",'
+    '"lineColor":"#334238","secondaryColor":"#eef4ef","tertiaryColor":"#f7faf6",'
+    '"background":"#ffffff","mainBkg":"#ffffff","secondBkg":"#eef4ef","textColor":"#111820",'
+    '"border1":"#9aa79d","border2":"#7f8d83","arrowheadColor":"#334238",'
+    '"edgeLabelBackground":"#ffffff","fontSize":"18px",'
+    '"fontFamily":"-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif"'
     '}}}%%'
 )
 
@@ -157,7 +162,7 @@ def _render_mermaid_local(code: str) -> bytes:
                 "-o",
                 str(output_path),
                 "-b",
-                "transparent",
+                "white",
             ],
             capture_output=True,
             check=False,
@@ -185,11 +190,9 @@ def _render_mermaid_kroki(code: str) -> bytes:
 
 
 def _ensure_theme(code: str) -> str:
-    """Добавляет настройку темы, если ее нет."""
-    stripped = code.strip()
-    if stripped.startswith("%%{"):
-        return code
-    return f"{THEME_INIT}\n{code}"
+    """Force the product Mermaid theme before exporting static images."""
+    body = MERMAID_INIT_RE.sub("", code.strip(), count=1).strip()
+    return f"{THEME_INIT}\n{body}"
 
 
 def _normalize_export_mode(export_mode: str | None) -> str:

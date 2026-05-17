@@ -54,12 +54,13 @@ function saveGenerationState() {
             originalTextStats: state.originalTextStats,
             regeneratedRubric: state.regeneratedRubric,
             regeneratedTextStats: state.regeneratedTextStats,
-            regeneratedMarkdown: window.regeneratedMarkdown || null,
+            regeneratedMarkdown: state.regeneratedMarkdown || null,
             generationStartTime: state.generationStartTime,
             lastKnownGenerationPhase: state.lastKnownGenerationPhase,
             lastKnownGenerationProgress: state.lastKnownGenerationProgress,
             lastKnownGenerationAgent: state.lastKnownGenerationAgent,
             currentGenerationStatus: state.currentGenerationStatus,
+            workflowProfile: state.workflowProfile || null,
             timestamp: Date.now()
         };
         sessionStorage.setItem('generation_state', JSON.stringify(payload));
@@ -96,7 +97,8 @@ async function loadGenerationState() {
             lastKnownGenerationPhase: savedState.lastKnownGenerationPhase || null,
             lastKnownGenerationProgress: Number(savedState.lastKnownGenerationProgress || 0),
             lastKnownGenerationAgent: savedState.lastKnownGenerationAgent || 'Инициализация...',
-            currentGenerationStatus: savedState.currentGenerationStatus || 'idle'
+            currentGenerationStatus: savedState.currentGenerationStatus || 'idle',
+            workflowProfile: savedState.workflowProfile || undefined
         });
 
         let state = getGenerationPersistenceState();
@@ -163,7 +165,10 @@ async function reconcileSavedGenerationWithServer(savedState, requestId) {
         const statusData = await response.json();
         const status = statusData.status;
         const workflowMeta = window.workflowUiOptions ? window.workflowUiOptions(statusData) : {};
-        setGenerationPersistenceState({ currentGenerationStatus: status || 'idle' });
+        setGenerationPersistenceState({
+            currentGenerationStatus: status || 'idle',
+            workflowProfile: statusData.workflow_profile || undefined
+        });
 
         if (status === 'pending' || status === 'in_progress') {
             console.log('🔄 Генерация еще идет, возобновляем polling...');
@@ -233,7 +238,8 @@ async function reconcileSavedGenerationWithServer(savedState, requestId) {
                     : undefined,
                 originalTextStats: statusData.result.text_stats && !savedState.originalTextStats
                     ? statusData.result.text_stats
-                    : undefined
+                    : undefined,
+                workflowProfile: statusData.workflow_profile || statusData.result.workflow_profile || undefined
             });
             saveGenerationState();
         }
@@ -272,7 +278,7 @@ function restoreSavedMetrics(savedState) {
         console.log('✅ regeneratedTextStats восстановлен из sessionStorage');
     }
     if (savedState.regeneratedMarkdown) {
-        window.regeneratedMarkdown = savedState.regeneratedMarkdown;
+        setGenerationPersistenceState({ regeneratedMarkdown: savedState.regeneratedMarkdown });
         console.log('✅ regeneratedMarkdown восстановлен из sessionStorage');
     }
 }
@@ -332,7 +338,8 @@ function clearGenerationState() {
             lastKnownGenerationPhase: null,
             lastKnownGenerationProgress: 0,
             lastKnownGenerationAgent: 'Инициализация...',
-            currentGenerationStatus: 'idle'
+            currentGenerationStatus: 'idle',
+            workflowProfile: 'standard'
         });
         window.finishGenerationRun?.('idle');
         const runtime = getGenerationPersistenceRuntime();

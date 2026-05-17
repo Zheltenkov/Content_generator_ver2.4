@@ -1,6 +1,6 @@
 """Pydantic схемы для контрактов данных."""
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,10 +11,17 @@ if TYPE_CHECKING:
     pass
 
 
+StorytellingType = Literal["sjm", "case", "role_play", "project_scenario", "story_arc", "none"]
+
+
 class ProjectSeed(BaseModel):
     """Входные данные от методолога для генерации проекта."""
 
     language: Language
+    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Field(
+        default=None,
+        description="Предпочитаемый LLM provider для запуска: openai, deepseek или gigachat",
+    )
     project_type: ProjectType
 
     # Направление (было: thematic_block для BSA, Cb, DO, PjM, QA, DS)
@@ -74,6 +81,13 @@ class ProjectSeed(BaseModel):
     # === НОВЫЕ ПОЛЯ ИЗ УЧЕБНОГО ПЛАНА ===
 
     # Сторителлинг/моделирование среды (SJM)
+    storytelling_type: StorytellingType = Field(
+        default="sjm",
+        description=(
+            "Тип сторителлинга перед генерацией: sjm, case, role_play, "
+            "project_scenario, story_arc или none"
+        ),
+    )
     sjm: str | None = Field(
         default=None,
         description="Сторителлинг/моделирование среды - кейс для погружения студента в проблему"
@@ -153,6 +167,8 @@ class ProjectSeed(BaseModel):
             data["required_software"] = to_list(data.get("required_software"))
         if "required_tools" in data:
             data["required_tools"] = to_list(data.get("required_tools"))
+        if "storytelling_type" in data:
+            data["storytelling_type"] = cls._normalize_storytelling_type(data.get("storytelling_type"))
         return data
 
     @model_validator(mode='after')
@@ -173,6 +189,7 @@ class ProjectSeed(BaseModel):
         )
         self.audience_level = self._normalize_audience_level(self.audience_level)
         self.project_content_type = self._normalize_project_content_type(self.project_content_type)
+        self.storytelling_type = self._normalize_storytelling_type(self.storytelling_type)
         # Обратная совместимость: если direction пустой, используем thematic_block как direction
         if not self.direction and self.thematic_block:
             # Проверяем, похоже ли thematic_block на код направления (BSA, Cb, etc.)
@@ -224,6 +241,33 @@ class ProjectSeed(BaseModel):
         }
         normalized = aliases.get(norm, norm)
         return normalized if normalized in {"hard_code", "low_code", "no_code"} else None
+
+    @staticmethod
+    def _normalize_storytelling_type(value: Any) -> StorytellingType:
+        norm = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+        aliases = {
+            "": "sjm",
+            "storytelling": "sjm",
+            "story": "story_arc",
+            "сюжет": "story_arc",
+            "сквозная_история": "story_arc",
+            "кейс": "case",
+            "рабочий_кейс": "case",
+            "role": "role_play",
+            "roleplay": "role_play",
+            "role_play": "role_play",
+            "ролевая_ситуация": "role_play",
+            "scenario": "project_scenario",
+            "project_story": "project_scenario",
+            "project_scenario": "project_scenario",
+            "сценарий_проекта": "project_scenario",
+            "none": "none",
+            "нет": "none",
+        }
+        normalized = aliases.get(norm, norm)
+        if normalized in {"sjm", "case", "role_play", "project_scenario", "story_arc", "none"}:
+            return normalized  # type: ignore[return-value]
+        return "sjm"
 
 
 class ProjectContextMeta(BaseModel):
@@ -303,5 +347,9 @@ class ProjectSpec(BaseModel):
     intro: IntroSection
     theory: list[TheoryPart] = Field(default_factory=list)
     practice: list[PracticeTask] = Field(default_factory=list)
+    checklist_yml: str | None = Field(
+        default=None,
+        description="YAML-чек-лист для p2p-проверки, сформированный из финального README",
+    )
     bonus: str | None = None
     context: ProjectContextMeta

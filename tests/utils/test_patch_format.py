@@ -80,6 +80,12 @@ class TestParsePatchesFromResponse:
 
         assert patches is None or len(patches) == 0
 
+    def test_parse_empty_changes_as_empty_list(self):
+        """Пустой список changes — валидный no-op, а не ошибка парсинга."""
+        patches = parse_patches_from_response('{ "changes": [] }')
+
+        assert patches == []
+
 
 class TestApplyPatches:
     """Тесты для функции apply_patches."""
@@ -172,6 +178,69 @@ class TestApplyPatches:
         assert result.success is False
         assert len(result.failed_patches) == 1
         assert any("маркер" in error.lower() or "блок" in error.lower() for error in result.errors)
+
+    def test_apply_deletion_patch_allows_empty_new_text(self):
+        """Тест удаления фрагмента через пустой new_text."""
+        original = "# Заголовок\n\nЭтот абзац нужно удалить полностью.\n\nСледующий абзац."
+        patches = [
+            Patch(
+                location_hint="удаление абзаца",
+                old_text="Этот абзац нужно удалить полностью.",
+                new_text="",
+            )
+        ]
+
+        result = apply_patches(original, patches)
+
+        assert result.success is True
+        assert len(result.applied_patches) == 1
+        assert "Этот абзац нужно удалить полностью." not in result.result_md
+        assert "Следующий абзац." in result.result_md
+
+    def test_apply_scoped_patch_uses_selected_duplicate_not_first_occurrence(self):
+        """Патч в scoped-режиме должен применяться внутри выбранного диапазона."""
+        original = (
+            "# README\n\n"
+            "Повторяющийся абзац для замены.\n\n"
+            "## 2.1. Пример\n"
+            "Повторяющийся абзац для замены.\n"
+        )
+        patches = [
+            Patch(
+                location_hint="пример 2.1",
+                old_text="Повторяющийся абзац для замены.",
+                new_text="Новый пример в разделе 2.1.",
+            )
+        ]
+
+        result = apply_patches(original, patches, allowed_line_ranges=[(5, 6, "2.1. Пример")])
+
+        assert result.success is True
+        assert result.result_md.count("Повторяющийся абзац для замены.") == 1
+        assert "## 2.1. Пример\nНовый пример в разделе 2.1." in result.result_md
+
+    def test_apply_scoped_patch_rejects_text_outside_allowed_range(self):
+        """Патч вне выбранных строк должен быть отклонён, даже если old_text есть в README."""
+        original = (
+            "# README\n\n"
+            "Этот раздел нельзя менять.\n\n"
+            "## 2.1. Пример\n"
+            "Старый пример для замены.\n"
+        )
+        patches = [
+            Patch(
+                location_hint="чужой раздел",
+                old_text="Этот раздел нельзя менять.",
+                new_text="Сломанный текст.",
+            )
+        ]
+
+        result = apply_patches(original, patches, allowed_line_ranges=[(5, 6, "2.1. Пример")])
+
+        assert result.success is False
+        assert result.applied_patches == []
+        assert "Этот раздел нельзя менять." in result.result_md
+        assert any("разреш" in error.lower() for error in result.errors)
 
 
 class TestValidatePatch:

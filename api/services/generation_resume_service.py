@@ -59,7 +59,7 @@ class GenerationResumeService:
         paused_saver: Callable[..., Any] = save_paused_generation_session,
         paused_completed_marker: Callable[[str], Any] = mark_paused_generation_completed,
         log_writer: Callable[..., Awaitable[Any]] = write_log_async,
-        llm_factory: Callable[[], Any] | None = None,
+        llm_factory: Callable[..., Any] | None = None,
         orchestrator_cls: type[Orchestrator] = Orchestrator,
         temp_cleanup: Callable[[str], Awaitable[Any]] = cleanup_temp_files,
         completed_saver: Callable[..., Awaitable[bool]] | None = None,
@@ -74,7 +74,11 @@ class GenerationResumeService:
         self._task_unregister = task_unregister
         self._paused_completed_marker = paused_completed_marker
         self._llm_factory = llm_factory or (
-            lambda: create_llm_client(enable_cache=True, enable_batching=True)
+            lambda provider=None: create_llm_client(
+                provider=provider,
+                enable_cache=True,
+                enable_batching=True,
+            )
         )
         self._orchestrator_cls = orchestrator_cls
         self._temp_cleanup = temp_cleanup
@@ -163,12 +167,15 @@ class GenerationResumeService:
                 project_seed.language,
                 type(project_seed.language).__name__,
             )
+            if project_seed.llm_provider:
+                logger.info("🤖 _run_generation_background: LLM provider из project_seed: %s", project_seed.llm_provider)
 
             result = await asyncio.to_thread(
                 self._build_orchestrator(
                     human_review_enabled=bool(project_seed.methodology_human_review),
                     request_id=request_id,
                     user_id=user_id,
+                    llm_provider=project_seed.llm_provider,
                 ).run,
                 raw_input=project_seed.model_dump(),
                 track_files=track_paths,
@@ -239,6 +246,7 @@ class GenerationResumeService:
                     human_review_enabled=human_review_enabled,
                     request_id=request_id,
                     user_id=user_id,
+                    llm_provider=self._resolve_session_llm_provider(context, paused_session),
                 ).resume_from_pause,
                 context=context,
                 resume_from_index=int(paused_session.get("resume_from_index", 0)),
@@ -391,9 +399,23 @@ class GenerationResumeService:
             result=result,
         )
 
-    def _build_orchestrator(self, *, human_review_enabled: bool, request_id: str, user_id: str) -> Orchestrator:
+    def _create_llm_client(self, llm_provider: str | None = None) -> Any:
+        """Create a run-scoped LLM client while preserving legacy no-arg factories."""
+        try:
+            return self._llm_factory(provider=llm_provider)
+        except TypeError:
+            return self._llm_factory()
+
+    def _build_orchestrator(
+        self,
+        *,
+        human_review_enabled: bool,
+        request_id: str,
+        user_id: str,
+        llm_provider: str | None = None,
+    ) -> Orchestrator:
         """Create an orchestrator with optional methodology progress callback."""
-        llm_client = self._llm_factory()
+        llm_client = self._create_llm_client(llm_provider)
         configure_context = getattr(llm_client, "configure_run_context", None)
         if callable(configure_context):
             configure_context(user_id=user_id, run_id=request_id)
@@ -446,6 +468,7 @@ class GenerationResumeService:
         context = session.get("context")
         if isinstance(context, dict):
             raw_input = context.get("raw_input") if isinstance(context.get("raw_input"), dict) else {}
+            llm_provider = self._resolve_session_llm_provider(raw_input, session)
             human_review_enabled = methodology_human_review_enabled(
                 raw_input or session.get("project_seed") or {},
                 context,
@@ -455,6 +478,7 @@ class GenerationResumeService:
                     human_review_enabled=human_review_enabled,
                     request_id=request_id,
                     user_id=user_id,
+                    llm_provider=llm_provider,
                 ).resume_from_workflow_checkpoint,
                 context=context,
                 start_index=int(session.get("start_index") or 0),
@@ -468,10 +492,24 @@ class GenerationResumeService:
                 human_review_enabled=bool(project_seed.methodology_human_review),
                 request_id=request_id,
                 user_id=user_id,
+                llm_provider=project_seed.llm_provider,
             ).run,
             raw_input=project_seed.model_dump(),
             track_files=session.get("track_paths") or [],
         )
+
+    @staticmethod
+    def _resolve_session_llm_provider(raw_input: dict[str, Any], session: dict[str, Any]) -> str | None:
+        """Resolve provider from recovered context before falling back to default env routing."""
+        if raw_input.get("llm_provider"):
+            return str(raw_input["llm_provider"])
+        nested_raw_input = raw_input.get("raw_input")
+        if isinstance(nested_raw_input, dict) and nested_raw_input.get("llm_provider"):
+            return str(nested_raw_input["llm_provider"])
+        project_seed = session.get("project_seed")
+        if isinstance(project_seed, dict) and project_seed.get("llm_provider"):
+            return str(project_seed["llm_provider"])
+        return None
 
     @staticmethod
     def _attach_review_actions(

@@ -147,13 +147,6 @@ class FormValidator {
         this.clearAllErrors();
         let isValid = true;
 
-        // Валидация языка (обязательное)
-        const language = document.getElementById('language');
-        if (!language || !language.value) {
-            this.showError('language', 'Выберите язык');
-            isValid = false;
-        }
-
         // Валидация типа проекта (обязательное)
         const projectType = document.getElementById('projectType');
         if (!projectType || !projectType.value) {
@@ -239,7 +232,6 @@ function initRealtimeValidation() {
     
     // Список полей для валидации
     const fieldsToValidate = [
-        { id: 'language', validate: (val) => val ? { valid: true } : { valid: false, message: 'Выберите язык' } },
         { id: 'projectType', validate: (val) => val ? { valid: true } : { valid: false, message: 'Выберите тип проекта' } },
         { id: 'groupSize', validate: (val) => {
             const projectType = document.getElementById('projectType')?.value;

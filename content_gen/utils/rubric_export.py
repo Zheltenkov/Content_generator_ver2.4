@@ -5,6 +5,7 @@ from typing import Any
 import numpy as np
 
 from ..models.criteria_models import CriteriaReport
+from ..validators.rubric.policy import rubric_item_status
 
 
 def convert_numpy_types(obj: Any) -> Any:
@@ -45,6 +46,7 @@ def criteria_to_json(report: CriteriaReport) -> dict[str, Any]:
         "summary": report.summary,
         "items": [
             {
+                "status": rubric_item_status(item),
                 "id": item.id,
                 "title": item.title,
                 "description": item.description,
@@ -54,6 +56,7 @@ def criteria_to_json(report: CriteriaReport) -> dict[str, Any]:
                 "details": item.details,
                 "parent_id": item.parent_id,
                 "strictness": item.strictness.value if hasattr(item, 'strictness') else "hard",
+                "blocking": rubric_item_status(item) == "failed",
             }
             for item in report.items
         ],
@@ -86,7 +89,8 @@ def criteria_to_markdown(report: CriteriaReport) -> str:
             "hybrid": "🔀",
         }.get(item.check_method.value, "❓")
 
-        score_emoji = "✅" if item.score == 1 else "❌"
+        status = rubric_item_status(item)
+        score_emoji = "⚠️" if status == "warning" else ("✅" if status == "passed" else "❌")
         comments = " • ".join(item.comments) if item.comments else "—"
 
         lines.append(
@@ -138,8 +142,9 @@ def criteria_to_html_table(report: CriteriaReport, with_details: bool = True) ->
 
     for item in report.items:
         method_icon = method_emoji.get(item.check_method.value, "❓")
-        score_icon = "✅" if item.score == 1 else "❌"
-        score_class = "score-pass" if item.score == 1 else "score-fail"
+        status = rubric_item_status(item)
+        score_icon = "⚠️" if status == "warning" else ("✅" if status == "passed" else "❌")
+        score_class = "score-warning" if status == "warning" else ("score-pass" if status == "passed" else "score-fail")
 
         comments = " • ".join(item.comments) if item.comments else "—"
 

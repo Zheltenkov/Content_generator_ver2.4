@@ -159,7 +159,7 @@ body.s21-product .generation-status-panel:not(.is-active) .s21-run-timeline {
   color: var(--s21-muted);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 

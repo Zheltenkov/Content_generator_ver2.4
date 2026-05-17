@@ -15,27 +15,29 @@
     <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-design.css?v=20260513-fluid-cleanup">
-    <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260514-split3">
+    <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260515-dashboard-fix">
+    <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
 </head>
 <body class="s21-product page-menu">
-    <header class="dashboard-header">
-        <a class="dashboard-brand" href="/app" aria-label="Главная">
-            <span class="dashboard-brand-mark">ГЛАВНАЯ</span>
-            <span class="dashboard-brand-sub">учебных проектов · v 2.4</span>
-        </a>
-
+    <header class="dashboard-header dashboard-header--menu">
         <nav class="dashboard-nav" aria-label="Основные разделы">
             <a href="/app" class="active">Главная</a>
             <a href="/app/generate">Генерация</a>
             <a href="/app/check">Проверка</a>
             <a href="/app/translate">Перевод</a>
-            <a href="/docs" target="_blank" rel="noopener">Документация</a>
+            <a href="/app/instruction">Инструкция</a>
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-lang" aria-label="Язык интерфейса">
-                <span class="active">RU</span>
-                <span>EN</span>
+            <div class="dashboard-model-picker" data-selected-model="gpt">
+                <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
+                    <span aria-hidden="true">ИИ</span>
+                </button>
+                <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
+                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
+                    <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
+                </div>
             </div>
             <button class="dashboard-user" type="button" onclick="handleLogout()" title="Выйти">
                 <span class="dashboard-user-avatar" id="dashboardUserInitials">U</span>
@@ -185,10 +187,20 @@
             document.getElementById('dashboardUserInitials').textContent = resolveInitials(name);
         }
 
+        function parseApiDate(value) {
+            if (!value) return null;
+            const raw = String(value).trim();
+            const hasTime = /[T\s]\d{2}:\d{2}/.test(raw);
+            const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw);
+            const normalized = hasTime && !hasTimezone ? raw.replace(' ', 'T') + 'Z' : raw;
+            const date = new Date(normalized);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
         function formatRunTime(value) {
             if (!value) return '—';
-            const date = new Date(value);
-            if (Number.isNaN(date.getTime())) return '—';
+            const date = parseApiDate(value);
+            if (!date) return '—';
             const now = new Date();
             const sameDay = date.toDateString() === now.toDateString();
             const yesterday = new Date(now);
@@ -201,8 +213,41 @@
 
         function recentStatusClass(status) {
             if (status === 'completed') return 'success';
-            if (status === 'failed' || status === 'cancelled') return 'danger';
+            if (status === 'failed' || status === 'cancelled' || status === 'interrupted') return 'danger';
             return 'info';
+        }
+
+        function dashboardStatusLabel(item = {}) {
+            const labels = {
+                completed: 'ГОТОВО',
+                in_progress: 'В РАБОТЕ',
+                pending: 'ОЖИДАЕТ',
+                needs_review: 'НА ПРОВЕРКЕ',
+                resuming: 'ВОЗОБНОВЛЕНИЕ',
+                interrupted: 'ПРЕРВАНО',
+                failed: 'ОШИБКА',
+                cancelled: 'ОСТАНОВЛЕНО',
+            };
+            const status = String(item.status || '').toLowerCase();
+            return labels[status] || item.status_label || item.status || 'ГОТОВО';
+        }
+
+        function isRecentRunOpenable(item = {}) {
+            const status = String(item.status || '').toLowerCase();
+            return !['failed', 'cancelled'].includes(status);
+        }
+
+        function isRecentRunActive(item = {}) {
+            const status = String(item.status || '').toLowerCase();
+            return ['pending', 'in_progress', 'needs_review', 'resuming'].includes(status);
+        }
+
+        function recentRunActionLabel(item = {}) {
+            const status = String(item.status || '').toLowerCase();
+            if (status === 'interrupted') return 'Восстановить';
+            if (status === 'needs_review') return 'Продолжить';
+            if (isRecentRunActive(item)) return 'Открыть';
+            return 'Открыть';
         }
 
         function renderRecentRuns(items) {
@@ -211,8 +256,17 @@
                 container.innerHTML = '<div class="dashboard-recent-empty">Пока нет запусков. Начните с генерации README.</div>';
                 return;
             }
-            container.innerHTML = items.map((item) => `
-                <article class="dashboard-run-row">
+            container.innerHTML = items.map((item) => {
+                const openable = isRecentRunOpenable(item);
+                const requestId = escapeHtml(item.request_id || '');
+                const kind = escapeHtml(item.kind || '');
+                const openUrl = escapeHtml(item.open_url || '');
+                const downloadUrl = escapeHtml(item.download_url || '');
+                const status = escapeHtml(item.status || '');
+                const cancellable = isRecentRunActive(item);
+                const openLabel = recentRunActionLabel(item);
+                return `
+                <article class="dashboard-run-row" data-run-status="${escapeHtml(item.status || '')}">
                     <div class="dashboard-run-icon" aria-hidden="true"></div>
                     <div class="dashboard-run-main">
                         <h3>${escapeHtml(item.title || 'README project')}</h3>
@@ -220,24 +274,76 @@
                     </div>
                     <div class="dashboard-run-meta">
                         <span class="dashboard-run-chip">${escapeHtml(item.kind_label || 'ГЕНЕРАЦИЯ')}</span>
-                        <span class="dashboard-run-chip ${recentStatusClass(item.status)}">• ${escapeHtml(item.status_label || item.status || 'ГОТОВО')}</span>
+                        <span class="dashboard-run-chip ${recentStatusClass(item.status)}">• ${escapeHtml(dashboardStatusLabel(item))}</span>
                         <span class="dashboard-run-score">${escapeHtml(item.score?.label || '—')}</span>
                     </div>
-                    <button class="dashboard-run-open" type="button" onclick="openRecentRun('${item.request_id}', '${item.kind || ''}', '${item.open_url || ''}', '${item.download_url || ''}')">Открыть</button>
+                    <div class="dashboard-run-actions">
+                        <button class="dashboard-run-open" type="button" ${openable ? `onclick="openRecentRun('${requestId}', '${kind}', '${openUrl}', '${downloadUrl}', '${status}')"` : 'disabled title="Запуск завершился без результата"'}>${openable ? escapeHtml(openLabel) : 'Нет результата'}</button>
+                        ${cancellable ? `<button class="dashboard-run-cancel" type="button" aria-label="Остановить запуск" title="Остановить запуск" onclick="cancelRecentRun('${requestId}', event)">×</button>` : ''}
+                    </div>
                 </article>
-            `).join('');
+            `;
+            }).join('');
         }
 
-        async function openRecentRun(requestId, kind, openUrl, downloadUrl) {
+        function saveActiveGenerationForRestore(requestId, status = 'pending', workflow = null) {
+            const workflowStatus = String(workflow?.status || '').toLowerCase();
+            const phase = workflow?.current_node || workflow?.last_completed_node || workflow?.resume_from_node || 'initialization';
+            sessionStorage.setItem('generation_state', JSON.stringify({
+                requestId,
+                currentGenerationStatus: status || 'pending',
+                lastKnownGenerationPhase: phase,
+                lastKnownGenerationProgress: workflow?.progress_current && workflow?.progress_total
+                    ? Math.round((Number(workflow.progress_current) / Math.max(1, Number(workflow.progress_total))) * 100)
+                    : 1,
+                lastKnownGenerationAgent: workflowStatus === 'needs_review' ? 'Ожидание методолога' : 'Продолжение генерации',
+                timestamp: Date.now()
+            }));
+        }
+
+        async function resumeInterruptedRun(requestId) {
+            const response = await fetch(`${API_URL}/generate/workflow/${requestId}/command`, {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({ command: 'resume', payload: {} })
+            });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: 'Не удалось восстановить запуск.' }));
+                alert(error.detail || 'Не удалось восстановить запуск.');
+                return false;
+            }
+            saveActiveGenerationForRestore(requestId, 'in_progress');
+            return true;
+        }
+
+        async function openRecentRun(requestId, kind, openUrl, downloadUrl, initialStatus = '') {
             const normalizedKind = String(kind || '').toLowerCase();
             if (openUrl && normalizedKind !== 'generation' && normalizedKind !== 'regeneration') {
                 window.location.href = openUrl;
+                return;
+            }
+            const normalizedInitialStatus = String(initialStatus || '').toLowerCase();
+            if (normalizedInitialStatus === 'interrupted') {
+                if (await resumeInterruptedRun(requestId)) {
+                    window.location.href = '/app/generate';
+                }
                 return;
             }
             try {
                 const response = await fetch(`${API_URL}/generate/status/${requestId}`, { headers: getAuthHeaders() });
                 if (response.ok) {
                     const data = await response.json();
+                    if (['pending', 'in_progress', 'needs_review'].includes(data.status)) {
+                        saveActiveGenerationForRestore(requestId, data.status, data.workflow || null);
+                        window.location.href = '/app/generate';
+                        return;
+                    }
+                    if (data.status === 'interrupted') {
+                        if (await resumeInterruptedRun(requestId)) {
+                            window.location.href = '/app/generate';
+                        }
+                        return;
+                    }
                     if (data.status === 'completed' && data.result) {
                         sessionStorage.setItem('generation_state', JSON.stringify({
                             requestId,
@@ -255,6 +361,27 @@
             }
             if (downloadUrl) {
                 await downloadRecentRun(downloadUrl, requestId);
+            }
+        }
+
+        async function cancelRecentRun(requestId, event) {
+            event?.preventDefault?.();
+            event?.stopPropagation?.();
+            if (!confirm('Остановить этот запуск и убрать его из активных задач?')) return;
+            try {
+                const response = await fetch(`${API_URL}/generate/cancel/${requestId}`, {
+                    method: 'POST',
+                    headers: getAuthHeaders()
+                });
+                if (!response.ok) {
+                    const error = await response.json().catch(() => ({ detail: 'Не удалось остановить запуск.' }));
+                    alert(error.detail || 'Не удалось остановить запуск.');
+                    return;
+                }
+                await loadDashboardRecent();
+            } catch (error) {
+                console.error('Ошибка остановки запуска:', error);
+                alert('Не удалось остановить запуск.');
             }
         }
 
@@ -327,6 +454,7 @@
         }
 
         if (ensureAuth()) {
+            window.restoreDashboardModel?.();
             updateUserHeader();
             loadDashboardRecent();
         }

@@ -83,6 +83,7 @@ def test_result_assembler_builds_spec_report_and_assets() -> None:
                 approach_bullets=["Step"],
                 expected_artifact="README",
                 artifact_location="project/task/README.md",
+                p2p_criteria=["Artifact is placed at the requested path"],
             )
         ],
         "node_traces": [{"node": "finalize", "input_hash": "abc"}],
@@ -116,6 +117,11 @@ def test_result_assembler_builds_spec_report_and_assets() -> None:
     assert "Этот файл — рабочий шаблон артефакта, а не готовое решение." in artifact_template
     assert "## Входные данные" in artifact_template
     assert "## Итоговый артефакт" in artifact_template
+    checklist_asset = next(file for file in finalized.assets_binary["files"] if file["path"] == "check-list.yml")
+    checklist_yml = checklist_asset["data"].decode("utf-8")
+    assert finalized.project_spec.checklist_yml == checklist_yml
+    assert finalized.result.report_json["checklist_yml"] == checklist_yml
+    assert "Artifact is placed at the requested path" in checklist_yml
 
 
 def test_result_assembler_reparses_stale_readme_document_from_final_markdown() -> None:

@@ -19,6 +19,7 @@ import logging
 from content_gen.llm.model_registry import resolve_configured_provider
 from content_gen.subtitles.pipeline import build_srt, build_vtt, extract_audio
 from content_gen.subtitles.pipeline import transcribe as openai_whisper_transcribe
+from content_gen.utils.translation_languages import get_translation_language_profile
 
 WHISPER_MODEL = os.getenv("WHISPER_ASR_MODEL", "large-v3-turbo")
 TRANSLATE_BATCH_SIZE = int(os.getenv("TRANSLATE_BATCH_SIZE", "60"))
@@ -288,13 +289,8 @@ def translate_segments_llm(
         progress_callback("translate")
     if target_lang == "ru":
         return [{"id": s.get("id", i), "start": s["start"], "end": s["end"], "text": (s.get("text") or "").strip()} for i, s in enumerate(segments, 1)]
-    lang_names = {"en": "английский", "kg": "киргизский", "uz": "узбекский", "tg": "таджикский"}
-    target_lang_name = lang_names.get(target_lang, target_lang)
-    alphabet_hints = {
-        "kg": "Пиши на киргизском языке латиницей. Не используй кириллицу в переводимом тексте.",
-        "uz": "Пиши на узбекском языке латиницей. Не используй кириллицу в переводимом тексте.",
-        "tg": "Пиши на таджикском языке латиницей. Не используй кириллицу в переводимом тексте.",
-    }
+    profile = get_translation_language_profile(target_lang)
+    target_lang_name = profile.prompt_label
     style_hints = {
         "en": "Пиши естественным современным английским, простыми и ясными предложениями, без кальки и тяжеловесных конструкций.",
         "kg": "Пиши естественно и понятно для носителя языка, простыми фразами, избегай кальки с русского.",
@@ -303,14 +299,14 @@ def translate_segments_llm(
         "ru": "Пиши естественно и ясно, без избыточных канцеляризмов.",
     }
     extra_hint = " ".join(
-        part for part in (alphabet_hints.get(target_lang, ""), style_hints.get(target_lang, "")) if part
+        part for part in (profile.script_instruction, style_hints.get(target_lang, "")) if part
     )
     system = (
         "Ты профессиональный переводчик субтитров. "
         "Перевод должен быть точным по смыслу, естественным для носителя языка, простым и удобным для чтения. "
         "Нельзя добавлять новый смысл, опускать важный смысл или делать вольный пересказ. "
         "Избегай кальки с русского и неестественного порядка слов. "
-        "Весь переводимый текст пиши латиницей; кириллицу оставляй только в неизменяемых именах, коде или ссылках. "
+        f"Письменность: {profile.script_instruction}. "
         "Сохраняй структуру: НЕЛЬЗЯ менять количество элементов, объединять или разбивать сегменты, менять id. "
         f"Переводишь с русского на {target_lang_name}. {extra_hint} "
         "Ответ ДОЛЖЕН быть строго JSON-массивом длины N, где N = количеству сегментов во входе. "
@@ -347,7 +343,7 @@ def translate_segments_llm(
             )
         user = (
             f"Переведи субтитры на {target_lang_name}. "
-            "Пиши результат латиницей, без кириллицы в переводимом тексте. "
+            f"Соблюдай письменность целевого языка: {profile.script_instruction}. "
             "Верни ТОЛЬКО JSON-массив длины N, где N = количеству сегментов во входе. "
             "Каждый элемент массива: {\"id\": <number>, \"text\": \"...\"}. "
             "Количество элементов и id должны в точности совпадать с входными сегментами. "
@@ -386,12 +382,12 @@ def translate_segments_llm(
                 for item in data
                 if isinstance(item, dict) and "id" in item
             }
-            if target_lang in {"kg", "uz", "tg"} and DEBUG_SUBTITLES_LOG:
+            if profile.expected_script == "latin" and DEBUG_SUBTITLES_LOG:
                 cyrillic_issues = [text for text in translated.values() if CYRILLIC_RE.search(text or "")]
                 if cyrillic_issues:
                     logger.warning(
                         "Translated subtitles for target_lang=%s contain Cyrillic letters in %d segment(s). "
-                        "Убедитесь, что используется латиница (см. alphabet_hints в translate_segments_llm). "
+                        "Убедитесь, что используется письменность из translation language profile. "
                         "Примеры: %s",
                         target_lang,
                         len(cyrillic_issues),
@@ -423,7 +419,7 @@ def translate_segments_llm(
                     one_payload = [{"id": mid, "text_ru": src.get("text_ru", "")}]
                     user_one = (
                         f"Переведи одну строку на {target_lang_name}. "
-                        "Пиши результат латиницей, без кириллицы в переводимом тексте. "
+                        f"Соблюдай письменность целевого языка: {profile.script_instruction}. "
                         "Верни ТОЛЬКО один JSON-объект: {\"id\": <number>, \"text\": \"...\"}.\n\n"
                         + json.dumps(one_payload, ensure_ascii=False)
                     )
@@ -494,7 +490,8 @@ def translate_segments_llm(
                         }
                     ]
                     user_one = (
-                        f"Переведи одну строку на {target_lang_name}. Пиши результат латиницей. Верни JSON: "
+                        f"Переведи одну строку на {target_lang_name}. "
+                        f"Соблюдай письменность целевого языка: {profile.script_instruction}. Верни JSON: "
                         f'{{"id": {seg.get("id", idx + 1)}, "text": "..."}}\n\n'
                         f"{json.dumps(one, ensure_ascii=False)}"
                     )

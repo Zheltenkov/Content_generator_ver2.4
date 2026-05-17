@@ -9,14 +9,30 @@ content_gen/agents/regeneration.py
 
 import re
 from dataclasses import dataclass
+from typing import Any
 
 from ..didactics.composer import compose_didactics_context
-from .base.llm_client import LLMClientProtocol
-from ..utils.patch_format import (
-    apply_patches,
-    parse_patches_from_response,
+from ..regeneration_pipeline import (
+    RegenerationValidationReport,
+    apply_typed_patch_set,
+    build_regeneration_pipeline_input,
+    parse_typed_patch_set,
+    render_patch_response_schema,
 )
-from ..utils.protected_blocks import fix_common_latex_issues_in_md, protect_blocks, restore_blocks
+from .base.llm_client import LLMClientProtocol
+from ..utils.protected_blocks import BlockInfo, fix_common_latex_issues_in_md, protect_blocks, restore_blocks
+from ..utils.markdown_display_normalizer import (
+    normalize_markdown_display_blocks,
+    strip_protected_block_instruction_leaks,
+)
+from ..utils.markdown_regeneration_guard import remove_adjacent_rewritten_paragraph_duplicates
+from ..utils.regeneration_scope import (
+    RegenerationEditScope,
+    render_structural_change_contract,
+    render_scope_contract,
+    replace_markdown_scope,
+    slice_markdown_by_scope,
+)
 
 
 @dataclass
@@ -25,6 +41,7 @@ class RegenerationResult:
     changes: list[str]  # Список изменений
     regenerated_md: str  # Перегенерированный README
     original_md: str  # Оригинальный README
+    validation_report: dict[str, Any] | None = None  # Schema-first validation report
 
 
 SYSTEM_BASE = """Ты — эксперт по редактированию учебных проектов. Твоя задача — МИНИМАЛЬНО и точечно изменять README на основе комментариев, сохраняя структуру документа и все метрики.
@@ -69,21 +86,31 @@ USER_TMPL = """Ниже представлен README учебного прое�
 Твоя задача:
 1. Проанализировать комментарии
 2. Составить набор МИНИМАЛЬНЫХ правок (патчей)
-3. Описать эти правки ТОЛЬКО в виде JSON-патчей.
+3. Описать эти правки ТОЛЬКО в виде JSON-патчей по схеме.
 
 Исходный README (с маркерами защищённых блоков):
 
 {original_md}
+
+{scope_contract}
 
 Комментарии по изменению:
 {comments}
 
 КРИТИЧЕСКИ ВАЖНО:
 - Разрешено МЕНЯТЬ только обычный текст. Маркеры [[[BLOCK_N]]] и HTML-комментарии PROTECTED_BLOCK трогать нельзя.
+- Служебные инструкции про PROTECTED_BLOCK, маркеры [[[BLOCK_N]]] и «КРИТИЧЕСКИ ВАЖНО» нельзя переносить в README как пользовательский текст.
 - НЕЛЬЗЯ возвращать весь README целиком.
 - НЕЛЬЗЯ использовать Markdown, ```json и любой другой текст вокруг JSON.
 - Ответ должен быть ЧИСТЫМ JSON-объектом.
 - Различай «удалить» и «переформулировать»: при просьбе УДАЛИТЬ блок/раздел — в патче old_text укажи удаляемый фрагмент, в new_text — пустую строку или соседний контекст (без нового текста на эту тему). При просьбе переформулировать — new_text содержит новую формулировку.
+- Патч — это ЗАМЕНА, а не вставка: old_text должен исчезнуть из результата. Нельзя добавлять новую версию рядом со старой.
+- Для переформулировки абзаца old_text должен быть всем старым абзацем, а new_text — полной новой версией этого же абзаца.
+- Если указан блок «РАЗРЕШЁННЫЕ ОБЛАСТИ ПРАВОК», каждый old_text должен находиться внутри одного из этих диапазонов. Не создавай патчи для остальных частей README.
+
+JSON Schema ответа:
+
+{patch_schema}
 
 Формат ответа (ОДИНСТВЕННЫЙ допустимый):
 
@@ -119,11 +146,62 @@ REWRITE_USER_TMPL = """Ниже представлен README учебного �
 
 КРИТИЧЕСКИ ВАЖНО:
 - Маркеры [[[BLOCK_N]]] и комментарии PROTECTED_BLOCK нельзя менять, переименовывать или удалять, если об этом прямо не попросили.
+- Служебные инструкции про PROTECTED_BLOCK, маркеры и правила сохранения блоков не являются контентом README; не вставляй их в документ.
 - Если комментарий просит убрать фрагмент, удали этот фрагмент, а не переписывай его заново.
 - Если комментарий просит улучшить формулировку, измени только проблемный фрагмент.
+- Если меняешь абзац, замени старый абзац на новый в том же месте. Не вставляй новую версию рядом со старой.
 - Не добавляй новых разделов и не перестраивай документ целиком.
 
 Верни только обновлённый README в Markdown.
+"""
+
+STRUCTURAL_REWRITE_USER_TMPL = """Ниже представлен README учебного проекта и комментарии по структурному изменению.
+
+Твоя задача:
+1. Внести только запрошенное структурное изменение.
+2. Сохранить обязательные главы 1-3, их заголовки, номера и содержимое.
+3. Разрешено менять оглавление, якоря и outline только как прямое следствие структурной правки.
+4. Если добавляешь новую главу, добавь её как следующую главу после практического блока или перед заключением; не перенумеровывай главы 1-3.
+5. Вернуть ПОЛНЫЙ обновлённый README целиком, без пояснений и без JSON.
+
+Исходный README (с маркерами защищённых блоков):
+
+{original_md}
+
+{structural_contract}
+
+Комментарии по изменению:
+{comments}
+
+КРИТИЧЕСКИ ВАЖНО:
+- Маркеры [[[BLOCK_N]]] и комментарии PROTECTED_BLOCK нельзя менять, переименовывать или удалять, если об этом прямо не попросили.
+- Служебные инструкции про PROTECTED_BLOCK, маркеры и правила сохранения блоков не являются контентом README; не вставляй их в документ.
+- Не удаляй и не переименовывай `## Глава 2. Теоретический блок` и `## Глава 3. Практический блок`.
+- Не превращай добавление главы в переписывание соседних глав.
+- Не вставляй новую версию абзаца рядом со старой; если меняешь фрагмент, замени old_text на new_text.
+
+Верни только обновлённый README в Markdown.
+"""
+
+SCOPED_REWRITE_USER_TMPL = """Ниже дана одна разрешённая часть README. Нужно переписать ТОЛЬКО её.
+
+Разрешённая часть: {scope_title}
+Диапазон строк исходного README: {line_range}
+
+Текст разрешённой части:
+
+{scope_md}
+
+Инструкция для этой части:
+{scope_comments}
+
+Правила:
+- Верни только обновлённый текст этой части, без пояснений и без JSON.
+- Не добавляй текст из других глав, задач или разделов.
+- Не меняй заголовок части, если инструкция прямо не просит изменить именно заголовок.
+- Если инструкция касается одного примера или абзаца, замени только этот пример или абзац.
+- Маркеры [[[BLOCK_N]]] и комментарии PROTECTED_BLOCK нельзя менять, если инструкция прямо не просит удалить соответствующий блок.
+- Если не можешь выполнить инструкцию без затрагивания соседних частей README, верни исходный текст этой части без изменений.
 """
 
 
@@ -145,6 +223,75 @@ class RegenerationAgent:
             cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", cleaned)
             cleaned = re.sub(r"\s*```$", "", cleaned)
         return cleaned.strip()
+
+    @staticmethod
+    def _finalize_regenerated_markdown(
+        original_md: str,
+        regenerated_md: str,
+        blocks: list[BlockInfo],
+        *,
+        scoped: bool = False,
+    ) -> tuple[str, bool]:
+        """Restore protected blocks and remove accidental old/new paragraph duplicates."""
+        finalized = regenerated_md if scoped else restore_blocks(regenerated_md, blocks)
+        if not scoped:
+            finalized = fix_common_latex_issues_in_md(finalized)
+            finalized = normalize_markdown_display_blocks(finalized)
+        finalized = strip_protected_block_instruction_leaks(finalized)
+        deduped = remove_adjacent_rewritten_paragraph_duplicates(original_md, finalized)
+        return deduped, deduped != finalized
+
+    def _rewrite_scoped_sections(
+        self,
+        original_md: str,
+        comments: str,
+        scopes: list[RegenerationEditScope],
+        system_prompt: str,
+    ) -> tuple[str, list[str]]:
+        """Fallback rewrite that can only replace selected Markdown line ranges."""
+        regenerated_md = original_md
+        changes: list[str] = []
+        first_scope_header = re.search(r"(?m)^(?:Сохран[её]нная правка|Правка)\s+\d+:", comments or "")
+        global_comments = (comments or "")[: first_scope_header.start()].strip() if first_scope_header else ""
+
+        for scope in sorted(scopes, key=lambda item: item.start_line, reverse=True):
+            scope_md = slice_markdown_by_scope(original_md, scope)
+            if not scope_md.strip():
+                continue
+
+            protected_scope_md, scope_blocks = protect_blocks(scope_md)
+            scoped_comments = "\n\n".join(part for part in (global_comments, scope.raw_block or comments) if part)
+            user = SCOPED_REWRITE_USER_TMPL.format(
+                scope_title=scope.title,
+                line_range=f"{scope.start_line}-{scope.end_line}",
+                scope_md=protected_scope_md,
+                scope_comments=scoped_comments,
+            )
+            rewritten = self.llm.complete(
+                system=system_prompt,
+                user=user,
+                max_completion_tokens=6000,
+            )
+            rewritten = self._strip_markdown_fences(rewritten)
+            if not rewritten:
+                continue
+
+            rewritten = restore_blocks(rewritten, scope_blocks)
+            rewritten = fix_common_latex_issues_in_md(rewritten)
+            rewritten = normalize_markdown_display_blocks(rewritten)
+            rewritten = strip_protected_block_instruction_leaks(rewritten)
+
+            max_reasonable_length = max(1200, int(len(scope_md) * 2.5))
+            if len(rewritten) > max_reasonable_length:
+                changes.append(f"⚠️ Scoped fallback для «{scope.title}» отклонён: ответ похож на полный README")
+                continue
+            if rewritten.strip() == scope_md.strip():
+                continue
+
+            regenerated_md = replace_markdown_scope(regenerated_md, scope, rewritten)
+            changes.append(f"Перегенерирована только выбранная часть: {scope.title}")
+
+        return regenerated_md, changes
 
     @staticmethod
     def _detect_target_scope(comments: str) -> str:
@@ -189,13 +336,48 @@ class RegenerationAgent:
         Returns:
             RegenerationResult с списком изменений и перегенерированным README
         """
+        pipeline_input = build_regeneration_pipeline_input(
+            original_md=original_md,
+            comments=comments,
+            language=language,
+        )
+        scopes = pipeline_input.scopes()
+        validation_report = RegenerationValidationReport.from_input(pipeline_input)
+
+        def _result(result_changes: list[str], result_md: str) -> RegenerationResult:
+            return RegenerationResult(
+                changes=result_changes,
+                regenerated_md=result_md,
+                original_md=original_md,
+                validation_report=validation_report.as_dict(),
+            )
+
         # Защищаем блоки (формулы, диаграммы, код) перед отправкой в LLM
+        scope_contract = (
+            render_structural_change_contract(scopes, original_md)
+            if pipeline_input.is_structural
+            else render_scope_contract(scopes, original_md)
+        )
         protected_md, blocks = protect_blocks(original_md)
 
         system_prompt = SYSTEM_BASE.format(language=language)
+        if pipeline_input.is_structural:
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                "СТРУКТУРНАЯ ПРАВКА — ЯВНОЕ ИСКЛЮЧЕНИЕ ИЗ ОБЩЕГО ПРАВИЛА:\n"
+                "- Разрешено менять структуру только в объёме запроса пользователя.\n"
+                "- Разрешено обновлять оглавление, якоря и нумерацию как производные изменения.\n"
+                "- Нельзя удалять, переименовывать или перенумеровывать обязательные главы 1-3.\n"
+                "- Для добавления новой главы используй следующий свободный номер главы, обычно «Глава 4»."
+            )
         if self.didactics_context:
             system_prompt = f"{system_prompt}\n\n=== DIDACTICS CONTEXT ===\n{self.didactics_context}"
-        user = USER_TMPL.format(original_md=protected_md, comments=comments)
+        user = USER_TMPL.format(
+            original_md=protected_md,
+            comments=comments,
+            scope_contract=scope_contract,
+            patch_schema=render_patch_response_schema(),
+        )
 
         response = self.llm.complete(
             system=system_prompt,
@@ -203,13 +385,34 @@ class RegenerationAgent:
             max_completion_tokens=16000,  # Увеличено для полного README
         )
 
-        # Пытаемся сначала распарсить патчи (patch-формат)
-        patches = parse_patches_from_response(response)
+        # Пытаемся сначала распарсить и валидировать патчи schema-first.
+        patch_set, parse_issues = parse_typed_patch_set(response)
+        for issue in parse_issues:
+            validation_report.issues.append(issue)
         changes: list[str] = []
         regenerated_md: str
 
-        if patches:
-            patch_result = apply_patches(protected_md, patches)
+        if patch_set is not None and not patch_set.changes:
+            validation_report.requested_patch_count = 0
+            validation_report.apply_mode = "typed_patch"
+            validation_report.add_issue(
+                severity="info",
+                code="empty_patch_set",
+                message="The model returned an empty typed patch set.",
+            )
+            return _result(
+                ["Перегенерация не применена: модель не вернула необходимых патчей"],
+                original_md,
+            )
+
+        if patch_set is not None:
+            patch_source_md = original_md if pipeline_input.is_scoped else protected_md
+            patch_result = apply_typed_patch_set(
+                markdown=patch_source_md,
+                patch_set=patch_set,
+                pipeline_input=pipeline_input,
+                report=validation_report,
+            )
 
             if patch_result.success or patch_result.applied_patches:
                 regenerated_md = patch_result.result_md
@@ -224,24 +427,84 @@ class RegenerationAgent:
                         + "; ".join(patch_result.errors[:3])
                     )
 
-                # Восстанавливаем защищённые блоки + чиним LaTeX
-                regenerated_md = restore_blocks(regenerated_md, blocks)
-                regenerated_md = fix_common_latex_issues_in_md(regenerated_md)
+                # Восстанавливаем защищённые блоки и удаляем дубли old/new абзацев.
+                regenerated_md, removed_duplicates = self._finalize_regenerated_markdown(
+                    original_md,
+                    regenerated_md,
+                    blocks,
+                    scoped=pipeline_input.is_scoped,
+                )
+                if removed_duplicates:
+                    changes.append("Удалены дублирующие старые абзацы после перегенерации")
+                    validation_report.add_issue(
+                        severity="info",
+                        code="duplicate_paragraphs_removed",
+                        message="Adjacent old/new duplicate paragraphs were removed after regeneration.",
+                    )
 
                 if regenerated_md.strip() == original_md.strip():
                     changes.append("⚠️ Патчи формально применились, но README не изменился. Запускаю fallback-редакцию.")
-                else:
-                    return RegenerationResult(
-                        changes=changes,
-                        regenerated_md=regenerated_md,
-                        original_md=original_md,
+                    validation_report.changed = False
+                    validation_report.add_issue(
+                        severity="warning",
+                        code="patches_no_effect_after_finalize",
+                        message="Typed patches were applied but final README stayed unchanged after post-processing.",
                     )
+                else:
+                    validation_report.changed = True
+                    return _result(changes, regenerated_md)
+
+        if pipeline_input.is_scoped:
+            validation_report.apply_mode = "scoped_rewrite_fallback"
+            regenerated_md, scoped_changes = self._rewrite_scoped_sections(
+                original_md=original_md,
+                comments=comments,
+                scopes=scopes,
+                system_prompt=system_prompt,
+            )
+            if regenerated_md.strip() != original_md.strip():
+                scoped_changes = changes + scoped_changes
+                regenerated_md, removed_duplicates = self._finalize_regenerated_markdown(
+                    original_md,
+                    regenerated_md,
+                    blocks,
+                    scoped=True,
+                )
+                if removed_duplicates:
+                    scoped_changes.append("Удалены дублирующие старые абзацы после перегенерации")
+                    validation_report.add_issue(
+                        severity="info",
+                        code="duplicate_paragraphs_removed",
+                        message="Adjacent old/new duplicate paragraphs were removed after scoped fallback.",
+                    )
+                validation_report.changed = True
+                return _result(scoped_changes, regenerated_md)
+            validation_report.changed = False
+            validation_report.add_issue(
+                severity="error",
+                code="scoped_fallback_no_change",
+                message="Selected README sections could not be changed without leaving their boundaries.",
+            )
+            return _result(
+                changes + [
+                    "Перегенерация не применена: выбранные части README не удалось изменить без выхода за их границы"
+                ],
+                original_md,
+            )
 
         # Fallback: если JSON-патчи не удалось применить или они не дали изменения,
         # просим модель вернуть полный README с минимальными правками.
+        validation_report.apply_mode = "full_rewrite_fallback"
         target_scope = self._detect_target_scope(comments)
-        rewrite_user = REWRITE_USER_TMPL.format(original_md=protected_md, comments=comments)
-        rewrite_user += self._build_targeted_rewrite_addendum(target_scope)
+        if pipeline_input.is_structural:
+            rewrite_user = STRUCTURAL_REWRITE_USER_TMPL.format(
+                original_md=protected_md,
+                comments=comments,
+                structural_contract=scope_contract,
+            )
+        else:
+            rewrite_user = REWRITE_USER_TMPL.format(original_md=protected_md, comments=comments)
+            rewrite_user += self._build_targeted_rewrite_addendum(target_scope)
         rewritten = self.llm.complete(
             system=system_prompt,
             user=rewrite_user,
@@ -249,27 +512,40 @@ class RegenerationAgent:
         )
         rewritten = self._strip_markdown_fences(rewritten)
         if rewritten:
-            regenerated_md = restore_blocks(rewritten, blocks)
-            regenerated_md = fix_common_latex_issues_in_md(regenerated_md)
+            regenerated_md, removed_duplicates = self._finalize_regenerated_markdown(
+                original_md,
+                rewritten,
+                blocks,
+            )
             if regenerated_md.strip() != original_md.strip():
-                return RegenerationResult(
-                    changes=changes + [
-                        (
-                            f"Перегенерация применена через targeted fallback-редакцию: {target_scope}"
-                            if target_scope else
-                            "Перегенерация применена через fallback-редакцию полного README"
-                        )
-                    ],
-                    regenerated_md=regenerated_md,
-                    original_md=original_md,
-                )
+                fallback_changes = changes + [
+                    (
+                        f"Перегенерация применена через targeted fallback-редакцию: {target_scope}"
+                        if target_scope else
+                        "Перегенерация применена через fallback-редакцию полного README"
+                    )
+                ]
+                if removed_duplicates:
+                    fallback_changes.append("Удалены дублирующие старые абзацы после перегенерации")
+                    validation_report.add_issue(
+                        severity="info",
+                        code="duplicate_paragraphs_removed",
+                        message="Adjacent old/new duplicate paragraphs were removed after full fallback.",
+                    )
+                validation_report.changed = True
+                return _result(fallback_changes, regenerated_md)
 
         # Если до сюда дошли — патчи не распознаны или не применились.
         # Ничего не меняем, просто возвращаем оригинал.
-        return RegenerationResult(
-            changes=["Перегенерация не применена: не удалось распарсить или применить патчи"],
-            regenerated_md=original_md,
-            original_md=original_md,
+        validation_report.changed = False
+        validation_report.add_issue(
+            severity="error",
+            code="regeneration_not_applied",
+            message="Regeneration could not parse/apply typed patches and fallback did not change README.",
+        )
+        return _result(
+            ["Перегенерация не применена: не удалось распарсить или применить патчи"],
+            original_md,
         )
 
     def _clean_duplicate_headers(self, md: str) -> str:

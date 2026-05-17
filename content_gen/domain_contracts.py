@@ -143,6 +143,7 @@ def semantic_overlap_ratio(candidate: str, reference: str) -> float:
 class NarrativeContract(BaseModel):
     """Stable narrative contract shared by theory, practice and methodology checks."""
 
+    storytelling_type: str = "sjm"
     student_role: str = ""
     working_case: str = ""
     product_or_project: str = ""
@@ -166,6 +167,7 @@ class NarrativeContract(BaseModel):
         """Render a compact prompt-safe narrative section."""
         lines = [
             "NARRATIVE CONTRACT",
+            f"- Тип сторителлинга: {self.storytelling_type or 'sjm'}",
             f"- Роль студента: {self.student_role or 'не задана'}",
             f"- Рабочий кейс: {self.working_case or 'не задан'}",
             f"- Продукт/проект: {self.product_or_project or 'не задан'}",
@@ -200,6 +202,7 @@ class SectionContextPolicy(BaseModel):
                 "practice_plan_contract",
                 "artifact_chain_plan",
                 "sjm_context",
+                "storytelling_type",
                 "learning_outcomes",
                 "skills",
                 "required_tools",
@@ -232,6 +235,7 @@ class SectionContextPolicy(BaseModel):
                 "instruction_text",
                 "theory_summary",
                 "artifact_chain_plan",
+                "storytelling_type",
                 "learning_outcomes",
                 "skills",
                 "required_tools",
@@ -416,7 +420,8 @@ def build_narrative_contract(
 ) -> NarrativeContract:
     """Derive a narrative contract from seed, curriculum context and SJM."""
     ctx = curriculum_ctx or {}
-    story = _clean_text(getattr(seed, "sjm", None) or ctx.get("sjm_context"))
+    storytelling_type = _clean_text(getattr(seed, "storytelling_type", None) or ctx.get("storytelling_type") or "sjm")
+    story = "" if storytelling_type == "none" else _clean_text(getattr(seed, "sjm", None) or ctx.get("sjm_context"))
     description = _clean_text(ctx.get("current_project_description") or getattr(seed, "project_description", ""))
     product = _clean_text(
         getattr(seed, "platform_name", None)
@@ -432,6 +437,7 @@ def build_narrative_contract(
     artifact_chain = _derive_artifact_chain(product, getattr(seed, "required_tools", []) or [])
 
     return NarrativeContract(
+        storytelling_type=storytelling_type,
         student_role=role,
         working_case=working_case,
         product_or_project=product,

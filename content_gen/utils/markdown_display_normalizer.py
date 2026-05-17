@@ -39,11 +39,63 @@ _SINGLE_DECL_RE = re.compile(
 )
 _EDGE_SOURCE_RE = re.compile(
     r"((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+"
-    r"(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-.->|==>|--|==))"
+    r"(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-\.->|-\.|==>|--|==))"
+)
+_MERMAID_NODE_TOKEN = (
+    r"[A-Za-z][A-Za-z0-9_]*"
+    r"(?:\s*(?:\[[^\]\n]*\]|\([^\)\n]*\)|\{[^\}\n]*\}))?"
+)
+_MERMAID_LABEL_EDGE_REPAIRS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            rf"^({_MERMAID_NODE_TOKEN})\s*-\.\s*([^|<>\n]+?)\s*\.->\s*({_MERMAID_NODE_TOKEN})$"
+        ),
+        "-.->",
+    ),
+    (
+        re.compile(
+            rf"^({_MERMAID_NODE_TOKEN})\s*--\s*([^|<>\n]+?)\s*-->\s*({_MERMAID_NODE_TOKEN})$"
+        ),
+        "-->",
+    ),
+    (
+        re.compile(
+            rf"^({_MERMAID_NODE_TOKEN})\s*==\s*([^|<>\n]+?)\s*==>\s*({_MERMAID_NODE_TOKEN})$"
+        ),
+        "==>",
+    ),
+)
+_STRAY_LEADING_SENTENCE_DOT_RE = re.compile(
+    r"(^|\n)([ \t]*)\.\s+(?=(?:\*\*)?[A-ZА-ЯЁ])"
 )
 _FLATTENED_TABLE_RE = re.compile(r"\|\s+(?=\|)")
 _TABLE_SEPARATOR_RE = re.compile(r"\|\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|")
 _EXAMPLE_MARKER_RE = re.compile(r"(?<!\*)\bПример\s*:", re.IGNORECASE)
+_PROTECTED_BLOCK_COMMENT_RE = re.compile(
+    r"<!--\s*PROTECTED_BLOCK\b[\s\S]*?-->\s*",
+    re.IGNORECASE,
+)
+_PROTECTED_INSTRUCTION_PATTERNS = [
+    re.compile(
+        r"\s*(?:и\s+)?комментарии\s+PROTECTED_BLOCK\s*\.?\s*"
+        r"Это защищ[её]нные таблицы,\s*диаграммы,\s*формулы или код\.?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*КРИТИЧЕСКИ ВАЖНО:\s*-\s*Сохрани все маркеры\s*"
+        r"\[\[\[BLOCK_\d+\]\]\]\s*без изменений\.?\s*"
+        r"-\s*Сохрани комментарии\s+PROTECTED_BLOCK\s+без изменений\.?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*Сохрани все маркеры\s*\[\[\[BLOCK_\d+\]\]\]\s*без изменений\.?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\s*Сохрани комментарии\s+PROTECTED_BLOCK\s+без изменений\.?",
+        re.IGNORECASE,
+    ),
+]
 
 
 def _strip_html_tags(value: str) -> str:
@@ -89,9 +141,35 @@ def _normalize_mermaid_code(code: str) -> str:
     for line in body.splitlines():
         cleaned = line.strip()
         if cleaned:
+            cleaned = _normalize_mermaid_edge_label_line(cleaned)
             lines.append(cleaned if cleaned.startswith("%%{") else f"    {cleaned}" if lines and not cleaned.startswith(("flowchart", "graph", "sequenceDiagram", "stateDiagram", "classDiagram", "erDiagram", "journey", "gantt", "pie")) else cleaned)
 
     return "\n".join(lines).strip()
+
+
+def _clean_mermaid_edge_label(label: str) -> str:
+    """Prepare a human label for Mermaid pipe-label edge syntax."""
+    cleaned = re.sub(r"\s+", " ", label or "").strip().strip(".:;—–- ")
+    return cleaned.replace("|", "/")
+
+
+def _normalize_mermaid_edge_label_line(line: str) -> str:
+    """Convert fragile prose edge labels to Mermaid pipe-label syntax."""
+    text = (line or "").strip()
+    if not text or "|" in text:
+        return text
+
+    for pattern, arrow in _MERMAID_LABEL_EDGE_REPAIRS:
+        match = pattern.match(text)
+        if not match:
+            continue
+        source, raw_label, target = match.groups()
+        label = _clean_mermaid_edge_label(raw_label)
+        if not label:
+            return text
+        return f"{source.strip()} {arrow}|{label}| {target.strip()}"
+
+    return text
 
 
 def _repair_unclosed_mermaid_fences(markdown: str) -> str:
@@ -238,11 +316,36 @@ def normalize_example_blocks(markdown: str) -> str:
     return _apply_outside_fenced_blocks(markdown or "", _normalize_example_marker_chunk)
 
 
+def normalize_stray_leading_sentence_dots(markdown: str) -> str:
+    """Remove a single stray dot that can remain after extracting a caption."""
+    return _apply_outside_fenced_blocks(
+        markdown or "",
+        lambda chunk: _STRAY_LEADING_SENTENCE_DOT_RE.sub(r"\1\2", chunk),
+    )
+
+
+def strip_protected_block_instruction_leaks(markdown: str) -> str:
+    """Remove internal protected-block instructions leaked into user-visible README prose."""
+    def transform(chunk: str) -> str:
+        text = _PROTECTED_BLOCK_COMMENT_RE.sub("", chunk or "")
+        for pattern in _PROTECTED_INSTRUCTION_PATTERNS:
+            text = pattern.sub(" ", text)
+        text = re.sub(r"\[\[\[BLOCK_\d+\]\]\]", "", text)
+        text = re.sub(r"\bPROTECTED_BLOCK\b", "", text, flags=re.IGNORECASE)
+        text = re.sub(r"[ \t]{2,}", " ", text)
+        text = re.sub(r"\s+([.,;:!?])", r"\1", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        return text
+
+    return _apply_outside_fenced_blocks(markdown or "", transform)
+
+
 def normalize_markdown_display_blocks(markdown: str) -> str:
     """Repair display-oriented Markdown blocks after model-based editing."""
     text = normalize_flattened_mermaid_fences(markdown or "")
     text = normalize_flattened_markdown_tables(text)
     text = re.sub(r"([^\n])([ \t]*```mermaid)", r"\1\n\n```mermaid", text, flags=re.IGNORECASE)
     text = normalize_example_blocks(text)
+    text = normalize_stray_leading_sentence_dots(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text

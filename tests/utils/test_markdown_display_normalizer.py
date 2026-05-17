@@ -5,6 +5,7 @@ from content_gen.utils.markdown_display_normalizer import (
     normalize_flattened_mermaid_fences,
     normalize_example_blocks,
     normalize_markdown_display_blocks,
+    strip_protected_block_instruction_leaks,
 )
 
 
@@ -39,6 +40,30 @@ flowchart TD
     assert "<div>\n```mermaid" in normalized
     assert "\n    E --> F\n" in normalized
     assert "\n    F --> G\n" in normalized
+
+
+def test_normalize_mermaid_repairs_dotted_cyrillic_edge_labels():
+    md = """```mermaid
+flowchart TD
+    A[Клиент обновляет состояние] B -. контроль .-> H[Диагностика]
+```"""
+
+    normalized = normalize_flattened_mermaid_fences(md)
+
+    assert "\n    A[Клиент обновляет состояние]\n" in normalized
+    assert "\n    B -.->|контроль| H[Диагностика]\n" in normalized
+
+
+def test_normalize_markdown_display_blocks_removes_stray_caption_dot():
+    md = (
+        "*Структурирует обмен по слоям.*\n\n"
+        ". **Клиент** — это часть системы, которая отправляет запросы."
+    )
+
+    normalized = normalize_markdown_display_blocks(md)
+
+    assert "\n\n**Клиент** — это часть системы" in normalized
+    assert ". **Клиент**" not in normalized
 
 
 def test_normalize_mermaid_repairs_missing_closing_fence_before_caption():
@@ -128,3 +153,30 @@ def test_normalize_example_blocks_keeps_code_fences_unchanged():
 
     assert "```text\nПример: это часть кода\n```" in normalized
     assert "Текст.\n\n**Пример:** это пример теории." in normalized
+
+
+def test_strip_protected_block_instruction_leaks_removes_internal_regeneration_prompt_text():
+    md = (
+        "Таблица выше задает рамку оценки.\n\n"
+        "и комментарии PROTECTED_BLOCK . Это защищённые таблицы, диаграммы, формулы или код. "
+        "КРИТИЧЕСКИ ВАЖНО: - Сохрани все маркеры [[[BLOCK_0]]] без изменений. "
+        "- Сохрани комментарии PROTECTED_BLOCK без изменений. "
+        "Для этого проекта важно понять чёрных лебедей и план реакции.\n"
+    )
+
+    normalized = strip_protected_block_instruction_leaks(md)
+
+    assert "PROTECTED_BLOCK" not in normalized
+    assert "[[[BLOCK_0]]]" not in normalized
+    assert "КРИТИЧЕСКИ ВАЖНО" not in normalized
+    assert "Таблица выше задает рамку оценки." in normalized
+    assert "Для этого проекта важно понять чёрных лебедей" in normalized
+
+
+def test_normalize_markdown_display_blocks_keeps_unresolved_protected_markers_for_validation():
+    md = 'Текст\n\n<!-- PROTECTED_BLOCK id=0 type=mermaid preview="flowchart" -->\n[[[BLOCK_0]]]\n'
+
+    normalized = normalize_markdown_display_blocks(md)
+
+    assert "PROTECTED_BLOCK" in normalized
+    assert "[[[BLOCK_0]]]" in normalized

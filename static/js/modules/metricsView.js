@@ -32,7 +32,7 @@
     }
 
     function currentMetricFilter() {
-        return window.currentFilter || 'all';
+        return getState().currentFilter || 'all';
     }
 
     function formatCompactNumber(value) {
@@ -412,7 +412,7 @@
             console.error('Фильтр не указан');
             return;
         }
-        window.currentFilter = filter;
+        window.ContentGenStores?.resultStore?.setState?.({ currentFilter: filter });
         const state = getState();
         const metricsVersion = state.currentMetricsVersion || window.currentMetricsVersion || 'original';
         let rubric = null;

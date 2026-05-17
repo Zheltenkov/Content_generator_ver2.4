@@ -191,7 +191,7 @@ def test_theory_executor_returns_only_final_issues_after_regeneration():
     assert "### Часть 1." not in result.markdown
     assert "**Пример:**" in result.markdown
     assert "**Вопросы к практике:**" in result.markdown
-    assert any("локальная коррекция сняла критические замечания" in warning for warning in result.warnings)
+    assert any("локальная коррекция сняла замечания качества" in warning for warning in result.warnings)
 
 
 def test_static_instruction_leak_is_removed_from_theory_body():

@@ -70,6 +70,44 @@ def test_quality_phase_executor_executes_canonical_quality_logic() -> None:
     assert "- [Заключение](#заключение)" in result.markdown
 
 
+def test_quality_phase_executor_replaces_skeleton_conclusion_placeholder() -> None:
+    class ContentEditor:
+        def ensure_global_coherence_document(self, document, _seed):
+            return document
+
+    class Toc:
+        def build_document(self, _document, language):
+            assert language == "ru"
+            return SimpleNamespace(toc_md="- [Заключение](#заключение)")
+
+        def inject_document(self, document, _toc_md, language):
+            assert language == "ru"
+            return document
+
+    class Style:
+        def lint_document(self, _document, _language):
+            return []
+
+    runtime = SimpleNamespace(
+        content_editor=ContentEditor(),
+        story_map_contract={"completion": "Собери итоговый макет."},
+        toc=Toc(),
+        style=Style(),
+    )
+    seed = SimpleNamespace(language="ru", title_seed="Проект", project_description="")
+    document = ReadmeDocument.from_markdown(
+        "# Проект\n\n"
+        "## Заключение\n\n"
+        "(финальное завершение текущего проекта без анонса следующего)\n"
+    )
+
+    result = QualityPhaseExecutor(runtime).execute(seed, document.to_markdown(), readme_document=document)
+
+    assert "(финальное завершение текущего проекта без анонса следующего)" not in result.markdown
+    assert "Собери итоговый макет" in result.markdown
+    assert "p2p-ревью" in result.markdown
+
+
 def test_quality_phase_executor_returns_typed_document() -> None:
     class ContentEditor:
         def ensure_global_coherence_document(self, document, _seed):
@@ -105,6 +143,44 @@ def test_quality_phase_executor_returns_typed_document() -> None:
     assert result.readme_document.title == "Проект"
     assert result.readme_document.section_by_title_fragment("Заключение") is not None
     assert "Собери итоговый макет" in result.markdown
+
+
+def test_quality_phase_executor_restores_conclusion_after_style_rewrite() -> None:
+    class ContentEditor:
+        def ensure_global_coherence_document(self, document, _seed):
+            return document
+
+    class Toc:
+        def build_document(self, _document, language):
+            assert language == "ru"
+            return SimpleNamespace(toc_md="- [Заключение](#заключение)")
+
+        def inject_document(self, document, toc_md, language):
+            return document.with_upserted_section_by_title_fragment(
+                "Содержание",
+                f"## Содержание\n\n{toc_md}",
+                fallback_level=2,
+            )
+
+    class Style:
+        def lint_document(self, _document, _language):
+            return ["style issue"]
+
+        def rewrite_document(self, _document, _language):
+            return ReadmeDocument.from_markdown("# Проект\n\n## Глава 1\n\nТекст.")
+
+    runtime = SimpleNamespace(
+        content_editor=ContentEditor(),
+        story_map_contract=SimpleNamespace(completion="Собери финальный артефакт."),
+        toc=Toc(),
+        style=Style(),
+    )
+    seed = SimpleNamespace(language="ru", title_seed="Проект", project_description="")
+
+    result = QualityPhaseExecutor(runtime).execute(seed, "# Проект\n")
+
+    assert "## Заключение" in result.markdown
+    assert "Собери финальный артефакт" in result.markdown
 
 
 def test_quality_phase_executor_prefers_typed_quality_contracts() -> None:

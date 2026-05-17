@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from api.db.generation_results_db import update_regeneration_result
@@ -13,10 +13,19 @@ from api.utils.logger import get_logger
 from api.utils.result_cache import get_result
 from content_gen.agents.content_editor import ContentEditorAgent
 from content_gen.agents.regeneration import RegenerationAgent
+from content_gen.regeneration_pipeline import build_regeneration_pipeline_input
 from content_gen.repair.style_guard import StyleGuardRepair
 from content_gen.llm.factory import create_llm_client
+from content_gen.models.readme_document import ReadmeDocument
 from content_gen.project_seed_provider import ProjectSeedProvider
+from content_gen.renderers.toc import TOCRenderer
 from content_gen.utils.latex_validator import build_latex_agent_hint, collect_latex_issues
+from content_gen.utils.markdown_display_normalizer import (
+    normalize_markdown_display_blocks,
+    strip_protected_block_instruction_leaks,
+)
+from content_gen.utils.markdown_regeneration_guard import remove_adjacent_rewritten_paragraph_duplicates
+from content_gen.utils.regeneration_scope import RegenerationChangeIntent
 from content_gen.utils.rubric_export import convert_numpy_types, criteria_to_json
 from content_gen.validators.rubric import RubricScorer
 from utils.token_counter import count_tokens
@@ -51,6 +60,10 @@ class RegenerationResultView:
     skills: list[str]
     seed_source: str
     learning_context_source: str
+    accepted: bool = True
+    warnings: list[str] = field(default_factory=list)
+    rubric_regression: dict[str, Any] | None = None
+    validation_report: dict[str, Any] | None = None
 
 
 class RegenerationValidationError(Exception):
@@ -135,6 +148,162 @@ def _learning_context_from_seed_and_cache(
     return learning_outcomes, skills, source
 
 
+def _rubric_failed_count(rubric_json: dict[str, Any] | None) -> int | None:
+    """Count failed rubric items from the serialized rubric contract."""
+    if not isinstance(rubric_json, dict):
+        return None
+    items = rubric_json.get("items")
+    if not isinstance(items, list):
+        return None
+
+    failed = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        try:
+            score = float(item.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < 1:
+            failed += 1
+    return failed
+
+
+def _failed_rubric_ids(rubric_json: dict[str, Any] | None) -> set[str]:
+    """Return IDs of failed criteria for regression diagnostics."""
+    if not isinstance(rubric_json, dict) or not isinstance(rubric_json.get("items"), list):
+        return set()
+    failed: set[str] = set()
+    for item in rubric_json["items"]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            score = float(item.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0.0
+        if score < 1 and item.get("id"):
+            failed.add(str(item["id"]))
+    return failed
+
+
+def _failed_rubric_items(rubric_json: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Return compact failed criteria with labels for user-facing warnings."""
+    if not isinstance(rubric_json, dict) or not isinstance(rubric_json.get("items"), list):
+        return []
+    failed: list[dict[str, Any]] = []
+    for item in rubric_json["items"]:
+        if not isinstance(item, dict):
+            continue
+        try:
+            score = float(item.get("score", 0))
+        except (TypeError, ValueError):
+            score = 0.0
+        if score >= 1:
+            continue
+        item_id = str(item.get("id") or "").strip()
+        failed.append(
+            {
+                "id": item_id,
+                "title": str(item.get("title") or item.get("name") or item_id or "Критерий").strip(),
+                "score": score,
+                "evidence": str(
+                    item.get("evidence")
+                    or item.get("message")
+                    or item.get("comment")
+                    or item.get("description")
+                    or ""
+                ).strip(),
+            }
+        )
+    return failed
+
+
+def _extract_cached_rubric(cached_result: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Prefer the rubric that matches the latest visible README state."""
+    if not isinstance(cached_result, dict):
+        return None
+    candidates = [
+        (cached_result.get("regenerated") or {}).get("rubric"),
+        cached_result.get("rubric"),
+        (cached_result.get("report_json") or {}).get("rubric"),
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, dict) and isinstance(candidate.get("items"), list):
+            return candidate
+    return None
+
+
+def _rubric_regression_details(
+    baseline_rubric: dict[str, Any] | None,
+    regenerated_rubric: dict[str, Any],
+    *,
+    change_intent: RegenerationChangeIntent = "local_section_edit",
+) -> dict[str, Any] | None:
+    """Describe rubric regression without forcing HTTP error handling."""
+    baseline_failed = _rubric_failed_count(baseline_rubric)
+    regenerated_failed = _rubric_failed_count(regenerated_rubric)
+    if baseline_failed is None or regenerated_failed is None:
+        return None
+    if regenerated_failed <= baseline_failed:
+        return None
+
+    baseline_failed_ids = _failed_rubric_ids(baseline_rubric)
+    failed_items = _failed_rubric_items(regenerated_rubric)
+    new_failed = [item for item in failed_items if item["id"] and item["id"] not in baseline_failed_ids]
+    new_failed_text = ", ".join(
+        f"{item['id']} {item['title']}".strip()
+        for item in new_failed[:8]
+    )
+    if change_intent == "structural_document_edit":
+        message = (
+            "Структурная перегенерация не применена: результат ухудшил rubric "
+            f"(было непройдено {baseline_failed}, стало {regenerated_failed}). "
+            "Производные изменения оглавления и outline разрешены, но обязательные главы 1-3 "
+            "и их базовые критерии должны сохраниться."
+        )
+    else:
+        message = (
+            "Перегенерация не применена: результат ухудшил rubric "
+            f"(было непройдено {baseline_failed}, стало {regenerated_failed})."
+        )
+    if new_failed_text:
+        message += f" Новые непройденные критерии: {new_failed_text}."
+    message += " Уточните запрос правки и запустите перегенерацию еще раз."
+    return {
+        "baseline_failed": baseline_failed,
+        "regenerated_failed": regenerated_failed,
+        "change_intent": change_intent,
+        "new_failed": new_failed,
+        "failed": failed_items,
+        "message": message,
+    }
+
+
+def _raise_if_rubric_regressed(
+    baseline_rubric: dict[str, Any] | None,
+    regenerated_rubric: dict[str, Any],
+    *,
+    change_intent: RegenerationChangeIntent = "local_section_edit",
+) -> None:
+    """Reject regenerated content that increases the number of failed criteria."""
+    details = _rubric_regression_details(baseline_rubric, regenerated_rubric, change_intent=change_intent)
+    if details is None:
+        return
+    raise RegenerationValidationError(
+        str(details["message"]),
+        status_code=422,
+    )
+
+
+def _refresh_toc_for_structural_regeneration(markdown: str, language: str) -> tuple[str, bool]:
+    """Rebuild the TOC after document-level structure changes."""
+    document = ReadmeDocument.from_markdown(markdown)
+    renderer = TOCRenderer()
+    toc = renderer.build_document(document, language=language)
+    updated = renderer.inject_document(document, toc.toc_md, language=language).to_markdown()
+    return updated, updated.strip() != (markdown or "").strip()
+
+
 class RegenerationService:
     """Coordinate regeneration agents, validation, scoring and persistence."""
 
@@ -180,6 +349,16 @@ class RegenerationService:
             len(seed.learning_outcomes),
             len(seed.skills),
         )
+        pipeline_input = build_regeneration_pipeline_input(
+            original_md=command.original_md,
+            comments=command.comments,
+            language=command.language,
+        )
+        logger.info(
+            "📐 Regeneration intent: %s, selected_sections=%s",
+            pipeline_input.change_intent,
+            len(pipeline_input.selected_sections),
+        )
 
         result = await asyncio.to_thread(
             regen_agent.regenerate,
@@ -188,6 +367,8 @@ class RegenerationService:
             language=command.language,
         )
         regenerated_md = result.regenerated_md
+        changes = list(result.changes)
+        validation_report = result.validation_report or {}
 
         await self._validate_latex(command, regenerated_md)
         regenerated_md = await self._apply_quality_checks(
@@ -195,7 +376,22 @@ class RegenerationService:
             markdown=regenerated_md,
             seed=seed,
             language=command.language,
+            allow_llm_rewrites=not pipeline_input.selected_sections and not pipeline_input.is_structural,
         )
+        deduped_md = remove_adjacent_rewritten_paragraph_duplicates(command.original_md, regenerated_md)
+        if deduped_md != regenerated_md:
+            logger.info("✅ Удалены дублирующие old/new абзацы после quality checks")
+            changes.append("Удалены дублирующие старые абзацы после финальных проверок")
+            regenerated_md = deduped_md
+        if pipeline_input.is_structural:
+            refreshed_md, toc_changed = _refresh_toc_for_structural_regeneration(regenerated_md, command.language)
+            if toc_changed:
+                logger.info("✅ Оглавление пересобрано после структурной перегенерации")
+                changes.append("Оглавление обновлено по фактической структуре README")
+                validation_report = dict(validation_report)
+                validation_report["toc_refreshed"] = True
+                regenerated_md = refreshed_md
+
         learning_outcomes, skills, learning_context_source = await self._resolve_learning_context(
             seed=seed,
             cached_result=original_cached,
@@ -207,34 +403,77 @@ class RegenerationService:
             language=command.language,
             learning_outcomes=learning_outcomes,
         )
+        baseline_rubric = await self._baseline_rubric_for_regression_guard(
+            llm_client=llm_client,
+            cached_result=original_cached,
+            original_md=command.original_md,
+            language=command.language,
+            learning_outcomes=learning_outcomes,
+        )
         text_stats = calculate_text_stats(regenerated_md)
+        rubric_regression = _rubric_regression_details(
+            baseline_rubric,
+            rubric_json,
+            change_intent=pipeline_input.change_intent,
+        )
+        if rubric_regression is not None:
+            warning = str(rubric_regression["message"])
+            logger.warning("⚠️ %s", warning)
+            await self._log_writer(
+                request_id=command.request_id,
+                level="WARNING",
+                message=warning,
+                user_id=command.user_id,
+                phase="regeneration_rubric_warning",
+                metadata={"rubric_regression": rubric_regression},
+            )
+            return RegenerationResultView(
+                request_id=command.request_id,
+                regenerated_md=regenerated_md,
+                changes=changes,
+                rubric=convert_numpy_types(rubric_json),
+                text_stats=text_stats,
+                learning_outcomes=learning_outcomes,
+                skills=skills,
+                seed_source=seed_result.source,
+                learning_context_source=learning_context_source,
+                accepted=False,
+                warnings=[warning],
+                rubric_regression=convert_numpy_types(rubric_regression),
+                validation_report=convert_numpy_types(validation_report),
+            )
 
         await self._persist_regeneration(
             command=command,
             cached_result=original_cached,
             regenerated_md=regenerated_md,
-            changes=result.changes,
+            changes=changes,
             rubric_json=rubric_json,
             text_stats=text_stats,
             learning_outcomes=learning_outcomes,
             skills=skills,
             seed_source=seed_result.source,
             learning_context_source=learning_context_source,
+            accepted=True,
+            warnings=[],
+            rubric_regression=None,
+            validation_report=validation_report,
         )
         await self._log_success(
             command=command,
             regenerated_md=regenerated_md,
-            changes_count=len(result.changes),
+            changes_count=len(changes),
             learning_outcomes=learning_outcomes,
             skills=skills,
             seed_source=seed_result.source,
             learning_context_source=learning_context_source,
+            validation_report=convert_numpy_types(validation_report),
         )
 
         return RegenerationResultView(
             request_id=command.request_id,
             regenerated_md=regenerated_md,
-            changes=result.changes,
+            changes=changes,
             rubric=convert_numpy_types(rubric_json),
             text_stats=text_stats,
             learning_outcomes=learning_outcomes,
@@ -277,33 +516,37 @@ class RegenerationService:
         markdown: str,
         seed: Any,
         language: str,
+        allow_llm_rewrites: bool = True,
     ) -> str:
         logger.info("🔄 Применение проверок качества к перегенерированному контенту")
 
-        try:
-            content_editor = ContentEditorAgent(llm_client)
-            markdown = await asyncio.to_thread(
-                content_editor.ensure_global_coherence,
-                markdown,
-                seed,
-            )
-            logger.info("✅ ContentEditor.ensure_global_coherence применён")
-        except Exception as exc:
-            logger.warning("⚠️ Ошибка при применении ContentEditor: %s", exc)
+        if allow_llm_rewrites:
+            try:
+                content_editor = ContentEditorAgent(llm_client)
+                markdown = await asyncio.to_thread(
+                    content_editor.ensure_global_coherence,
+                    markdown,
+                    seed,
+                )
+                logger.info("✅ ContentEditor.ensure_global_coherence применён")
+            except Exception as exc:
+                logger.warning("⚠️ Ошибка при применении ContentEditor: %s", exc)
 
-        try:
-            style_guard = StyleGuardRepair()
-            issues_style = await asyncio.to_thread(style_guard.lint, markdown, language)
-            if issues_style:
-                logger.info("🔄 Найдено %s проблем стиля, применяем исправления", len(issues_style))
-                markdown = await asyncio.to_thread(style_guard.rewrite, markdown, language)
-                logger.info("✅ StyleGuardRepair применён")
-            else:
-                logger.info("✅ Проблем стиля не найдено")
-        except Exception as exc:
-            logger.warning("⚠️ Ошибка при применении StyleGuard: %s", exc)
+            try:
+                style_guard = StyleGuardRepair()
+                issues_style = await asyncio.to_thread(style_guard.lint, markdown, language)
+                if issues_style:
+                    logger.info("🔄 Найдено %s проблем стиля, применяем исправления", len(issues_style))
+                    markdown = await asyncio.to_thread(style_guard.rewrite, markdown, language)
+                    logger.info("✅ StyleGuardRepair применён")
+                else:
+                    logger.info("✅ Проблем стиля не найдено")
+            except Exception as exc:
+                logger.warning("⚠️ Ошибка при применении StyleGuard: %s", exc)
 
-        return markdown
+        else:
+            logger.info("🔒 Перегенерация с ограниченным scope: глобальные LLM quality rewrites пропущены")
+        return strip_protected_block_instruction_leaks(normalize_markdown_display_blocks(markdown))
 
     async def _resolve_learning_context(
         self,
@@ -325,6 +568,35 @@ class RegenerationService:
                 "рубрика будет рассчитана без LO/skills."
             )
         return learning_outcomes, skills, learning_context_source
+
+    async def _baseline_rubric_for_regression_guard(
+        self,
+        *,
+        llm_client: Any,
+        cached_result: dict[str, Any] | None,
+        original_md: str,
+        language: str,
+        learning_outcomes: list[str],
+    ) -> dict[str, Any] | None:
+        """Resolve the rubric baseline used to prevent worse regenerated output."""
+        cached_rubric = _extract_cached_rubric(cached_result)
+        if cached_rubric is not None:
+            return cached_rubric
+
+        if not (original_md or "").strip():
+            return None
+
+        try:
+            logger.info("🔄 Baseline rubric отсутствует в кэше; пересчитываем по исходному README")
+            return await self._score_rubric(
+                llm_client=llm_client,
+                markdown=original_md,
+                language=language,
+                learning_outcomes=learning_outcomes,
+            )
+        except Exception as exc:
+            logger.warning("⚠️ Не удалось рассчитать baseline rubric для regression guard: %s", exc)
+            return None
 
     async def _score_rubric(
         self,
@@ -355,6 +627,10 @@ class RegenerationService:
         skills: list[str],
         seed_source: str,
         learning_context_source: str,
+        accepted: bool = True,
+        warnings: list[str] | None = None,
+        rubric_regression: dict[str, Any] | None = None,
+        validation_report: dict[str, Any] | None = None,
     ) -> None:
         if not command.original_request_id:
             return
@@ -371,6 +647,10 @@ class RegenerationService:
                 "skills": skills,
                 "seed_source": seed_source,
                 "learning_context_source": learning_context_source,
+                "accepted": accepted,
+                "warnings": warnings or [],
+                "rubric_regression": rubric_regression,
+                "validation_report": validation_report or {},
                 "comments": command.comments,
                 "original_md": command.original_md,
             }
@@ -412,6 +692,7 @@ class RegenerationService:
         skills: list[str],
         seed_source: str,
         learning_context_source: str,
+        validation_report: dict[str, Any] | None = None,
     ) -> None:
         logger.info(
             "✅ Перегенерация завершена успешно: markdown=%s символов, изменений=%s, LO=%s, Skills=%s",
@@ -433,5 +714,6 @@ class RegenerationService:
                 "skills_count": len(skills),
                 "seed_source": seed_source,
                 "learning_context_source": learning_context_source,
+                "validation_report": validation_report or {},
             },
         )
