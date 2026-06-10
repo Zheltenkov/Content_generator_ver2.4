@@ -137,6 +137,67 @@ def test_translation_script_validator_allows_programming_io_tokens_for_tajik() -
     assert agent._validate_script_coverage(translated, "tg") == []
 
 
+def test_cleanup_keeps_leading_exam_identifier_at_heading_start() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# Exam_04_01. Биномиальные коэффициенты
+
+## Задание
+
+Текст.
+"""
+    translated = """# Коэффитсиентҳои биномиалӣ Exam_04_01
+
+## Вазифа
+
+Матн.
+"""
+
+    cleaned = agent._cleanup_translation(translated, original)
+
+    assert cleaned.startswith("# Exam_04_01. Коэффитсиентҳои биномиалӣ")
+
+
+def test_cleanup_prepends_missing_project_identifier_to_heading() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# D01T01: Знакомство с Linux и Git-системой
+
+## Chapter I
+
+Текст.
+"""
+    translated = """# Шиносоӣ бо Linux ва Git-система
+
+## Боби I
+
+Матн.
+"""
+
+    cleaned = agent._cleanup_translation(translated, original)
+
+    assert cleaned.startswith("# D01T01: Шиносоӣ бо Linux ва Git-система")
+
+
+def test_cleanup_keeps_numeric_identifier_at_heading_start() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# 04_01. Биномиальные коэффициенты
+
+## 1.1. Рекомендации
+
+Текст.
+"""
+    translated = """# Коэффитсиентҳои биномиалӣ 04_01
+
+## Тавсияҳо 1.1
+
+Матн.
+"""
+
+    cleaned = agent._cleanup_translation(translated, original)
+
+    assert cleaned.startswith("# 04_01. Коэффитсиентҳои биномиалӣ")
+    assert "## 1.1. Тавсияҳо" in cleaned
+
+
 def test_language_coverage_preserves_markdown_link_labels_for_toc() -> None:
     agent = TranslatorAgent(RecordingTranslationLLM(""))
     original = """# D01T01: Знакомство с Linux и Git-системой

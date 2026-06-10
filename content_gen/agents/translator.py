@@ -46,6 +46,7 @@ USER_TMPL = """Переведи следующий фрагмент README фа�
 ВАЖНЫЕ ТРЕБОВАНИЯ:
 1. Сохрани ВСЮ структуру Markdown:
    - Заголовки (# ## ###) — переведи КАЖДЫЙ заголовок на {target_language}, НЕ оставляй на исходном языке
+   - Если заголовок начинается с технического кода проекта/экзамена (например, Exam_04_01, D01T01, PjM15_PubApp), оставь этот код в начале заголовка и не меняй порядок: "# Exam_04_01. <переведённое название>"
    - НЕ добавляй заголовки типа "# README", "# Translation" или другие мета-заголовки
    - НЕ добавляй никаких заголовков, которых нет в оригинале
    - Списки (- * 1.)
@@ -119,6 +120,13 @@ REPAIR_USER_TMPL = """Переведи следующую секцию доку�
 
 _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
 _H2_SPLIT_RE = re.compile(r"(?=^##\s+)", re.MULTILINE)
+_LEADING_HEADING_ID_RE = re.compile(
+    r"^(?P<id>"
+    r"(?=[A-Za-z0-9_.-]*\d)[A-Za-z][A-Za-z0-9]*(?:[_.-][A-Za-z0-9]+)+"
+    r"|[A-Z]{1,8}\d{1,4}[A-Za-z0-9_.-]*"
+    r"|\d+(?:[_.-]\d+)+"
+    r")(?P<sep>\s*(?:[.:]|[-–—·])\s+)"
+)
 
 # Уникальные символы для детекции языка входного документа
 _LANG_FINGERPRINTS: dict[str, set[str]] = {
@@ -849,7 +857,62 @@ class TranslatorAgent:
         translated = re.sub(
             r'^\[КОНТЕКСТ:.*?\]\s*\n?', '', translated, flags=re.MULTILINE,
         )
+        translated = self._restore_heading_identifiers(translated, original)
         return translated.strip()
+
+    @staticmethod
+    def _restore_heading_identifiers(translated: str, original: str) -> str:
+        """Возвращает технические идентификаторы в начало переведённых заголовков.
+
+        LLM иногда переводит название корректно, но меняет порядок в H1/H2:
+        ``# Exam_04_01. Биномиальные коэффициенты`` превращается в
+        ``# Коэффициентҳои биномиалӣ Exam_04_01``. Для учебных проектов код в
+        начале заголовка является стабильным адресом артефакта, поэтому порядок
+        восстанавливается детерминированно по исходному Markdown.
+        """
+        original_headings = list(_HEADING_RE.finditer(original or ""))
+        translated_headings = list(_HEADING_RE.finditer(translated or ""))
+        if not original_headings or not translated_headings:
+            return translated
+
+        result = translated
+        pairs = list(zip(original_headings, translated_headings))
+        for original_match, translated_match in reversed(pairs):
+            if original_match.group(1) != translated_match.group(1):
+                continue
+
+            source_title = original_match.group(2).strip()
+            source_id_match = _LEADING_HEADING_ID_RE.match(source_title)
+            if not source_id_match:
+                continue
+
+            source_id = source_id_match.group("id")
+            source_sep = re.sub(r"\s+", " ", source_id_match.group("sep"))
+            if not source_sep.endswith(" "):
+                source_sep += " "
+
+            translated_title = translated_match.group(2).strip()
+            if translated_title.startswith(source_id):
+                continue
+
+            title_without_id = re.sub(
+                rf"(?<![A-Za-z0-9_-]){re.escape(source_id)}(?![A-Za-z0-9_-])",
+                "",
+                translated_title,
+                count=1,
+            )
+            title_without_id = re.sub(
+                r"^[\s.:·\-–—]+|[\s.:·\-–—]+$",
+                "",
+                title_without_id,
+            ).strip()
+            if not title_without_id:
+                title_without_id = translated_title
+
+            fixed_line = f"{translated_match.group(1)} {source_id}{source_sep}{title_without_id}"
+            result = result[:translated_match.start()] + fixed_line + result[translated_match.end():]
+
+        return result
 
     def _validate_translation_structure(
         self, original: str, translated: str,
