@@ -19,6 +19,19 @@ def test_get_db_session_returns_503_when_startup_marked_database_unavailable() -
         session.set_database_status(None)
 
 
+def test_get_db_session_does_not_mark_database_down_for_http_errors() -> None:
+    session.set_database_status(True)
+    provider = session.get_db_session()
+    try:
+        next(provider)
+        with pytest.raises(HTTPException):
+            provider.throw(HTTPException(status_code=401, detail="auth failed"))
+
+        assert session.is_database_available() is True
+    finally:
+        session.set_database_status(None)
+
+
 def test_database_status_redacts_password() -> None:
     status_payload = session.get_database_status()
 

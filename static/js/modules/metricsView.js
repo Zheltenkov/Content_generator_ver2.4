@@ -1,4 +1,6 @@
 (function () {
+    let activeMetricFilter = 'all';
+
     function getRuntime() {
         return window.ContentGenGenerationRuntime || {};
     }
@@ -32,7 +34,7 @@
     }
 
     function currentMetricFilter() {
-        return getState().currentFilter || 'all';
+        return getState().currentFilter || window.currentMetricFilter || activeMetricFilter || 'all';
     }
 
     function formatCompactNumber(value) {
@@ -412,6 +414,8 @@
             console.error('Фильтр не указан');
             return;
         }
+        activeMetricFilter = filter;
+        window.currentMetricFilter = filter;
         window.ContentGenStores?.resultStore?.setState?.({ currentFilter: filter });
         const state = getState();
         const metricsVersion = state.currentMetricsVersion || window.currentMetricsVersion || 'original';

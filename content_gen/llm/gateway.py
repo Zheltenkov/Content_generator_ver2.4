@@ -122,6 +122,7 @@ class LLMGateway:
         registry: ModelRegistry | None = None,
         model: str | None = None,
         provider: str | None = None,
+        strict_provider: bool = False,
         default_role: str = "default",
         enable_cache: bool | None = None,
         enable_batching: bool | None = None,
@@ -138,6 +139,7 @@ class LLMGateway:
         self.default_role = default_role
         self.preferred_provider = provider
         self.preferred_model = model
+        self.strict_provider = strict_provider
         self.enable_cache = enable_cache if enable_cache is not None else (
             os.getenv("LLM_CACHE_ENABLED", "true").lower() == "true"
         )
@@ -207,8 +209,11 @@ class LLMGateway:
             role,
             preferred_provider=self.preferred_provider,
             preferred_model=self.preferred_model,
+            strict_provider=self.strict_provider,
         )
         if not routes:
+            if self.strict_provider and self.preferred_provider:
+                raise LLMAPIError(self._selected_provider_not_configured_message(self.preferred_provider))
             raise LLMAPIError(f"No configured LLM routes for role='{role}'")
 
         cache_key = self._cache_key(role, system, user, response_format, kwargs)
@@ -285,14 +290,18 @@ class LLMGateway:
                     self._save_to_cache(cache_key, response)
                 return response
             except Exception as exc:  # noqa: BLE001 - route fallback needs provider-agnostic errors
+                if self.strict_provider and self._is_account_quota_error(str(exc)):
+                    raise LLMRateLimitError(self._provider_quota_message(route.provider)) from exc
                 errors.append(f"{route.provider}/{route.resolved_model()}: {exc}")
                 continue
 
         message = "; ".join(errors) or "unknown provider error"
         if "timeout" in message.lower() or "timed out" in message.lower():
             raise LLMTimeoutError(f"All LLM routes timed out for role='{role}': {message}")
-        if "rate limit" in message.lower() or "429" in message:
-            raise LLMRateLimitError(f"All LLM routes hit rate limits for role='{role}': {message}")
+        if self._is_account_quota_error(message):
+            raise LLMRateLimitError(self._provider_quota_message_from_route_errors(message))
+        if self._is_rate_limit_error(message):
+            raise LLMRateLimitError(f"Провайдер LLM временно ограничил частоту запросов для role='{role}'.")
         raise LLMAPIError(f"All LLM routes failed for role='{role}': {message}")
 
     def complete_structured(
@@ -330,8 +339,11 @@ class LLMGateway:
             role,
             preferred_provider=self.preferred_provider,
             preferred_model=self.preferred_model,
+            strict_provider=self.strict_provider,
         )
         if not routes:
+            if self.strict_provider and self.preferred_provider:
+                raise LLMAPIError(self._selected_provider_not_configured_message(self.preferred_provider))
             raise LLMAPIError(f"No configured LLM routes for role='{role}'")
 
         budget = self._env_float("LLM_BUDGET_USD_PER_ROLE", role_config.budget_usd)
@@ -398,14 +410,18 @@ class LLMGateway:
                 )
                 return result
             except Exception as exc:  # noqa: BLE001 - route fallback needs provider-agnostic errors
+                if self.strict_provider and self._is_account_quota_error(str(exc)):
+                    raise LLMRateLimitError(self._provider_quota_message(route.provider)) from exc
                 errors.append(f"{route.provider}/{route.resolved_model()}: {exc}")
                 continue
 
         message = "; ".join(errors) or "unknown provider error"
         if "timeout" in message.lower() or "timed out" in message.lower():
             raise LLMTimeoutError(f"All structured LLM routes timed out for role='{role}': {message}")
-        if "rate limit" in message.lower() or "429" in message:
-            raise LLMRateLimitError(f"All structured LLM routes hit rate limits for role='{role}': {message}")
+        if self._is_account_quota_error(message):
+            raise LLMRateLimitError(self._provider_quota_message_from_route_errors(message))
+        if self._is_rate_limit_error(message):
+            raise LLMRateLimitError(f"Провайдер LLM временно ограничил частоту запросов для role='{role}'.")
         raise LLMAPIError(f"All structured LLM routes failed for role='{role}': {message}")
 
     def complete_batch(
@@ -497,6 +513,13 @@ class LLMGateway:
         )
         request_kwargs = {key: value for key, value in request_kwargs.items() if value is not None}
 
+        if route.provider == "gigachat":
+            ssl_verify = self._provider_ssl_verify(route.provider)
+            if ssl_verify is not None:
+                request_kwargs.setdefault("ssl_verify", ssl_verify)
+        else:
+            request_kwargs.pop("ssl_verify", None)
+
         api_key = route.resolved_api_key()
         api_base = route.resolved_base_url()
         if api_key:
@@ -507,6 +530,16 @@ class LLMGateway:
             api_version = os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("AZURE_API_VERSION")
             if api_version:
                 request_kwargs["api_version"] = api_version
+        if route.provider == "openrouter":
+            extra_headers = dict(request_kwargs.pop("extra_headers", {}) or {})
+            referer = os.getenv("OPEN_ROUTER_SITE_URL") or os.getenv("OPENROUTER_SITE_URL")
+            title = os.getenv("OPEN_ROUTER_APP_NAME") or os.getenv("OPENROUTER_APP_NAME") or "Content Generator"
+            if referer:
+                extra_headers.setdefault("HTTP-Referer", referer)
+            if title:
+                extra_headers.setdefault("X-Title", title)
+            if extra_headers:
+                request_kwargs["extra_headers"] = extra_headers
         return request_kwargs
 
     def _complete_structured_route(
@@ -609,6 +642,7 @@ class LLMGateway:
             "response_format": response_format,
             "provider": self.preferred_provider,
             "model": self.preferred_model,
+            "strict_provider": self.strict_provider,
             "kwargs": kwargs,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
@@ -657,6 +691,9 @@ class LLMGateway:
 
     @staticmethod
     def _provider_temperature(provider: str) -> float | None:
+        if provider == "openrouter":
+            raw = os.getenv("OPEN_ROUTER_TEMPERATURE", "").strip() or os.getenv("OPENROUTER_TEMPERATURE", "").strip()
+            return float(raw) if raw else None
         env_by_provider = {
             "openai": "OPENAI_TEMPERATURE",
             "deepseek": "DEEPSEEK_TEMPERATURE",
@@ -665,3 +702,101 @@ class LLMGateway:
         }
         raw = os.getenv(env_by_provider.get(provider, ""), "").strip()
         return float(raw) if raw else None
+
+    @staticmethod
+    def _selected_provider_not_configured_message(provider: str) -> str:
+        normalized = str(provider or "").strip().lower()
+        if normalized in {"giga", "gigachat"}:
+            return (
+                "Выбран GigaChat, но на сервере не настроены учетные данные. "
+                "Добавьте GIGACHAT_CREDENTIALS или GIGACHAT_API_KEY в .env."
+            )
+        if normalized == "deepseek":
+            return "Выбран DeepSeek, но на сервере не настроен DEEPSEEK_API_KEY в .env."
+        if normalized in {"openrouter", "open_router"}:
+            return "Выбран OpenRouter, но на сервере не настроен OPEN_ROUTER_API_KEY в .env."
+        if normalized == "openai":
+            return "Выбран OpenAI, но на сервере не настроен OPENAI_API_KEY в .env."
+        return f"Выбранный LLM provider '{provider}' не настроен на сервере."
+
+    @staticmethod
+    def _is_account_quota_error(message: str) -> bool:
+        lower = message.lower()
+        return any(
+            marker in lower
+            for marker in (
+                "exceeded your current quota",
+                "insufficient_quota",
+                "billing details",
+                "quota exceeded",
+                "you exceeded your current quota",
+            )
+        )
+
+    @staticmethod
+    def _is_rate_limit_error(message: str) -> bool:
+        lower = message.lower()
+        return "rate limit" in lower or "ratelimiterror" in lower or "429" in lower
+
+    @staticmethod
+    def _provider_quota_message(provider: str) -> str:
+        normalized = str(provider or "").strip().lower()
+        if normalized == "openai":
+            return (
+                "OpenAI недоступен: исчерпана квота или не настроен billing для текущего API ключа. "
+                "Пополните баланс, обновите OPENAI_API_KEY или выберите другой ИИ-провайдер, например GigaChat."
+            )
+        if normalized == "openrouter":
+            return (
+                "OpenRouter недоступен: исчерпана квота, не оплачен баланс или отклонен текущий API ключ. "
+                "Проверьте OPEN_ROUTER_API_KEY и баланс OpenRouter."
+            )
+        if normalized in {"giga", "gigachat"}:
+            return (
+                "GigaChat недоступен: исчерпана квота или отклонена авторизация текущих учетных данных. "
+                "Проверьте GIGACHAT_API_KEY/GIGACHAT_CREDENTIALS или выберите другой ИИ-провайдер."
+            )
+        if normalized == "deepseek":
+            return (
+                "DeepSeek недоступен: исчерпана квота или отклонена авторизация текущего API ключа. "
+                "Проверьте DEEPSEEK_API_KEY или выберите другой ИИ-провайдер."
+            )
+        return "Выбранный LLM-провайдер недоступен из-за квоты или billing-ограничения."
+
+    @classmethod
+    def _provider_quota_message_from_route_errors(cls, message: str) -> str:
+        lower = message.lower()
+        if "openrouter/" in lower or "openrouter" in lower:
+            return cls._provider_quota_message("openrouter")
+        if "openai/" in lower or "openai" in lower:
+            return cls._provider_quota_message("openai")
+        if "gigachat/" in lower or "gigachat" in lower:
+            return cls._provider_quota_message("gigachat")
+        if "deepseek/" in lower or "deepseek" in lower:
+            return cls._provider_quota_message("deepseek")
+        return cls._provider_quota_message("")
+
+    @staticmethod
+    def _provider_ssl_verify(provider: str) -> bool | str | None:
+        """Resolve provider-specific TLS verification config for LiteLLM.
+
+        GigaChat installations often require either a custom CA bundle or an
+        explicit opt-out in local/dev environments with corporate TLS
+        interception. The value intentionally stays provider-scoped because
+        OpenAI-compatible clients may reject an unknown ``ssl_verify`` argument.
+        """
+        if provider != "gigachat":
+            return None
+        ca_bundle_file = os.getenv("GIGACHAT_CA_BUNDLE_FILE", "").strip()
+        if ca_bundle_file:
+            return ca_bundle_file
+        raw = os.getenv("GIGACHAT_VERIFY_SSL_CERTS")
+        if raw is None or raw.strip() == "":
+            return None
+        value = raw.strip()
+        normalized = value.lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+        return value

@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -61,6 +62,10 @@ app = FastAPI(
 # Добавляем rate limiter в app state
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Сжимаем HTML, CSS, JS и JSON-ответы. Это особенно заметно на страницах с крупной
+# статикой и уменьшает время до первого полностью оформленного экрана.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
 
 # Применяем rate limiting к роутеру generation
 from slowapi.middleware import SlowAPIMiddleware
@@ -119,7 +124,7 @@ if static_dir.exists():
                 status_code=404,
                 content={"detail": "Страница регистрации не найдена"}
             )
-        return FileResponse(str(register_path))
+        return FileResponse(str(register_path), headers={"Cache-Control": "no-store"})
 
     @app.get("/forgot-password")
     async def read_forgot_password():

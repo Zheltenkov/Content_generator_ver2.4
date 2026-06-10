@@ -73,7 +73,7 @@ async def health_check() -> dict[str, Any]:
         checks["llm"] = {
             "status": "error",
             "available": False,
-            "provider": os.getenv("LLM_PROVIDER", "openai"),
+            "provider": os.getenv("LLM_PROVIDER", "openrouter"),
             "message": str(e),
         }
 

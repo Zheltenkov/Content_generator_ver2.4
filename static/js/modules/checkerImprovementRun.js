@@ -1,4 +1,4 @@
-// README improvement generation run/progress state.
+﻿// README improvement generation run/progress state.
 
 let improvementTimerInterval = null;
 let improvementStartTime = null;
@@ -82,7 +82,7 @@ async function generateImprovedReadme() {
 function buildImprovementSeedData() {
     const seedData = {
         language: checkerInputValue('improveLanguage'),
-        llm_provider: window.getSelectedLlmProvider?.() || 'openai',
+        llm_provider: window.getSelectedLlmProvider?.() || 'openrouter',
         project_type: checkerInputValue('improveProjectType'),
         thematic_block: checkerInputValue('improveThematicBlock'),
         audience_level: checkerInputValue('improveAudienceLevel'),
@@ -383,3 +383,4 @@ window.showCheckerImprovementRunView = showCheckerImprovementRunView;
 window.finishCheckerImprovementRun = finishCheckerImprovementRun;
 window.updateImprovementCurrentAgent = updateImprovementCurrentAgent;
 window.checkGenerationStatus = checkGenerationStatus;
+

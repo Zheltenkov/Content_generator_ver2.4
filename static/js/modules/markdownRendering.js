@@ -4,6 +4,115 @@
         const BLOCK_PLACEHOLDER = (idx) => `@@FORMULABLOCK${idx}@@`;
         const INLINE_PLACEHOLDER = (idx) => `@@FORMULAINLINE${idx}@@`;
         const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const MARKDOWN_VENDOR_ASSETS = {
+            marked: '/static/vendor/marked/marked.min.js?v=20260518-local',
+            mermaid: '/static/vendor/mermaid/mermaid.min.js?v=20260518-local',
+            mathjax: '/static/vendor/mathjax/tex-mml-chtml.js?v=20260518-local',
+        };
+        const vendorLoadPromises = {};
+        let markdownRenderSequence = 0;
+
+        function beginMarkdownRender(container) {
+            const token = `markdown-render-${Date.now()}-${++markdownRenderSequence}`;
+            if (container?.dataset) {
+                container.dataset.markdownRenderToken = token;
+            }
+            return token;
+        }
+
+        function isMarkdownRenderCurrent(container, token) {
+            if (!container || !container.isConnected) return false;
+            if (!token) return true;
+            return container.dataset?.markdownRenderToken === token;
+        }
+
+        function isDetachedDomError(err) {
+            const message = String(err?.message || err || '');
+            return /replaceChild|insertBefore|removeChild|appendChild|Cannot read properties of null|Node was not found/i.test(message);
+        }
+
+        function ignoreStaleRenderError(err, container, token, source) {
+            if (!isMarkdownRenderCurrent(container, token) || isDetachedDomError(err)) {
+                console.debug(`[${source}] Игнорируем устаревший DOM-рендер Markdown:`, err);
+                return true;
+            }
+            return false;
+        }
+
+        function loadScriptOnce(key, src, isReady) {
+            if (typeof window === 'undefined' || isReady()) {
+                return Promise.resolve();
+            }
+            if (vendorLoadPromises[key]) {
+                return vendorLoadPromises[key];
+            }
+
+            vendorLoadPromises[key] = new Promise((resolve, reject) => {
+                const existing = document.querySelector(`script[data-contentgen-vendor="${key}"]`);
+                if (existing) {
+                    existing.addEventListener('load', () => resolve(), { once: true });
+                    existing.addEventListener('error', () => reject(new Error(`Не удалось загрузить ${key}`)), { once: true });
+                    return;
+                }
+
+                const script = document.createElement('script');
+                script.src = src;
+                script.async = true;
+                script.dataset.contentgenVendor = key;
+                script.onload = () => resolve();
+                script.onerror = () => reject(new Error(`Не удалось загрузить ${key}`));
+                document.head.appendChild(script);
+            });
+
+            return vendorLoadPromises[key];
+        }
+
+        function ensureMarkedLoaded() {
+            return loadScriptOnce('marked', MARKDOWN_VENDOR_ASSETS.marked, () => typeof window.marked !== 'undefined');
+        }
+
+        function ensureMermaidLoaded() {
+            return loadScriptOnce('mermaid', MARKDOWN_VENDOR_ASSETS.mermaid, () => typeof window.mermaid !== 'undefined')
+                .then(() => {
+                    if (window.mermaid && !window.__contentGenMermaidInitialized) {
+                        window.mermaid.initialize({
+                            startOnLoad: false,
+                            securityLevel: 'loose',
+                            theme: 'base',
+                            themeVariables: {
+                                primaryColor: '#ffffff',
+                                primaryTextColor: '#0f1419',
+                                primaryBorderColor: '#c8cec4',
+                                lineColor: '#0f1419',
+                                secondaryColor: '#f7f7f5',
+                                tertiaryColor: '#f3f3f0',
+                                fontFamily: 'Inter, Arial, sans-serif',
+                                fontSize: '14px',
+                            },
+                            flowchart: {
+                                htmlLabels: true,
+                                curve: 'basis',
+                                padding: 12,
+                                nodeSpacing: 36,
+                                rankSpacing: 42,
+                                useMaxWidth: true,
+                            },
+                        });
+                        window.__contentGenMermaidInitialized = true;
+                    }
+                });
+        }
+
+        function ensureMathJaxLoaded() {
+            return loadScriptOnce('mathjax', MARKDOWN_VENDOR_ASSETS.mathjax, () => {
+                return !!(window.MathJax && window.MathJax.startup && window.MathJax.startup.promise);
+            });
+        }
+
+        function rootHasMath(root) {
+            const text = root?.textContent || '';
+            return /\$\$|(^|[^\\])\$[^$\n]+\$|\\\(|\\\[/.test(text);
+        }
 
         function byId(id) {
             return document.getElementById(id);
@@ -165,12 +274,83 @@
             });
         }
 
+        function normalizeMermaidArrowSyntax(code) {
+            return String(code || '')
+                .replace(/\s*(?:[\u2013\u2014\u2212]+\s*>|[-\u2013\u2014\u2212]?\s*\u2192)\s*/g, ' --> ')
+                .replace(/\s*\u21d2\s*/g, ' ==> ')
+                .replace(/(^|[^-.])-\s*>(?!>)/g, '$1 --> ')
+                .replace(/--\s+>/g, '-->')
+                .replace(/==\s+>/g, '==>')
+                .replace(/-\.\s+>/g, '-.->')
+                .replace(/(-->|==>|-\.->)\s+\|/g, '$1|');
+        }
+
+        function normalizeSequenceMermaidStatements(code) {
+            let text = String(code || '');
+            if (!/^\s*sequenceDiagram\b/i.test(text)) return text;
+
+            const sequenceArrow = '(?:-{1,2}|={1,2})(?:>>|>|x|\\))[+x-]?';
+            text = text.replace(/\bsequenceDiagram\b\s*(?=\S)/i, 'sequenceDiagram\n    ');
+            text = text.replace(/\s+(?=(?:participant|actor)\s+[A-Za-z][A-Za-z0-9_]*\b)/gi, '\n    ');
+            text = text.replace(/\s+(?=Note\s+(?:over|left of|right of)\b)/gi, '\n    ');
+            text = text.replace(/\s+(?=(?:alt|else|opt|loop|par|and|critical|break|end)\b)/gi, '\n    ');
+            text = text.replace(
+                new RegExp(`\\s+(?=[A-Za-z][A-Za-z0-9_]*\\s*${sequenceArrow}\\s*[A-Za-z][A-Za-z0-9_]*\\s*:)`, 'g'),
+                '\n    '
+            );
+            return repairSequenceLeadingAlias(text, sequenceArrow);
+        }
+
+        function repairSequenceLeadingAlias(text, sequenceArrow) {
+            const lines = String(text || '').split(/\r?\n/);
+            const declarationIndex = lines.findIndex((line) => /^\s*sequenceDiagram\b/i.test(line));
+            if (declarationIndex < 0) return text;
+
+            const statementIndex = lines.findIndex((line, index) => index > declarationIndex && line.trim());
+            if (statementIndex < 0) return text;
+
+            const candidate = lines[statementIndex].trim();
+            const sequenceStatement = new RegExp(
+                `^(?:participant\\b|actor\\b|autonumber\\b|activate\\b|deactivate\\b|destroy\\b|rect\\b|opt\\b|alt\\b|else\\b|loop\\b|par\\b|and\\b|critical\\b|break\\b|end\\b|Note\\s+(?:over|left of|right of)\\b|[A-Za-z][A-Za-z0-9_]*\\s*${sequenceArrow}\\s*[A-Za-z][A-Za-z0-9_]*\\s*:)`,
+                'i'
+            );
+            if (
+                !candidate
+                || candidate.length > 80
+                || sequenceStatement.test(candidate)
+                || /->|--|=>|:|\[|\]|\{|\}|\|/.test(candidate)
+            ) {
+                return text;
+            }
+
+            const participantIds = new Set();
+            const participantLine = /^(?:participant|actor)\s+([A-Za-z][A-Za-z0-9_]*)\b/i;
+            lines.slice(declarationIndex + 1).forEach((line) => {
+                const match = line.trim().match(participantLine);
+                if (match) participantIds.add(match[1]);
+            });
+
+            const messageLine = new RegExp(`^([A-Za-z][A-Za-z0-9_]*)\\s*${sequenceArrow}\\s*([A-Za-z][A-Za-z0-9_]*)\\s*:`);
+            for (let index = statementIndex + 1; index < lines.length; index += 1) {
+                const match = lines[index].trim().match(messageLine);
+                if (!match) continue;
+                lines[statementIndex] = participantIds.has(match[1])
+                    ? `    %% ${candidate}`
+                    : `    participant ${match[1]} as ${candidate}`;
+                return lines.join('\n');
+            }
+
+            return text;
+        }
+
         function normalizeMermaidCodeBlock(code) {
             const raw = (code || '').trim();
             if (!raw) return raw;
 
-            let body = raw.replace(/%%\{init:[\s\S]*?\}%%/gi, ' ').replace(/[ \t]+/g, ' ').trim();
+            let body = raw.replace(/%%\{init:[\s\S]*?\}%%/gi, ' ');
+            body = normalizeMermaidArrowSyntax(body).replace(/[ \t]+/g, ' ').trim();
             body = body.replace(/\b((?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR))\s+(?=\S)/i, '$1\n    ');
+            body = normalizeSequenceMermaidStatements(body);
             body = body.replace(/\b(sequenceDiagram|stateDiagram-v2|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\s+(?=\S)/i, '$1\n    ');
             body = body.replace(/((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-\.->|-\.|==>|--|==))/g, '$1\n    ');
 
@@ -187,6 +367,32 @@
             });
 
             return lines.join('\n').trim();
+        }
+
+        function looksLikeMermaidCode(code) {
+            const text = String(code || '')
+                .replace(/%%\{init:[\s\S]*?\}%%/gi, ' ')
+                .trim();
+            if (!text) return false;
+
+            return /^(?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR)\b/i.test(text)
+                || /^(?:sequenceDiagram|stateDiagram-v2|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\b/i.test(text);
+        }
+
+        function getMermaidCodeBlocks(root) {
+            if (!root) return [];
+            const codeBlocks = Array.from(root.querySelectorAll('pre code'));
+            const directPreBlocks = Array.from(root.querySelectorAll('pre'))
+                .filter((pre) => !pre.querySelector('code'));
+            return [...codeBlocks, ...directPreBlocks].filter((codeBlock) => {
+                if (
+                    codeBlock.classList.contains('language-mermaid')
+                    || codeBlock.classList.contains('mermaid')
+                ) {
+                    return true;
+                }
+                return looksLikeMermaidCode(codeBlock.textContent || '');
+            });
         }
 
         function cleanMermaidEdgeLabel(label) {
@@ -365,21 +571,34 @@
 
         // Обработка ошибок JavaScript
 
-function displayMarkdown(markdown, containerId) {
+        function markdownRenderOptionsForContainer(container, containerId) {
+            const id = String(containerId || container?.id || '');
+            const checkerReadmePreview = document.body?.classList?.contains('page-checker')
+                && (id === 'readmePreview' || id === 'improvedReadmePreview');
+            if (checkerReadmePreview) {
+                return { diagramContext: 'checker' };
+            }
+            return {};
+        }
+
+        function displayMarkdown(markdown, containerId) {
             const container = document.getElementById(containerId);
             if (!container) {
                 console.error('[displayMarkdown] Контейнер не найден:', containerId);
                 return;
             }
 
-            renderMarkdownPreview(container, markdown);
+            renderMarkdownPreview(container, markdown, markdownRenderOptionsForContainer(container, containerId));
         }
 
-        function renderMarkdownPreview(container, markdown, options = {}) {
+        async function renderMarkdownPreview(container, markdown, options = {}) {
             if (!container) {
                 console.error('[renderMarkdownPreview] Контейнер не передан');
                 return;
             }
+
+            const renderToken = beginMarkdownRender(container);
+            const renderOptions = { ...options, renderToken };
 
             if (!markdown || typeof markdown !== 'string') {
                 container.innerHTML = `<div class="info-box">${options.emptyMessage || 'Контент отсутствует'}</div>`;
@@ -395,8 +614,14 @@ function displayMarkdown(markdown, containerId) {
             const formulaGuards = protectFormulas(markdown);
             let protectedMarkdown = formulaGuards.markdown;
 
-            // 2. Парсим markdown в HTML
-            if (typeof marked === 'undefined') {
+            // 2. Парсим markdown в HTML. Marked грузим лениво, чтобы первый экран не ждал Markdown-preview.
+            try {
+                await ensureMarkedLoaded();
+            } catch (err) {
+                console.error('[displayMarkdown] marked.js не загрузился:', err);
+            }
+            if (!isMarkdownRenderCurrent(container, renderToken)) return;
+            if (typeof window.marked === 'undefined') {
                 console.error('[displayMarkdown] marked.js не загружен');
                 if (window.sanitize) {
                     window.sanitize.safeSetErrorMessage(container, 'Ошибка: библиотека marked.js не загружена');
@@ -406,9 +631,10 @@ function displayMarkdown(markdown, containerId) {
                 return;
             }
 
-            let html = marked.parse(protectedMarkdown);
+            let html = window.marked.parse(protectedMarkdown);
 
             html = restoreFormulas(html, formulaGuards);
+            if (!isMarkdownRenderCurrent(container, renderToken)) return;
 
             // 3. Вставляем HTML в контейнер (с санитизацией)
             if (window.sanitize) {
@@ -435,14 +661,16 @@ function displayMarkdown(markdown, containerId) {
             convertLatexLikeTableCells(container);
 
             // 5. Рендерим Mermaid-диаграммы
-            renderMermaidDiagrams(container, options);
+            await renderMermaidDiagrams(container, renderOptions);
+            if (!isMarkdownRenderCurrent(container, renderToken)) return;
             wrapDiagramImages(container);
 
             // 6. Рендерим MathJax-формулы
-            typesetMathJax(container);
+            await typesetMathJax(container, renderToken);
+            if (!isMarkdownRenderCurrent(container, renderToken)) return;
 
             // 7. Подменяем локальные изображения для диаграмм, если они закодированы в ответе
-            hydrateLocalImages(container, options);
+            hydrateLocalImages(container, renderOptions);
             scheduleFormulaCheck(container);
         }
 
@@ -454,6 +682,7 @@ function displayMarkdown(markdown, containerId) {
                     ? table.parentElement
                     : null;
                 if (!wrapper) {
+                    if (!table.parentNode) return;
                     wrapper = document.createElement('div');
                     wrapper.className = 'table-wrapper';
                     table.parentNode.insertBefore(wrapper, table);
@@ -554,23 +783,33 @@ function displayMarkdown(markdown, containerId) {
             return 'default';
         }
 
-        function renderMermaidDiagrams(root, options = {}) {
-            if (typeof mermaid === 'undefined') {
+        async function renderMermaidDiagrams(root, options = {}) {
+            // Ищем размеченные mermaid-блоки и fallback-блоки, где модель забыла язык fence.
+            const codeBlocks = getMermaidCodeBlocks(root);
+            if (!codeBlocks.length) return;
+
+            try {
+                await ensureMermaidLoaded();
+            } catch (err) {
+                console.warn('[Mermaid] mermaid.js не загрузился — диаграммы будут показаны как код', err);
+                return;
+            }
+
+            if (typeof window.mermaid === 'undefined') {
                 // Просто оставляем код как есть, без падения
                 console.warn('[Mermaid] mermaid.js не загружен — диаграммы будут показаны как код');
                 return;
             }
 
-            // Ищем кодовые блоки с классом language-mermaid или mermaid
-            const codeBlocks = root.querySelectorAll('pre code.language-mermaid, pre code.mermaid');
-            if (!codeBlocks.length) return;
-
             const renderContext = diagramRenderContext(root, options);
+            const renderToken = options.renderToken || '';
 
-            codeBlocks.forEach((codeBlock, index) => {
+            const renderTasks = codeBlocks.map((codeBlock, index) => {
                 const pre = codeBlock.closest('pre');
                 const code = normalizeMermaidCodeBlock(codeBlock.textContent.trim());
-                if (!pre || !code) return;
+                if (!pre || !code || !pre.parentNode || !isMarkdownRenderCurrent(root, renderToken)) {
+                    return Promise.resolve();
+                }
 
                 const figure = document.createElement('figure');
                 figure.className = 'diagram-figure';
@@ -579,7 +818,12 @@ function displayMarkdown(markdown, containerId) {
                 holder.className = 'mermaid-diagram';
                 holder.dataset.diagramContext = renderContext;
 
-                pre.parentNode.replaceChild(figure, pre);
+                try {
+                    pre.parentNode.replaceChild(figure, pre);
+                } catch (err) {
+                    ignoreStaleRenderError(err, root, renderToken, 'Mermaid');
+                    return Promise.resolve();
+                }
                 figure.appendChild(holder);
 
                 const captionText = extractDiagramCaption(figure.nextElementSibling);
@@ -593,10 +837,11 @@ function displayMarkdown(markdown, containerId) {
                 const renderId = 'mermaid-' + Date.now() + '-' + index;
 
                 // Без повторной initialize — предполагаем, что она уже была вызвана один раз где-то сверху
-                Promise.resolve()
-                    .then(() => (typeof mermaid.parse === 'function' ? mermaid.parse(code) : true))
-                    .then(() => mermaid.render(renderId, code))
+                return Promise.resolve()
+                    .then(() => (typeof window.mermaid.parse === 'function' ? window.mermaid.parse(code) : true))
+                    .then(() => window.mermaid.render(renderId, code))
                     .then(res => {
+                        if (!isMarkdownRenderCurrent(root, renderToken) || !holder.isConnected) return;
                         // В новых версиях mermaid res уже объект { svg, bindFunctions }, в старых — просто svg-строка
                         const svg = typeof res === 'string' ? res : res.svg;
                         holder.innerHTML = svg;
@@ -617,16 +862,20 @@ function displayMarkdown(markdown, containerId) {
                             holder.classList.add('mermaid-ready');
                             enableDiagramZoom(holder, svgEl, captionText || 'Диаграмма');
                             centerScrollableMermaid(holder);
+                            stabilizeRenderedMermaid(holder, svgEl);
                         }
                     })
                     .catch(err => {
+                        if (ignoreStaleRenderError(err, root, renderToken, 'Mermaid')) return;
                         console.error('[Mermaid] Ошибка рендеринга диаграммы:', err);
+                        if (!holder.isConnected) return;
                         holder.innerHTML =
                             '<div class="error-msg">Ошибка отображения диаграммы: ' +
                             (err.message || 'Неизвестная ошибка') +
                             '</div>';
                     });
             });
+            await Promise.all(renderTasks);
         }
 
         function wrapDiagramImages(root) {
@@ -776,32 +1025,47 @@ function displayMarkdown(markdown, containerId) {
             const height = vb && vb.height ? vb.height : rawHeight;
             const metrics = mermaidCodeMetrics(code);
             const isMethodology = renderContext === 'methodology';
+            const isChecker = renderContext === 'checker';
             const profile = isMethodology
                 ? {
-                    baseWidth: 840,
-                    compactWidth: 660,
-                    tallWidth: 820,
-                    complexWidth: 900,
-                    wideMinWidth: 980,
-                    wideMaxWidth: 1240,
-                    boxWidth: 980,
-                    maxNaturalWidth: 1420,
-                    maxEstimatedHeight: 720,
-                    wideFontSize: '17px',
-                    normalFontSize: '18px',
+                    baseWidth: 700,
+                    compactWidth: 560,
+                    tallWidth: 680,
+                    complexWidth: 760,
+                    wideMinWidth: 760,
+                    wideMaxWidth: 980,
+                    boxWidth: 900,
+                    maxNaturalWidth: 1180,
+                    maxEstimatedHeight: 560,
+                    wideFontSize: '13.5px',
+                    normalFontSize: '14px',
+                }
+                : isChecker
+                ? {
+                    baseWidth: 680,
+                    compactWidth: 540,
+                    tallWidth: 660,
+                    complexWidth: 740,
+                    wideMinWidth: 740,
+                    wideMaxWidth: 940,
+                    boxWidth: 860,
+                    maxNaturalWidth: 1120,
+                    maxEstimatedHeight: 520,
+                    wideFontSize: '13.5px',
+                    normalFontSize: '14px',
                 }
                 : {
-                    baseWidth: 960,
-                    compactWidth: 740,
-                    tallWidth: 940,
-                    complexWidth: 1040,
-                    wideMinWidth: 1120,
-                    wideMaxWidth: 1440,
-                    boxWidth: 1080,
-                    maxNaturalWidth: 1680,
-                    maxEstimatedHeight: 780,
-                    wideFontSize: '18px',
-                    normalFontSize: '19px',
+                    baseWidth: 720,
+                    compactWidth: 560,
+                    tallWidth: 700,
+                    complexWidth: 800,
+                    wideMinWidth: 800,
+                    wideMaxWidth: 1020,
+                    boxWidth: 920,
+                    maxNaturalWidth: 1240,
+                    maxEstimatedHeight: 580,
+                    wideFontSize: '13.5px',
+                    normalFontSize: '14px',
                 };
             const naturalWidth = Math.max(320, Math.min(width || 720, profile.maxNaturalWidth));
             const naturalHeight = Math.max(180, Math.min(height || 520, 2200));
@@ -860,6 +1124,21 @@ function displayMarkdown(markdown, containerId) {
             });
         }
 
+        function stabilizeRenderedMermaid(holder, svgEl) {
+            if (!holder || !svgEl) return;
+            window.requestAnimationFrame(() => {
+                if (!holder.isConnected || !svgEl.isConnected) return;
+                centerMermaidLabels(svgEl, holder);
+                const rect = svgEl.getBoundingClientRect();
+                if ((rect.width < 4 || rect.height < 4) && holder.dataset.diagramContext === 'methodology') {
+                    svgEl.style.width = 'var(--diagram-width, 720px)';
+                    svgEl.style.minWidth = 'var(--diagram-width, 720px)';
+                    svgEl.style.maxWidth = 'none';
+                }
+                centerScrollableMermaid(holder);
+            });
+        }
+
         function ensureDiagramLightbox() {
             const existing = document.getElementById('diagramLightbox');
             if (existing) return existing;
@@ -907,8 +1186,8 @@ function displayMarkdown(markdown, containerId) {
             }
             const rect = sourceNode.getBoundingClientRect();
             const sourceWidth = Math.max(rect.width || 0, sourceNode.clientWidth || 0);
-            // В lightbox показываем диаграмму на треть больше текущего размера, без резкого скачка до фиксированной ширины.
-            return Math.round(Math.max(360, Math.min(sourceWidth * 4 / 3, 1800)));
+            // Lightbox должен помогать рассмотреть детали, а не превращать схему в огромный холст.
+            return Math.round(Math.max(420, Math.min(sourceWidth * 1.12, 1040)));
         }
 
         function openDiagramLightbox(sourceNode, caption = '') {
@@ -979,11 +1258,37 @@ function displayMarkdown(markdown, containerId) {
                 '.nodeLabel, .edgeLabel, .label, foreignObject div, foreignObject span'
             );
             labelNodes.forEach(label => {
+                const isEdgeLabel = Boolean(label.closest?.('.edgeLabel'));
                 label.style.textAlign = 'center';
-                label.style.lineHeight = '1.28';
-                label.style.whiteSpace = 'normal';
+                label.style.lineHeight = '1.22';
+                label.style.whiteSpace = isEdgeLabel ? 'nowrap' : 'normal';
+                label.style.wordBreak = isEdgeLabel ? 'keep-all' : 'normal';
+                label.style.overflowWrap = 'normal';
+                label.style.hyphens = 'none';
                 label.style.fontSize = fontSize;
                 label.style.fontWeight = '600';
+                if (label.closest('foreignObject')) {
+                    label.style.display = 'flex';
+                    label.style.alignItems = 'center';
+                    label.style.justifyContent = 'center';
+                    label.style.width = isEdgeLabel ? 'auto' : '100%';
+                    label.style.minWidth = isEdgeLabel ? 'max-content' : '';
+                    label.style.height = '100%';
+                    label.style.boxSizing = 'border-box';
+                    label.style.padding = '0 6px';
+                }
+                label.querySelectorAll?.('p').forEach(paragraph => {
+                    paragraph.style.margin = '0';
+                    paragraph.style.textAlign = 'center';
+                    paragraph.style.lineHeight = '1.22';
+                    paragraph.style.wordBreak = isEdgeLabel ? 'keep-all' : 'normal';
+                    paragraph.style.overflowWrap = 'normal';
+                    paragraph.style.hyphens = 'none';
+                    if (isEdgeLabel) {
+                        paragraph.style.whiteSpace = 'nowrap';
+                        paragraph.style.minWidth = 'max-content';
+                    }
+                });
             });
         }
 
@@ -1096,10 +1401,19 @@ function displayMarkdown(markdown, containerId) {
          * Ориентируемся на MathJax v3 (typesetPromise), с fallback на typeset.
          * Дожидается загрузки MathJax, если он еще не готов.
          */
-        function typesetMathJax(root) {
-            if (!root) return;
+        function typesetMathJax(root, renderToken = '') {
+            if (!root) return Promise.resolve();
+            if (!isMarkdownRenderCurrent(root, renderToken)) return Promise.resolve();
+            if (!rootHasMath(root) && !(window.MathJax && window.MathJax.startup)) {
+                normalizeMathBlocks(root);
+                return Promise.resolve();
+            }
 
             const waitForMathJax = resolve => {
+                if (!isMarkdownRenderCurrent(root, renderToken)) {
+                    resolve();
+                    return;
+                }
                 if (window.MathJax && window.MathJax.startup && window.MathJax.startup.promise) {
                     window.MathJax.startup.promise.then(() => resolve()).catch(resolve);
                     return;
@@ -1111,8 +1425,13 @@ function displayMarkdown(markdown, containerId) {
                 setTimeout(() => waitForMathJax(resolve), 100);
             };
 
-            new Promise(waitForMathJax)
+            return ensureMathJaxLoaded()
+                .catch(err => {
+                    console.error('[MathJax] Библиотека не загрузилась:', err);
+                })
+                .then(() => new Promise(waitForMathJax))
                 .then(() => {
+                    if (!isMarkdownRenderCurrent(root, renderToken)) return;
                     const mj = window.MathJax;
                     if (!mj) return;
                     if (typeof mj.typesetPromise === 'function') {
@@ -1123,10 +1442,13 @@ function displayMarkdown(markdown, containerId) {
                     }
                 })
                 .catch(err => {
+                    if (ignoreStaleRenderError(err, root, renderToken, 'MathJax')) return;
                     console.error('[MathJax] Ошибка обработки формул:', err);
                 })
                 .finally(() => {
-                    normalizeMathBlocks(root);
+                    if (isMarkdownRenderCurrent(root, renderToken)) {
+                        normalizeMathBlocks(root);
+                    }
                 });
         }
 
@@ -1134,6 +1456,8 @@ function displayMarkdown(markdown, containerId) {
             window.ContentGenMarkdownRendering = {
                 displayMarkdown,
                 renderMarkdownPreview,
+                isMarkdownRenderCurrent,
+                ignoreStaleRenderError,
                 normalizeMarkdownForDisplay,
                 renderMermaidDiagrams,
                 wrapMarkdownTables,

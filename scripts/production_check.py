@@ -16,9 +16,20 @@ REQUIRED_ENV_KEYS = {
     "DATABASE_URL",
     "JWT_SECRET_KEY",
 }
-LLM_ENV_KEYS = {
-    "OPENAI_API_KEY",
-    "AZURE_OPENAI_API_KEY",
+PROVIDER_REQUIRED_ENV_KEYS = {
+    "openrouter": ("OPEN_ROUTER_API_KEY", "OPENROUTER_API_KEY"),
+    "openai": ("OPENAI_API_KEY",),
+    "azure": ("AZURE_OPENAI_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "gigachat": ("GIGACHAT_CREDENTIALS", "GIGACHAT_API_KEY"),
+}
+PROVIDER_ENV_PREFIXES = {
+    "OPEN_ROUTER_": "openrouter",
+    "OPENROUTER_": "openrouter",
+    "OPENAI_": "openai",
+    "AZURE_OPENAI_": "azure",
+    "DEEPSEEK_": "deepseek",
+    "GIGACHAT_": "gigachat",
 }
 SECRET_KEY_PARTS = ("KEY", "TOKEN", "SECRET", "PASSWORD")
 OPTIONAL_EMPTY_DEFAULT_KEYS = {"MERMAID_CLI_PATH", "METHODOLOGY_HUMAN_CHECKPOINTS", "REDIS_URL"}
@@ -120,13 +131,36 @@ def _is_optional_missing_key(key: str, env: dict[str, str]) -> bool:
     """Return True for optional provider/config keys that may be absent locally."""
     if key in OPTIONAL_MISSING_ENV_KEYS:
         return True
-    if key.startswith(("DEEPSEEK_", "GIGACHAT_")):
+    active_provider = _active_llm_provider(env)
+    provider = _provider_for_env_key(key)
+    if provider and provider != active_provider:
+        return True
+    if provider == active_provider and key not in PROVIDER_REQUIRED_ENV_KEYS.get(provider, ()):
         return True
     if key.startswith("OPENAI_") and key.endswith("_MODEL"):
         return True
     if key.startswith("LANGFUSE_") and not _langfuse_is_requested(env):
         return True
     return False
+
+
+def _active_llm_provider(env: dict[str, str]) -> str:
+    """Return configured LLM provider; OpenRouter is the production default."""
+    raw_provider = env.get("LLM_PROVIDER", "").strip()
+    if raw_provider:
+        return raw_provider.lower().replace("open_router", "openrouter")
+    for provider, keys in PROVIDER_REQUIRED_ENV_KEYS.items():
+        if any(not _is_placeholder(env.get(key, "")) for key in keys):
+            return provider
+    return "openrouter"
+
+
+def _provider_for_env_key(key: str) -> str | None:
+    """Map provider-prefixed env keys to the provider that owns them."""
+    for prefix, provider in PROVIDER_ENV_PREFIXES.items():
+        if key.startswith(prefix):
+            return provider
+    return None
 
 
 def check_env_files(
@@ -200,8 +234,11 @@ def check_env_files(
     if missing_required:
         report.error(f"Required production env values are empty/placeholders: {', '.join(missing_required)}")
 
-    if not any(not _is_placeholder(env.get(key, "")) for key in LLM_ENV_KEYS):
-        report.error("No production LLM API key configured: set OPENAI_API_KEY or AZURE_OPENAI_API_KEY")
+    active_provider = _active_llm_provider(env)
+    active_provider_keys = PROVIDER_REQUIRED_ENV_KEYS.get(active_provider, ())
+    if not any(not _is_placeholder(env.get(key, "")) for key in active_provider_keys):
+        names = " or ".join(active_provider_keys) or "a provider API key"
+        report.error(f"No production LLM API key configured for provider '{active_provider}': set {names}")
 
     _check_database_url(report, env.get("DATABASE_URL", ""))
     _check_methodology_env(report, env.get("METHODOLOGY_GATE_MODE", "observe"), env.get("METHODOLOGY_HUMAN_CHECKPOINTS", ""))

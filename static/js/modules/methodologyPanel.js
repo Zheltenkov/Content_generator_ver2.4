@@ -977,25 +977,47 @@
     function hydrateCheckpointMarkdown(root) {
         if (!root) return;
         root.querySelectorAll('.methodology-markdown-preview').forEach((node, fallbackIndex) => {
-            hydrateMarkdownPreviewNode(node, fallbackIndex);
+            if (isVisibleMarkdownPreview(node)) {
+                hydrateMarkdownPreviewNode(node, fallbackIndex);
+            }
         });
+    }
+
+    function isVisibleMarkdownPreview(node) {
+        if (!node) return false;
+        const pane = node.closest('.methodology-markdown-pane');
+        if (pane && pane.style.display === 'none') return false;
+        return !!(node.offsetParent || node.getClientRects().length);
     }
 
     function hydrateMarkdownPreviewNode(node, fallbackIndex = 0) {
         if (!node) return;
+        if (!isVisibleMarkdownPreview(node)) return;
         const rawIndex = node.getAttribute('data-markdown-index');
         const index = rawIndex === null ? fallbackIndex : Number(rawIndex);
         const markdown = checkpointMarkdownBlocks[index] || '';
+        const renderKey = `${index}:${markdown.length}:${markdown.slice(0, 40)}`;
+        if (node.dataset.markdownRenderedKey === renderKey && !node.querySelector('.methodology-markdown-fallback')) {
+            return;
+        }
         if (typeof window.renderMarkdownPreview === 'function') {
-            window.renderMarkdownPreview(node, markdown, {
-                emptyMessage: 'Markdown-фрагмент пуст.',
-                diagramContext: 'methodology',
+            node.dataset.markdownRenderedKey = renderKey;
+            window.requestAnimationFrame(() => {
+                window.requestAnimationFrame(() => {
+                    if (!isVisibleMarkdownPreview(node)) return;
+                    window.renderMarkdownPreview(node, markdown, {
+                        emptyMessage: 'Markdown-фрагмент пуст.',
+                        diagramContext: 'methodology',
+                    });
+                });
             });
             return;
         }
 
         setTimeout(() => {
             if (typeof window.renderMarkdownPreview === 'function') {
+                if (!isVisibleMarkdownPreview(node)) return;
+                node.dataset.markdownRenderedKey = renderKey;
                 window.renderMarkdownPreview(node, markdown, {
                     emptyMessage: 'Markdown-фрагмент пуст.',
                     diagramContext: 'methodology',

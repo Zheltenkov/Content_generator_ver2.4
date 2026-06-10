@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -7,8 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
         window.MathJax = window.MathJax || {
             tex: {
@@ -34,20 +32,20 @@
             }
         };
     </script>
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260518-diagram-labels">
     <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-buttons.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
-    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260516-methodology-fragment-fix">
+    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260520-methodology-diagram-stability">
     <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
     <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260514-header-fix">
     <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
     <link rel="stylesheet" href="/static/css/s21-metrics.css?v=20260514-split3">
-    <link rel="stylesheet" href="/static/css/s21-checker.css?v=20260514-header-fix">
+    <link rel="stylesheet" href="/static/css/s21-checker.css?v=20260518-diagram-polish">
     <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
+    <script src="/static/js/utils/pagePrefetch.js?v=20260518-page-prefetch-lite" defer></script>
 </head>
 <body class="s21-product page-checker">
     <header class="dashboard-header dashboard-header--menu checker-topbar">
@@ -67,12 +65,12 @@
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-model-picker" data-selected-model="gpt">
+            <div class="dashboard-model-picker" data-selected-model="openrouter">
                 <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
                     <span aria-hidden="true">ИИ</span>
                 </button>
                 <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
-                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="openrouter" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">openrouter</button>
                     <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
                     <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
                 </div>
@@ -100,8 +98,8 @@
                     <h2>Проверка README</h2>
                     <p class="s21-page-hint">Загрузите README.md и получите разбор по 39 критериям.</p>
 
-                    <div class="file-upload checker-file-card" onclick="document.getElementById('readmeFile').click()">
-                        <input type="file" id="readmeFile" accept=".md" onchange="handleReadmeFileSelect(event)">
+                    <div class="file-upload checker-file-card" onclick="if (event.target.tagName !== 'INPUT') document.getElementById('readmeFile').click()">
+                        <input type="file" id="readmeFile" accept=".md" onclick="event.stopPropagation()" onchange="handleReadmeFileSelect(event)">
                         <span class="generator-upload-icon"></span>
                         <span>
                             <strong id="checkerReadmeUploadTitle">Загрузить README.md</strong>
@@ -132,8 +130,8 @@
                         </div>
                         <div class="expander-content" id="checkerCurriculumExpander">
                             <p class="s21-field-hint">Если загрузите УП и выберете проект, при улучшении README данные подтянутся из учебного плана. Иначе они будут извлечены из README.</p>
-                            <div class="file-upload s21-accent-upload checker-file-card small" onclick="document.getElementById('checkerCurriculumFile').click()">
-                                <input type="file" id="checkerCurriculumFile" accept=".csv" onchange="handleCheckerCurriculumUpload(event)">
+                            <div class="file-upload s21-accent-upload checker-file-card small" onclick="if (event.target.tagName !== 'INPUT') document.getElementById('checkerCurriculumFile').click()">
+                                <input type="file" id="checkerCurriculumFile" accept=".csv" onclick="event.stopPropagation()" onchange="handleCheckerCurriculumUpload(event)">
                                 <span class="generator-upload-icon"></span>
                                 <span>
                                     <strong>Загрузить CSV учебного плана</strong>
@@ -159,7 +157,6 @@
                         <button class="btn btn-secondary" onclick="clearCheckerResults()">Очистить результат</button>
                         <button class="btn" id="checkBtn" onclick="checkReadme()">✓ Проверить README</button>
                     </div>
-                    <button class="btn btn-secondary" id="clearResultsBtn" onclick="clearCheckerResults()" style="display: none;">Очистить результат</button>
                 </section>
 
                 <section id="checkerRunSnapshot" class="generation-run-snapshot" style="display: none;" aria-label="Параметры запуска улучшения">
@@ -305,17 +302,18 @@
         </div>
     </div>
 
-    <script src="/static/js/modules/markdownRendering.js?v=20260516-methodology-fragment-fix"></script>
+    <script src="/static/js/modules/markdownRendering.js?v=20260520-methodology-diagram-stability"></script>
     <script src="/static/js/modules/generationRunView.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPolling.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
     <script src="/static/js/modules/curriculumForm.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationFormState.js?v=20260514-model-switch"></script>
-    <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
+    <script src="/static/js/modules/metricsView.js?v=20260518-checker-filter-state"></script>
     <script src="/static/js/modules/translationPage.js?v=20260514-video-progress"></script>
-    <script src="/static/js/main.js?v=20260514-model-switch"></script>
-    <script src="/static/js/modules/checkerReadmePreview.js?v=20260514-split"></script>
+    <script src="/static/js/utils/authSession.js?v=20260518-auth-session"></script>
+    <script src="/static/js/main.js?v=20260518-diagram-compact"></script>
+    <script src="/static/js/modules/checkerReadmePreview.js?v=20260518-checker-diagram-fit"></script>
     <script src="/static/js/modules/checkerDiffView.js?v=20260514-split"></script>
     <script src="/static/js/modules/checkerMetricsSwitch.js?v=20260514-split"></script>
     <script src="/static/js/modules/checkerCurriculumState.js?v=20260514-split2"></script>
@@ -344,7 +342,7 @@
                     <div class="checker-improvement-stepper" aria-label="Шаги улучшения README">
                         <div class="checker-step active"><span>1</span><span>Основное</span></div>
                         <div class="checker-step"><span>2</span><span>Параметры проекта</span></div>
-                        <div class="checker-step"><span>3</span><span>ЗУНы и навыки</span></div>
+                        <div class="checker-step"><span>3</span><span>Результаты и навыки</span></div>
                         <div class="checker-step"><span>4</span><span>Бонус и репозиторий</span></div>
                     </div>
                     <form id="improvementForm" class="checker-modal-grid">
@@ -443,10 +441,10 @@
                             <small class="s21-field-hint">Если не указано, будет определено автоматически</small>
                         </div>
                         
-                        <!-- ЗУНы (Знания, Умения, Навыки) -->
+                        <!-- Дополнительный учебный контекст -->
                         <div class="form-group wide">
-                            <label>ЗУНы (Знания, Умения, Навыки)</label>
-                            <textarea id="improveZUN" rows="6" placeholder="Опишите подробно знания, умения и навыки, которые должны быть отражены в проекте. Это поле используется как дополнительная информация при генерации."></textarea>
+                            <label>Дополнительный учебный контекст</label>
+                            <textarea id="improveZUN" rows="6" placeholder="Опишите результаты обучения, навыки, темы или ограничения, которые важно учесть в проекте."></textarea>
                             <small class="s21-field-hint">Если заполнено, будет использовано как дополнительная информация при генерации</small>
                         </div>
                         
@@ -497,3 +495,4 @@
     </div>
 </body>
 </html>
+

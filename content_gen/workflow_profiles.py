@@ -95,8 +95,8 @@ METHODOLOGY_WORKFLOW_PROFILE = WorkflowProfile(
     stages=list(GENERATION_STAGE_IDS),
     gates=[WorkflowGate(after_stage=stage_id) for stage_id in METHODOLOGY_GATE_STAGE_IDS],
     capabilities=WorkflowCapabilities(
-        project_regeneration=False,
-        section_regeneration=False,
+        project_regeneration=True,
+        section_regeneration=True,
         methodology_assistant=True,
         stage_review=True,
         final_readme_editing=True,

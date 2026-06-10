@@ -45,6 +45,14 @@ def test_supports_structured_outputs(structured_client):
     structured_client.llm.model = "gpt-4o-mini"
     assert structured_client._supports_structured_outputs() is True
 
+    # OpenRouter-маршрут к модели OpenAI тоже поддерживает JSON schema.
+    structured_client.llm.model = "openrouter/openai/gpt-5.4-mini"
+    assert structured_client._supports_structured_outputs() is True
+
+    # GPT 5.4 mini используется как дефолтная OpenRouter-модель.
+    structured_client.llm.model = "gpt-5.4-mini"
+    assert structured_client._supports_structured_outputs() is True
+
     # gpt-4o поддерживает
     structured_client.llm.model = "gpt-4o"
     assert structured_client._supports_structured_outputs() is True

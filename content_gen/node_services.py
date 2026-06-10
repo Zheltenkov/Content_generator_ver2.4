@@ -510,6 +510,7 @@ class PracticeNodeService:
         md = phase_result.markdown
         readme_document = phase_result.readme_document
         practice_tasks = phase_result.practice_tasks
+        bonus_tasks = list(getattr(phase_result, "bonus_tasks", []) or [])
         practice_issues = phase_result.issues
         practice_warnings = phase_result.warnings
 
@@ -539,6 +540,7 @@ class PracticeNodeService:
                 "evidence_specs": evidence_specs,
                 "dataset_files": dataset_files,
                 "practice_tasks": practice_tasks,
+                "bonus_tasks": bonus_tasks,
             }
         )
         _merge_runtime_fallback_traces(flow_context, self.runtime_state)
@@ -556,6 +558,7 @@ class PracticeNodeService:
                 or []
             ),
             practice_tasks=list(practice_tasks or []),
+            bonus_tasks=bonus_tasks,
             blueprint=blueprint,
             artifact_chain_plan=artifact_chain_plan,
             evidence_specs=evidence_specs,

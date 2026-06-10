@@ -22,9 +22,9 @@ def _minimal_seed(**overrides) -> dict:
 
 
 def test_project_seed_accepts_supported_llm_provider() -> None:
-    seed = ProjectSeed(**_minimal_seed(llm_provider="deepseek"))
+    seed = ProjectSeed(**_minimal_seed(llm_provider="openrouter"))
 
-    assert seed.llm_provider == "deepseek"
+    assert seed.llm_provider == "openrouter"
 
 
 def test_project_seed_rejects_unknown_llm_provider() -> None:

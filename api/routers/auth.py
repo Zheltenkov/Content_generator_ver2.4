@@ -22,6 +22,7 @@ from api.utils.email_service import get_password_reset_email_html, get_welcome_e
 from api.utils.logger import get_logger
 
 ALLOWED_EMAIL_DOMAIN = os.getenv("ALLOWED_EMAIL_DOMAIN", "21-school.ru")
+UNREGISTERED_LOGIN_MESSAGE = "Вы не зарегестрированы используйте домен школы 21"
 
 
 def _ensure_allowed_domain(email: str) -> str:
@@ -132,14 +133,24 @@ async def login(
     Raises:
         HTTPException: Если пароль неверный или произошла ошибка
     """
-    # Ищем пользователя по email
-    user = db.query(User).filter(User.email == request.email.lower()).first()
+    # Нормализуем email один раз, чтобы поиск и проверка домена были предсказуемыми.
+    normalized_email = request.email.lower()
+
+    if not normalized_email.endswith(f"@{ALLOWED_EMAIL_DOMAIN}"):
+        logger.warning("⚠️ Попытка входа с неразрешенным доменом: %s", request.email)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=UNREGISTERED_LOGIN_MESSAGE,
+        )
+
+    # Ищем пользователя по email.
+    user = db.query(User).filter(User.email == normalized_email).first()
 
     if not user:
         logger.warning(f"⚠️ Попытка входа с несуществующим email: {request.email}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный email или пароль"
+            detail=UNREGISTERED_LOGIN_MESSAGE,
         )
 
     # Проверяем блокировку
@@ -334,6 +345,19 @@ async def logout(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Невалидный токен"
         )
+
+
+@router.get("/auth/me")
+async def current_user_profile(
+    user: dict = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Возвращает текущего пользователя, если bearer-токен и серверная сессия валидны."""
+    return {
+        "id": user.get("id"),
+        "username": user.get("username"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+    }
 
 
 @router.get("/sessions")

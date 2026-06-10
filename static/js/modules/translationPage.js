@@ -1,4 +1,4 @@
-// Translation screen controller.
+﻿// Translation screen controller.
 // Keeps README/video translation state out of main.js while preserving legacy window functions.
 
         function setTranslationText(id, value) {
@@ -24,6 +24,7 @@
             validate: 'Проверка структуры и языка...',
             repair_retry_1: 'Повторный перевод (попытка 2)...',
             repair_retry_2: 'Повторный перевод (попытка 3)...',
+            build_docx: 'Сборка DOCX...',
             queued: 'В очереди...',
             extract_audio: 'Извлечение аудио...',
             chunk_audio: 'Разбиение аудио...',
@@ -46,6 +47,7 @@
             validate: 80,
             repair_retry_1: 40,
             repair_retry_2: 60,
+            build_docx: 92,
             build_subtitles: 75,
             build_srt: 90,
             render_video: 90,
@@ -69,11 +71,26 @@
             return translationPhaseLabel(phase).replace(/\.\.\.$/, '');
         }
 
-function updateTranslationSummary(kind = 'document', statusText = 'Готово') {
+        function currentTranslationLanguageCode() {
             const langSelect = document.getElementById('translationLanguage');
-            const language = (langSelect && langSelect.value ? langSelect.value.toUpperCase() : 'EN');
-            setTranslationText('translationSummaryMode', kind === 'video' ? 'Видео' : 'Документ');
+            return (langSelect && langSelect.value ? langSelect.value : 'en').toUpperCase();
+        }
+
+        function syncTranslationLanguageBadges() {
+            const language = currentTranslationLanguageCode();
             setTranslationText('translationSummaryLanguage', `RU → ${language}`);
+            setTranslationText('translationTargetLanguageBadge', `✓ ${language} · ПЕРЕВОД`);
+            const mirror = document.getElementById('translationLanguageMirror');
+            const source = document.getElementById('translationLanguage');
+            if (mirror && source && mirror.value !== source.value) {
+                mirror.value = source.value || 'en';
+            }
+            return language;
+        }
+
+        function updateTranslationSummary(kind = 'document', statusText = 'Готово') {
+            const language = syncTranslationLanguageBadges();
+            setTranslationText('translationSummaryMode', kind === 'video' ? 'Видео' : 'Документ');
             setTranslationText('translationSummaryStatus', statusText);
             const brandBadge = document.getElementById('translationBrandBadge');
             const brandMark = document.getElementById('translationBrandMark');
@@ -94,6 +111,7 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
         let translationJobType = 'readme';
         let translationRenderAsMarkdown = false;
         let translationSelectedDocumentFile = null;
+        let translationDocumentDownloadType = 'markdown';
         const TRANSLATION_VIDEO_DOWNLOAD_ORDER = ['video', 'vtt', 'srt', 'ass', 'transcript'];
         const TRANSLATION_VIDEO_DOWNLOAD_LABELS = {
             video: 'Скачать видео с переводом',
@@ -182,9 +200,14 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
             translationJobType = 'readme';
             translationRenderAsMarkdown = false;
             translationSelectedDocumentFile = null;
+            translationDocumentDownloadType = 'markdown';
 
             const mdBtn = document.getElementById('downloadTranslatedMarkdownBtn');
-            if (mdBtn) mdBtn.style.display = 'inline-block';
+            if (mdBtn) {
+                mdBtn.style.display = 'inline-block';
+                mdBtn.textContent = '↓ Скачать';
+                mdBtn.onclick = downloadTranslatedMarkdown;
+            }
 
             const noResults = document.getElementById('translationNoResults');
             const resultsArea = document.getElementById('translationResultsArea');
@@ -213,7 +236,8 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
             const brandBadge = document.getElementById('translationBrandBadge');
             const brandMark = document.getElementById('translationBrandMark');
             if (brandBadge) brandBadge.setAttribute('data-step', '05.1');
-            if (brandMark) brandMark.textContent = 'ПЕРЕВОД ДОКУМЕНТА · RU → EN';
+            syncTranslationLanguageBadges();
+            if (brandMark) brandMark.textContent = `ПЕРЕВОД ДОКУМЕНТА · RU → ${currentTranslationLanguageCode()}`;
             updateTranslationSummary('document', 'Ожидает запуска');
         }
 
@@ -511,7 +535,7 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                         body: JSON.stringify({
                             markdown: sourceMarkdown,
                             target_language: targetLanguage,
-                            llm_provider: window.getSelectedLlmProvider?.() || 'openai',
+                            llm_provider: window.getSelectedLlmProvider?.() || 'openrouter',
                             translation_mode: translationMode
                         })
                     });
@@ -543,7 +567,28 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                 translationPollInterval = setInterval(async () => {
                     try {
                         const statusResponse = await fetch(`${getTranslationApiUrl()}/translate/status/${requestId}`, { headers: getTranslationAuthHeaders() });
-                        if (!statusResponse.ok) return;
+                        if (!statusResponse.ok) {
+                            stopTranslationPolling();
+                            let errMsg = statusResponse.status === 404
+                                ? 'Задача перевода не найдена. Запустите перевод заново.'
+                                : `Не удалось получить статус перевода: ${statusResponse.status}`;
+                            try {
+                                const errJson = await statusResponse.json();
+                                if (errJson && errJson.detail) errMsg = errJson.detail;
+                            } catch {
+                                // Ignore parse errors and keep the status-based fallback.
+                            }
+                            updateTranslationSummary(isVideoMode ? 'video' : 'document', 'Ошибка обработки');
+                            if (status) {
+                                if (window.sanitize) {
+                                    window.sanitize.safeSetErrorMessage(status, `Ошибка перевода: ${errMsg}`);
+                                } else {
+                                    status.innerHTML = `<div class="error-msg">Ошибка перевода: ${errMsg}</div>`;
+                                }
+                            }
+                            if (window.toast) window.toast.error(errMsg);
+                            return;
+                        }
                         const job = await statusResponse.json();
                         const s = job.status;
                         const phase = job.phase || (isVideoMode ? 'extract_audio' : 'translate');
@@ -555,8 +600,10 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                             const isVideoResult = job.job_type === 'video';
                             translationJobType = isVideoResult ? 'video' : 'document';
                             updateTranslationSummary(isVideoResult ? 'video' : 'document', 'Готово');
+                            const hasDocxArtifact = !!(job.result_links && job.result_links.docx);
+                            translationDocumentDownloadType = hasDocxArtifact ? 'docx' : 'markdown';
                             if (!isVideoResult && job.source_filename) {
-                                translationFileName = String(job.source_filename).replace(/\.[^.]+$/, '') + '_translated.md';
+                                translationFileName = String(job.source_filename).replace(/\.[^.]+$/, '') + (hasDocxArtifact ? '_translated.docx' : '_translated.md');
                             }
                             translationOriginalMarkdown = isVideoResult ? (job.original_transcript || '') : (job.original_markdown || sourceMarkdown);
                             translationTranslatedMarkdown = isVideoResult ? (job.translated_subtitles || '') : (job.translated_markdown || sourceMarkdown);
@@ -564,6 +611,12 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                             const noResults = document.getElementById('translationNoResults');
                             const resultsArea = document.getElementById('translationResultsArea');
                             const mdBtn = document.getElementById('downloadTranslatedMarkdownBtn');
+                            if (mdBtn) {
+                                mdBtn.textContent = hasDocxArtifact ? '↓ Скачать DOCX' : '↓ Скачать';
+                                mdBtn.onclick = hasDocxArtifact
+                                    ? function() { downloadTranslationArtifact(translationCurrentRequestId, 'docx'); }
+                                    : downloadTranslatedMarkdown;
+                            }
                             if (isVideoResult) {
                                 activateTranslationVideoScreen();
                                 resetTranslationVideoResultPanel();
@@ -648,6 +701,10 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
         }
 
         function downloadTranslatedMarkdown() {
+            if (translationDocumentDownloadType === 'docx' && translationCurrentRequestId) {
+                downloadTranslationArtifact(translationCurrentRequestId, 'docx');
+                return;
+            }
             if (!translationTranslatedMarkdown) {
                 alert('Нет переведённого текста для скачивания. Сначала выполните перевод.');
                 return;
@@ -700,7 +757,7 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
             formData.append('file', file);
             formData.append('target_language', targetLanguage);
             formData.append('translation_mode', translationMode || 'literal');
-            formData.append('llm_provider', window.getSelectedLlmProvider?.() || 'openai');
+            formData.append('llm_provider', window.getSelectedLlmProvider?.() || 'openrouter');
 
             const headers = { ...(getTranslationAuthHeaders() || {}) };
             Object.keys(headers).forEach((key) => {
@@ -788,7 +845,7 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                 formData.append('target_language', targetLanguage);
                 formData.append('output_mode', outputMode);
                 formData.append('subtitle_style', subtitleStyle);
-                formData.append('llm_provider', window.getSelectedLlmProvider?.() || 'openai');
+                formData.append('llm_provider', window.getSelectedLlmProvider?.() || 'openrouter');
 
                 xhr.send(formData);
             });
@@ -811,6 +868,7 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                 if (filename.indexOf('.') < 0 && type === 'vtt') filename = 'subtitles.vtt';
                 if (filename.indexOf('.') < 0 && type === 'srt') filename = 'subtitles.srt';
                 if (filename.indexOf('.') < 0 && type === 'ass') filename = 'subtitles.ass';
+                if (filename.indexOf('.') < 0 && type === 'docx') filename = translationFileName || 'document_translated.docx';
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
@@ -840,6 +898,8 @@ function updateTranslationSummary(kind = 'document', statusText = 'Готово'
                 startDocumentTranslationUpload,
                 startVideoTranslationUpload,
                 updateTranslationSummary,
+                syncTranslationLanguageBadges,
             });
         }
+
 

@@ -87,7 +87,7 @@
                 
                 <div class="auth-create-account">
                     <span>Нет аккаунта?</span>
-                    <a href="/register">Создать аккаунт</a>
+                    <a href="/register" id="createAccountLink">Создать аккаунт</a>
                 </div>
             </div>
         </section>
@@ -96,6 +96,15 @@
     <script>
         const API_BASE = window.location.origin;
         const API_URL = `${API_BASE}/api/v1`;
+        const UNREGISTERED_LOGIN_MESSAGE = 'Вы не зарегестрированы используйте домен школы 21';
+        const createAccountLink = document.getElementById('createAccountLink');
+
+        if (createAccountLink) {
+            createAccountLink.addEventListener('click', (event) => {
+                event.preventDefault();
+                window.location.assign('/register');
+            });
+        }
         
         // Проверяем, есть ли уже сохраненный токен
         const savedToken = localStorage.getItem('auth_token');
@@ -156,7 +165,7 @@
                     let errorDetail = 'Ошибка входа';
                     try {
                         const errorData = await response.json();
-                        errorDetail = errorData.detail || errorData.message || `Ошибка ${response.status}`;
+                        errorDetail = getErrorMessage(errorData, response.status);
                         console.error('Ошибка от сервера:', errorData);
                     } catch (e) {
                         // Если не удалось распарсить JSON, используем статус
@@ -212,6 +221,36 @@
                 btn.disabled = false;
                 btn.textContent = 'Войти';
             }
+        }
+
+        function getErrorMessage(errorData, status) {
+            const source = errorData?.detail ?? errorData?.message ?? errorData;
+
+            if (typeof source === 'string' && source.trim()) {
+                return source;
+            }
+
+            if (Array.isArray(source)) {
+                const messages = source
+                    .map(item => item?.msg || item?.message || item?.detail)
+                    .filter(Boolean);
+                if (messages.length > 0) {
+                    return messages.join('; ');
+                }
+            }
+
+            if (source && typeof source === 'object') {
+                const nested = source.message || source.detail || source.error;
+                if (typeof nested === 'string' && nested.trim()) {
+                    return nested;
+                }
+            }
+
+            if (status === 401) {
+                return UNREGISTERED_LOGIN_MESSAGE;
+            }
+
+            return `Ошибка ${status}`;
         }
         
         function showError(message) {

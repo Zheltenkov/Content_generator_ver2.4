@@ -67,6 +67,7 @@ class PracticePhaseResult:
     practice_tasks: list[PracticeTask]
     issues: list[Any]
     warnings: list[str]
+    bonus_tasks: list[PracticeTask] = field(default_factory=list)
     artifact_chain_plan: Any | None = None
     evidence_specs: list[Any] = field(default_factory=list)
     dataset_files: list[dict[str, Any]] = field(default_factory=list)

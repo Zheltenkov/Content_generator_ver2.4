@@ -1,320 +1,123 @@
-# API Документация
+# API
 
-## Связанная документация
+Базовый URL локально: `http://127.0.0.1:8000/api/v1`.
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) — общая архитектура системы
-- [DEPLOYMENT.md](DEPLOYMENT.md) — инструкции по развертыванию и настройке
-- [AGENTS.md](AGENTS.md) — описание агентной системы
-- [REVERSE_EXTRACTION.md](REVERSE_EXTRACTION.md) — система обратного извлечения данных из README
+Большинство endpoints требуют авторизацию через JWT:
 
-## Базовый URL
-
-```
-http://localhost:8000/api/v1
-```
-
-## Аутентификация
-
-Большинство endpoints требуют JWT токен в заголовке:
-
-```
+```http
 Authorization: Bearer <token>
 ```
 
-Получить токен можно через `/api/v1/auth/login`
+Исключения: healthcheck, статические страницы и auth endpoints.
 
-## Endpoints
+## Auth
 
-### Генерация контента
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| POST | `/auth/register` | Создать пользователя. Домен email ограничивается `ALLOWED_EMAIL_DOMAIN`. |
+| POST | `/auth/login` | Войти и получить access token. |
+| POST | `/auth/logout` | Завершить текущую сессию. |
+| GET | `/auth/auth/me` | Проверить текущего пользователя и валидность сессии. |
+| GET | `/auth/sessions` | Список активных сессий пользователя. |
+| POST | `/auth/forgot-password` | Запрос восстановления пароля. |
+| POST | `/auth/reset-password` | Сброс пароля по токену восстановления. |
 
-#### POST /generate
+Сообщение для незарегистрированного пользователя должно быть пользовательским, без `[object Object]`: “Вы не зарегистрированы. Используйте домен Школы 21.”
 
-Генерирует контент учебного проекта.
+## Генерация
 
-**Требует аутентификации:** Да
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| GET | `/dashboard/recent` | Последние запуски пользователя и активные задачи. |
+| POST | `/curriculum/upload` | Загрузить CSV учебного плана. |
+| POST | `/curriculum/build-context` | Собрать контекст проекта из curriculum данных. |
+| POST | `/generate` | Запустить генерацию проекта. |
+| GET | `/generate/status/{request_id}` | Получить статус, прогресс, checkpoint или результат. |
+| POST | `/generate/cancel/{request_id}` | Остановить запуск. |
+| POST | `/generate/workflow/{request_id}/command` | Resume/retry/cancel workflow command. |
+| GET | `/download/{request_id}` | Скачать архив результата. |
+| GET | `/metrics/{request_id}` | Получить статистику результата. |
+| GET | `/rubric/{request_id}` | Получить rubric report результата. |
 
-**Rate limit:** 10 запросов в минуту
+`POST /generate` принимает multipart form-data. Основной контракт передается в `seed_data` как JSON. Файлы используются как дополнительный контекст, но production-контекст проекта строится из curriculum payload.
 
-**Параметры:**
-- `track_files` (multipart/form-data, legacy, опционально) — сохраняется для совместимости; production-контекст берется из `seed_data.curriculum_context`
-- `seed_data` (JSON в form-data) — данные проекта:
-  ```json
-  {
-    "track": "string",
-    "project_type": "string",
-    "project_description": "string",
-    "learning_outcomes": ["string"],
-    "skills": ["string"],
-    "required_tools": ["string"],
-    "language": "ru|en|ky",
-    "bonus_wish": "string (опционально)"
-  }
-  ```
+Минимальные поля `seed_data`:
 
-**Ответ:**
 ```json
 {
-  "request_id": "uuid",
-  "status": "success|error",
-  "message": "string",
-  "markdown": "string (опционально)",
-  "report_json": {}
+  "project_type": "group",
+  "direction": "PjM",
+  "thematic_block": "Блок 2. Подготовка проекта",
+  "project_description": "Описание проекта",
+  "learning_outcomes": ["..."],
+  "skills": ["..."],
+  "storytelling": "Сценарий или SJM-контекст",
+  "storytelling_type": "sjm_practice"
 }
 ```
 
-**Пример:**
-```bash
-curl -X POST "http://localhost:8000/api/v1/generate" \
-  -H "Authorization: Bearer <token>" \
-  -F "seed_data={\"track\":\"Python\",\"project_type\":\"Practice\",...}" \
-  -F "track_files=@file1.md" \
-  -F "track_files=@file2.md"
-```
+Русский язык является основным языком генерации. Перевод выполняется отдельным post-processing этапом или через модуль перевода.
 
-### Перегенерация контента
+## Методологический режим
 
-#### POST /regenerate
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| GET | `/generate/review/{request_id}` | Получить текущую контрольную точку. |
+| POST | `/generate/review/{request_id}/approve` | Принять этап и продолжить генерацию. |
+| POST | `/generate/review/{request_id}/reject` | Отклонить этап. |
+| POST | `/generate/review/{request_id}/request-changes` | Отправить правку методолога. |
+| POST | `/generate/review/{request_id}/preview-changes` | Предпросмотр scoped revision. |
+| POST | `/generate/review/{request_id}/approve-diff` | Применить подготовленный diff. |
+| POST | `/generate/review/{request_id}/assistant-command` | Команда из чата методолога. |
 
-Перегенерирует часть контента на основе комментариев.
+Контрольные точки сохраняются в БД. После рестарта приложение должно показывать восстановимое состояние, а не бесконечный `running`.
 
-**Требует аутентификации:** Да
+## Перегенерация
 
-**Тело запроса:**
-```json
-{
-  "original_md": "string",
-  "comments": "string",
-  "language": "ru|en|ky"
-}
-```
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| POST | `/regenerate` | Точечная перегенерация выбранных частей README. |
 
-**Ответ:**
-```json
-{
-  "regenerated_md": "string",
-  "changes": ["string"],
-  "text_stats": {
-    "word_count": 0,
-    "char_count": 0
-  }
-}
-```
+Перегенерация работает schema-first:
 
-### Скачивание результатов
+1. UI передает выбранные секции и инструкции.
+2. Backend строит typed patch.
+3. Patch применяется детерминированно.
+4. README повторно валидируется.
+5. UI показывает validation report и diff.
 
-#### GET /download/{request_id}
+Правка одной секции не должна бесконтрольно менять соседние секции. Исключение — структурные зависимости: содержание, номера глав, ссылки и критерии.
 
-Скачивает результаты генерации по request_id.
+## Проверка README
 
-**Требует аутентификации:** Да
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| POST | `/readme/check` | Проверить README по рубрике. |
+| POST | `/readme/improve/extract` | Подготовить данные для улучшения README. |
+| POST | `/readme/improve/generate` | Запустить улучшение README. |
+| GET | `/readme/improve/status/{generation_request_id}` | Статус улучшения. |
+| GET | `/readme/improve/diff/{request_id}` | Diff улучшенной версии. |
+| GET | `/readme/improve/download/{generation_request_id}` | Скачать улучшенный README. |
 
-**Параметры:**
-- `request_id` (path) — ID запроса
-- `include_regenerated` (query, опционально) — включить перегенерированную версию
+## Перевод
 
-**Ответ:** ZIP архив с README и assets
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| POST | `/translate/readme` | Перевести Markdown/README. |
+| POST | `/translate/document` | Перевести загруженный документ. |
+| POST | `/translate/video` | Перевести видео и субтитры. |
+| GET | `/translate/status/{request_id}` | Статус перевода. |
+| GET | `/translate/download/{request_id}` | Скачать Markdown, видео, VTT, SRT, ASS или transcript. |
+| GET | `/translate/subtitles/{request_id}` | Получить субтитры. |
 
-### Health Check
+Лимит видео задается `MAX_VIDEO_SIZE_BYTES`. В актуальном `.env.example` значение — 500 MB.
 
-#### GET /health
+## Health
 
-Проверка здоровья сервиса.
+| Метод | Endpoint | Назначение |
+|---|---|---|
+| GET | `/health` | Проверка доступности приложения. |
 
-**Требует аутентификации:** Нет
+## Ошибки
 
-**Ответ:**
-```json
-{
-  "status": "healthy|unhealthy|degraded",
-  "checks": {
-    "database": {"status": "ok|error", "message": "string"},
-    "llm": {"status": "ok|warning", "available": true|false},
-    "resources": {
-      "memory_percent": 0.0,
-      "cpu_percent": 0.0
-    }
-  }
-}
-```
-
-### Метрики
-
-#### GET /metrics
-
-Получение метрик системы.
-
-**Требует аутентификации:** Да
-
-**Ответ:**
-```json
-{
-  "total_requests": 0,
-  "successful_requests": 0,
-  "failed_requests": 0,
-  "average_generation_time": 0.0,
-  "active_users": 0
-}
-```
-
-### Аутентификация
-
-#### POST /auth/login
-
-Вход в систему.
-
-**Требует аутентификации:** Нет
-
-**Тело запроса:**
-```json
-{
-  "username": "string",
-  "password": "string"
-}
-```
-
-**Ответ:**
-```json
-{
-  "access_token": "string",
-  "token_type": "bearer",
-  "user_id": "string",
-  "session_id": "string"
-}
-```
-
-### Административные функции
-
-#### GET /admin/stats/users
-
-Статистика по пользователям.
-
-**Требует аутентификации:** Да (админ)
-
-**Параметры:**
-- `days` (query, опционально) — количество дней (по умолчанию 7)
-
-**Ответ:**
-```json
-{
-  "total_users": 0,
-  "active_users": 0,
-  "total_requests": 0,
-  "requests_by_user": {}
-}
-```
-
-#### GET /admin/stats/requests
-
-Статистика по запросам.
-
-**Требует аутентификации:** Да (админ)
-
-**Параметры:**
-- `days` (query, опционально) — количество дней
-
-**Ответ:**
-```json
-{
-  "total_requests": 0,
-  "successful": 0,
-  "failed": 0,
-  "average_time": 0.0,
-  "requests_by_day": {}
-}
-```
-
-## Коды ошибок
-
-- `400` — Неверный запрос
-- `401` — Не авторизован
-- `403` — Доступ запрещен
-- `429` — Превышен rate limit
-- `500` — Внутренняя ошибка сервера
-
-## Rate Limiting
-
-- `/generate`: 10 запросов в минуту
-- Остальные endpoints: без ограничений (или по умолчанию)
-
-## WebSocket (если реализовано)
-
-Для отслеживания прогресса генерации можно использовать WebSocket (если реализовано).
-
-## Структура ответов
-
-### report_json
-
-Поле `report_json` в ответе `/generate` содержит:
-
-- `task_plan` — план практических задач (количество, сложность, обоснование)
-- `context` — метаданные контекста учебного плана (позиция проекта, соседние проекты, метрики сборки контекста)
-- `context_analysis` — результаты анализа контекста (выравнивание навыков, LO, инструментов)
-- `practice_critic_issues` — проблемы, найденные PracticeCriticAgent
-- `agent_config_versions` — версии конфигов агентов, использованных при генерации
-- `flow_trace` — трассировка выполнения AgentFlow (шаги, статусы, длительность)
-
-**Подробнее:** См. [ARCHITECTURE.md](ARCHITECTURE.md) и [AGENTS.md](AGENTS.md) для понимания структуры данных.
-
-## Примеры использования
-
-### Python
-
-```python
-import requests
-
-# Вход
-response = requests.post(
-    "http://localhost:8000/api/v1/auth/login",
-    json={"username": "user", "password": "pass"}
-)
-token = response.json()["access_token"]
-
-# Генерация
-headers = {"Authorization": f"Bearer {token}"}
-files = {"track_files": open("project.md", "rb")}
-data = {
-    "seed_data": {
-        "track": "Python",
-        "project_type": "Practice",
-        "project_description": "Описание проекта",
-        "learning_outcomes": ["Результат 1"],
-        "skills": ["Python"],
-        "language": "ru"
-    }
-}
-
-response = requests.post(
-    "http://localhost:8000/api/v1/generate",
-    headers=headers,
-    files=files,
-    data=data
-)
-result = response.json()
-```
-
-### JavaScript
-
-```javascript
-// Вход
-const loginResponse = await fetch('http://localhost:8000/api/v1/auth/login', {
-  method: 'POST',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({username: 'user', password: 'pass'})
-});
-const {access_token} = await loginResponse.json();
-
-// Генерация
-const formData = new FormData();
-formData.append('seed_data', JSON.stringify({
-  track: 'Python',
-  project_type: 'Practice',
-  // ...
-}));
-
-const response = await fetch('http://localhost:8000/api/v1/generate', {
-  method: 'POST',
-  headers: {'Authorization': `Bearer ${access_token}`},
-  body: formData
-});
-const result = await response.json();
-```
+API должен возвращать человекочитаемое сообщение в `detail` или `message`. UI не должен показывать пользователю raw exception, `[object Object]` или технический stack trace.

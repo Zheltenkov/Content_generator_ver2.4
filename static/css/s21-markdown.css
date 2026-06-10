@@ -271,10 +271,10 @@ body.s21-product .methodology-markdown-preview li.task-list-item > ol {
 
 body.s21-product .markdown-preview figure.diagram-figure {
   width: 100% !important;
-  max-width: 1120px !important;
+  max-width: 960px !important;
   min-width: 0 !important;
   overflow: hidden !important;
-  margin: 1.7rem auto 2.3rem !important;
+  margin: 1.45rem auto 2rem !important;
 }
 
 body.s21-product .markdown-preview figure.diagram-figure .mermaid-diagram,
@@ -287,13 +287,13 @@ body.s21-product .markdown-preview .mermaid {
   align-items: flex-start !important;
   justify-content: center !important;
   width: 100% !important;
-  max-width: min(var(--diagram-box-width, 1080px), 100%) !important;
+  max-width: min(var(--diagram-box-width, 920px), 100%) !important;
   min-width: 0 !important;
-  min-height: var(--diagram-min-height, 220px) !important;
-  max-height: none !important;
+  min-height: min(var(--diagram-min-height, 220px), 520px) !important;
+  max-height: min(560px, calc(100vh - 260px)) !important;
   margin: 0 auto !important;
-  padding: 1.15rem !important;
-  overflow: visible !important;
+  padding: 1rem !important;
+  overflow: auto !important;
   background: var(--s21-surface-2) !important;
   border: 1px solid var(--s21-border) !important;
   border-radius: var(--s21-radius-sm) !important;
@@ -306,7 +306,7 @@ body.s21-product .markdown-preview figure.diagram-figure .mermaid-diagram[data-d
 body.s21-product .markdown-preview .mermaid-diagram[data-diagram-overflow="scroll"],
 body.s21-product .markdown-preview .mermaid[data-diagram-overflow="scroll"] {
   overflow-x: auto !important;
-  overflow-y: hidden !important;
+  overflow-y: auto !important;
 }
 
 body.s21-product .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-size="compact"],
@@ -316,7 +316,7 @@ body.s21-product .markdown-preview .mermaid[data-diagram-size="compact"] {
 }
 
 body.s21-product .methodology-markdown-preview figure.diagram-figure {
-  max-width: min(1080px, 100%) !important;
+  max-width: min(960px, 100%) !important;
 }
 
 body.s21-product .methodology-markdown-preview.markdown-preview figure.diagram-figure .mermaid-diagram,
@@ -324,8 +324,8 @@ body.s21-product .methodology-markdown-preview.markdown-preview .mermaid-diagram
 body.s21-product .methodology-markdown-preview.markdown-preview .mermaid,
 body.s21-product .methodology-markdown-preview.markdown-preview figure.diagram-figure .diagram-image-surface,
 body.s21-product .methodology-markdown-preview.markdown-preview .diagram-image-surface {
-  max-width: min(var(--diagram-box-width, 980px), 100%) !important;
-  max-height: min(760px, calc(100vh - 280px)) !important;
+  max-width: min(var(--diagram-box-width, 900px), 100%) !important;
+  max-height: min(600px, calc(100vh - 260px)) !important;
   overflow: auto !important;
 }
 
@@ -385,7 +385,7 @@ body.s21-product .markdown-preview .mermaid-diagram svg,
 body.s21-product .markdown-preview .diagram-image-surface img,
 body.s21-product .markdown-preview .mermaid svg {
   flex: 0 0 auto !important;
-  width: var(--diagram-width, 760px) !important;
+  width: var(--diagram-width, 720px) !important;
   max-width: 100% !important;
   height: auto !important;
   margin: 0 auto !important;
@@ -395,20 +395,25 @@ body.s21-product .markdown-preview .mermaid svg {
 
 body.s21-product .markdown-preview figure.diagram-figure .diagram-image-surface img,
 body.s21-product .markdown-preview .diagram-image-surface img {
-  width: min(1120px, 100%) !important;
+  width: min(920px, 100%) !important;
   max-width: 100% !important;
-  max-height: 780px !important;
+  max-height: 560px !important;
 }
 
 body.s21-product .methodology-markdown-preview.markdown-preview figure.diagram-figure .diagram-image-surface img,
 body.s21-product .methodology-markdown-preview.markdown-preview .diagram-image-surface img {
-  width: min(980px, 100%) !important;
-  max-height: min(760px, calc(100vh - 280px)) !important;
+  width: min(900px, 100%) !important;
+  max-height: min(600px, calc(100vh - 260px)) !important;
 }
 
 body.s21-product .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-overflow="scroll"] svg,
 body.s21-product .markdown-preview .mermaid-diagram[data-diagram-overflow="scroll"] svg,
 body.s21-product .markdown-preview .mermaid[data-diagram-overflow="scroll"] svg {
+  max-width: none !important;
+}
+
+body.s21-product .methodology-markdown-preview.markdown-preview .mermaid-diagram[data-diagram-context="methodology"] svg,
+body.s21-product .methodology-markdown-preview.markdown-preview .mermaid[data-diagram-context="methodology"] svg {
   max-width: none !important;
 }
 
@@ -449,7 +454,11 @@ body.s21-product .markdown-preview .mermaid-diagram path.relation,
 body.s21-product .markdown-preview .mermaid-diagram .messageLine0,
 body.s21-product .markdown-preview .mermaid-diagram .messageLine1 {
   stroke: var(--s21-ink) !important;
-  stroke-width: 2.2px !important;
+  stroke-width: 1.45px !important;
+  vector-effect: non-scaling-stroke !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  fill: none !important;
   opacity: 1 !important;
 }
 
@@ -457,6 +466,7 @@ body.s21-product .markdown-preview .mermaid marker path,
 body.s21-product .markdown-preview .mermaid-diagram marker path {
   fill: var(--s21-ink) !important;
   stroke: var(--s21-ink) !important;
+  stroke-width: 1px !important;
   opacity: 1 !important;
 }
 
@@ -480,11 +490,56 @@ body.s21-product .markdown-preview .mermaid-diagram foreignObject div,
 body.s21-product .markdown-preview .mermaid-diagram foreignObject span {
   color: var(--s21-ink) !important;
   fill: var(--s21-ink) !important;
-  font-size: var(--diagram-font-size, 18px) !important;
+  font-size: var(--diagram-font-size, 14px) !important;
   font-weight: 600 !important;
-  line-height: 1.28 !important;
+  line-height: 1.22 !important;
   text-align: center !important;
   white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
+}
+
+body.s21-product .markdown-preview .mermaid foreignObject,
+body.s21-product .markdown-preview .mermaid-diagram foreignObject,
+body.s21-product .diagram-lightbox-media foreignObject {
+  overflow: visible !important;
+}
+
+body.s21-product .markdown-preview .mermaid foreignObject div,
+body.s21-product .markdown-preview .mermaid foreignObject span,
+body.s21-product .markdown-preview .mermaid-diagram foreignObject div,
+body.s21-product .markdown-preview .mermaid-diagram foreignObject span,
+body.s21-product .diagram-lightbox-media foreignObject div,
+body.s21-product .diagram-lightbox-media foreignObject span {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: 0 6px !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
+}
+
+body.s21-product .markdown-preview .mermaid .nodeLabel p,
+body.s21-product .markdown-preview .mermaid .flowchart-label p,
+body.s21-product .markdown-preview .mermaid .label p,
+body.s21-product .markdown-preview .mermaid-diagram .nodeLabel p,
+body.s21-product .markdown-preview .mermaid-diagram .flowchart-label p,
+body.s21-product .markdown-preview .mermaid-diagram .label p,
+body.s21-product .diagram-lightbox-media .nodeLabel p,
+body.s21-product .diagram-lightbox-media .flowchart-label p,
+body.s21-product .diagram-lightbox-media .label p {
+  margin: 0 !important;
+  text-align: center !important;
+  line-height: 1.22 !important;
+  word-break: normal !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
 }
 
 body.diagram-lightbox-open {
@@ -497,7 +552,7 @@ body.s21-product .diagram-lightbox {
   z-index: 1000;
   display: grid;
   place-items: center;
-  padding: 28px;
+  padding: 24px;
   background: rgba(15, 20, 25, 0.72);
 }
 
@@ -506,14 +561,14 @@ body.s21-product .diagram-lightbox[hidden] {
 }
 
 body.s21-product .diagram-lightbox-surface {
-  width: min(1480px, calc(100vw - 56px));
-  max-height: calc(100vh - 56px);
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
   position: relative;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 12px;
   overflow: auto;
-  padding: 28px;
+  padding: 24px;
   border: 1px solid var(--s21-border);
   border-radius: var(--s21-radius-md);
   background: var(--s21-surface);
@@ -545,15 +600,70 @@ body.s21-product .diagram-lightbox-content {
 }
 
 body.s21-product .diagram-lightbox-media {
-  width: var(--diagram-lightbox-media-width, 1013px) !important;
-  max-width: none !important;
+  width: var(--diagram-lightbox-media-width, 806px) !important;
+  max-width: calc(100vw - 96px) !important;
+  max-height: calc(100vh - 160px) !important;
   height: auto !important;
 }
 
 body.s21-product .diagram-lightbox-content img.diagram-lightbox-media {
-  width: var(--diagram-lightbox-media-width, 1013px) !important;
+  width: var(--diagram-lightbox-media-width, 806px) !important;
   min-width: 0;
-  max-height: none !important;
+  max-height: calc(100vh - 160px) !important;
+}
+
+body.s21-product .diagram-lightbox-media .node rect,
+body.s21-product .diagram-lightbox-media .node polygon,
+body.s21-product .diagram-lightbox-media .node circle,
+body.s21-product .diagram-lightbox-media .node ellipse,
+body.s21-product .diagram-lightbox-media .node path,
+body.s21-product .diagram-lightbox-media .label-container,
+body.s21-product .diagram-lightbox-media .actor,
+body.s21-product .diagram-lightbox-media .task,
+body.s21-product .diagram-lightbox-media .section,
+body.s21-product .diagram-lightbox-media .cluster rect {
+  fill: var(--s21-surface) !important;
+  stroke: var(--s21-border-strong) !important;
+  stroke-width: 1.35px !important;
+  filter: none !important;
+}
+
+body.s21-product .diagram-lightbox-media .flowchart-link,
+body.s21-product .diagram-lightbox-media .edgePath path,
+body.s21-product .diagram-lightbox-media path.relation,
+body.s21-product .diagram-lightbox-media .messageLine0,
+body.s21-product .diagram-lightbox-media .messageLine1 {
+  stroke: var(--s21-ink) !important;
+  stroke-width: 1.25px !important;
+  vector-effect: non-scaling-stroke !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
+  fill: none !important;
+  opacity: 1 !important;
+}
+
+body.s21-product .diagram-lightbox-media marker path {
+  fill: var(--s21-ink) !important;
+  stroke: var(--s21-ink) !important;
+  stroke-width: 1px !important;
+  opacity: 1 !important;
+}
+
+body.s21-product .diagram-lightbox-media .nodeLabel,
+body.s21-product .diagram-lightbox-media .flowchart-label,
+body.s21-product .diagram-lightbox-media .edgeLabel,
+body.s21-product .diagram-lightbox-media .label,
+body.s21-product .diagram-lightbox-media .actor,
+body.s21-product .diagram-lightbox-media .messageText,
+body.s21-product .diagram-lightbox-media .cluster-label,
+body.s21-product .diagram-lightbox-media foreignObject div,
+body.s21-product .diagram-lightbox-media foreignObject span {
+  color: var(--s21-ink) !important;
+  fill: var(--s21-ink) !important;
+  font-size: var(--diagram-font-size, 14px) !important;
+  font-weight: 600 !important;
+  line-height: 1.22 !important;
+  text-align: center !important;
 }
 
 body.s21-product .diagram-lightbox-caption {
@@ -568,11 +678,45 @@ body.s21-product .markdown-preview .mermaid .edgeLabel,
 body.s21-product .markdown-preview .mermaid .edgeLabel p,
 body.s21-product .markdown-preview .mermaid-diagram .edgeLabel,
 body.s21-product .markdown-preview .mermaid-diagram .edgeLabel p,
+body.s21-product .diagram-lightbox-media .edgeLabel,
+body.s21-product .diagram-lightbox-media .edgeLabel p,
 body.s21-product .markdown-preview .mermaid .labelBkg,
 body.s21-product .markdown-preview .mermaid-diagram .labelBkg {
   background: var(--s21-surface) !important;
   fill: var(--s21-surface) !important;
   color: var(--s21-ink) !important;
+}
+
+body.s21-product .markdown-preview .mermaid .edgeLabel,
+body.s21-product .markdown-preview .mermaid .edgeLabel *,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel *,
+body.s21-product .diagram-lightbox-media .edgeLabel,
+body.s21-product .diagram-lightbox-media .edgeLabel * {
+  white-space: nowrap !important;
+  word-break: keep-all !important;
+  overflow-wrap: normal !important;
+  hyphens: none !important;
+}
+
+body.s21-product .markdown-preview .mermaid .edgeLabel foreignObject,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel foreignObject,
+body.s21-product .diagram-lightbox-media .edgeLabel foreignObject {
+  overflow: visible !important;
+}
+
+body.s21-product .markdown-preview .mermaid .edgeLabel div,
+body.s21-product .markdown-preview .mermaid .edgeLabel span,
+body.s21-product .markdown-preview .mermaid .edgeLabel p,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel div,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel span,
+body.s21-product .markdown-preview .mermaid-diagram .edgeLabel p,
+body.s21-product .diagram-lightbox-media .edgeLabel div,
+body.s21-product .diagram-lightbox-media .edgeLabel span,
+body.s21-product .diagram-lightbox-media .edgeLabel p {
+  width: auto !important;
+  min-width: max-content !important;
+  padding-inline: 4px !important;
 }
 
 body.s21-product .markdown-preview mjx-container,

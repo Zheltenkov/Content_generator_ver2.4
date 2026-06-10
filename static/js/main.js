@@ -130,8 +130,8 @@
                 id: 'methodology',
                 title: 'Методологический режим',
                 capabilities: {
-                    project_regeneration: false,
-                    section_regeneration: false,
+                    project_regeneration: true,
+                    section_regeneration: true,
                     methodology_assistant: true,
                     stage_review: true,
                     final_readme_editing: true,
@@ -140,10 +140,15 @@
             };
             if (profile && typeof profile === 'object') {
                 const base = profile.id === 'methodology' ? methodology : standard;
+                const capabilities = { ...base.capabilities, ...(profile.capabilities || {}) };
+                if (base.id === 'methodology') {
+                    capabilities.project_regeneration = true;
+                    capabilities.section_regeneration = true;
+                }
                 return {
                     ...base,
                     ...profile,
-                    capabilities: { ...base.capabilities, ...(profile.capabilities || {}) }
+                    capabilities
                 };
             }
             return profile === 'methodology' ? methodology : standard;
@@ -194,6 +199,7 @@
                 lastKnownGenerationProgress,
                 lastKnownGenerationAgent,
                 currentGenerationStatus,
+                lastGenerationError,
             });
             setResultStoreState({
                 originalRubric,
@@ -217,6 +223,7 @@
         let lastKnownGenerationProgress = 0;
         let lastKnownGenerationAgent = 'Инициализация...';
         let currentGenerationStatus = 'idle';
+        let lastGenerationError = null;
 
         window.ContentGenGenerationRuntime = {
             getApiUrl: () => API_URL,
@@ -238,6 +245,7 @@
                     lastKnownGenerationProgress,
                     lastKnownGenerationAgent,
                     currentGenerationStatus,
+                    lastGenerationError,
                     currentMetricsVersion,
                     originalRubric,
                     originalTextStats,
@@ -274,6 +282,7 @@
                 if (Object.prototype.hasOwnProperty.call(updates, 'lastKnownGenerationProgress')) lastKnownGenerationProgress = Number(updates.lastKnownGenerationProgress || 0);
                 if (Object.prototype.hasOwnProperty.call(updates, 'lastKnownGenerationAgent')) lastKnownGenerationAgent = updates.lastKnownGenerationAgent;
                 if (Object.prototype.hasOwnProperty.call(updates, 'currentGenerationStatus')) currentGenerationStatus = updates.currentGenerationStatus;
+                if (Object.prototype.hasOwnProperty.call(updates, 'lastGenerationError')) lastGenerationError = updates.lastGenerationError;
                 if (Object.prototype.hasOwnProperty.call(updates, 'originalRubric') && updates.originalRubric !== undefined) {
                     originalRubric = updates.originalRubric;
                     window.currentRubric = updates.originalRubric;
@@ -454,10 +463,10 @@
                 flowchart: {
                     htmlLabels: true,
                     curve: 'basis',
-                    padding: 18,
-                    nodeSpacing: 68,
-                    rankSpacing: 82,
-                    wrappingWidth: 230,
+                    padding: 12,
+                    nodeSpacing: 36,
+                    rankSpacing: 42,
+                    wrappingWidth: 180,
                     useMaxWidth: true
                 },
                 themeVariables: {
@@ -475,7 +484,7 @@
                     border2: '#7f8d83',
                     arrowheadColor: '#334238',
                     edgeLabelBackground: '#ffffff',
-                    fontSize: '18px',
+                    fontSize: '14px',
                     fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Arial, sans-serif'
                 }
             });
@@ -1238,7 +1247,7 @@
                 const body = {
                     markdown,
                     language,
-                    llm_provider: window.getSelectedLlmProvider?.() || 'openai',
+                    llm_provider: window.getSelectedLlmProvider?.() || 'openrouter',
                     learning_outcomes: learningOutcomes.length ? learningOutcomes : null,
                 };
 
@@ -1928,7 +1937,7 @@
             html += '<div class="metrics-grid">';
             html += `<div class="metric-card"><div class="metric-value">${contextAnalysis.similar_projects_count || 0}</div><div class="metric-label">Соседних проектов</div></div>`;
             html += `<div class="metric-card"><div class="metric-value">${metrics.skills_match_count || 0}</div><div class="metric-label">Совпадений навыков</div></div>`;
-            html += `<div class="metric-card"><div class="metric-value">${metrics.lo_match_count || 0}</div><div class="metric-label">Совпадений ЗУНов</div></div>`;
+            html += `<div class="metric-card"><div class="metric-value">${metrics.lo_match_count || 0}</div><div class="metric-label">Совпадений результатов</div></div>`;
             html += `<div class="metric-card"><div class="metric-value">${metrics.projects_found || 0}</div><div class="metric-label">Найдено проектов</div></div>`;
             html += `<div class="metric-card"><div class="metric-value">${metrics.projects_filtered || 0}</div><div class="metric-label">Отфильтровано</div></div>`;
             if (metrics.min_order !== undefined && metrics.max_order !== undefined) {
@@ -1971,16 +1980,16 @@
                 }
             }
             
-            // Выравнивание ЗУНов
+            // Выравнивание образовательных результатов
             if (contextAnalysis.learning_outcomes_alignment) {
                 const loAlign = contextAnalysis.learning_outcomes_alignment;
-                html += '<h4>📚 Выравнивание ЗУНов</h4>';
+                html += '<h4>📚 Выравнивание образовательных результатов</h4>';
                 html += '<div class="info-box">';
                 if (loAlign.continuation && loAlign.continuation.length > 0) {
                     html += `<strong>Продолжение (${loAlign.continuation.length}):</strong> ${loAlign.continuation.join('; ')}<br>`;
                 }
                 if (loAlign.new_outcomes && loAlign.new_outcomes.length > 0) {
-                    html += `<strong>Новые ЗУНы (${loAlign.new_outcomes.length}):</strong> ${loAlign.new_outcomes.join('; ')}<br>`;
+                    html += `<strong>Новые результаты (${loAlign.new_outcomes.length}):</strong> ${loAlign.new_outcomes.join('; ')}<br>`;
                 }
                 html += '</div>';
             }
@@ -2782,3 +2791,4 @@
         window.clearCheckerResults = clearCheckerResults;
         window.restoreCheckerResults = restoreCheckerResults;
         })(); // Закрываем IIFE
+

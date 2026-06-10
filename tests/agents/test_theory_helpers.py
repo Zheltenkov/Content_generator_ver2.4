@@ -60,6 +60,30 @@ def test_sanitize_theory_body_text_pads_short_parts_to_minimum():
     assert "огранич" in cleaned.lower() or "риск" in cleaned.lower()
 
 
+def test_sanitize_theory_body_text_does_not_append_raw_project_description_as_cause():
+    seed = _make_seed()
+    seed.project_description = (
+        "Ученики в парах ищут реальную проблему пользователя, выбирают идею "
+        "технологического продукта, проверяют её на простоту и реализуемость."
+    )
+    body = (
+        "MVP помогает быстро проверить идею до большой разработки. "
+        "Команда фиксирует гипотезу и смотрит, есть ли подтверждение от пользователя."
+    )
+
+    cleaned = _sanitize_theory_body_text(
+        body=body,
+        title="Проверка идеи на MVP",
+        seed=seed,
+        anchors=["не встречается"],
+        lo=20,
+        hi=160,
+    )
+
+    assert "потому что от этого зависит ученики" not in cleaned.lower()
+    assert "чтобы связать теорию с практическими решениями" in cleaned.lower()
+
+
 def test_sanitize_theory_body_text_pads_by_validator_prose_words_not_tables():
     seed = _make_seed()
     body = (

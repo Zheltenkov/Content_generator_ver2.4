@@ -96,8 +96,8 @@
             .filter(stage => stage !== 'finalize')
             .map(stage => ({ after_stage: stage, action: 'approve_or_revise' })),
         capabilities: {
-            project_regeneration: false,
-            section_regeneration: false,
+            project_regeneration: true,
+            section_regeneration: true,
             methodology_assistant: true,
             stage_review: true,
             final_readme_editing: true,
@@ -108,13 +108,18 @@
     function normalizeWorkflowProfile(profile) {
         if (profile && typeof profile === 'object') {
             const base = profile.id === 'methodology' ? METHODOLOGY_WORKFLOW_PROFILE : STANDARD_WORKFLOW_PROFILE;
+            const capabilities = {
+                ...base.capabilities,
+                ...(profile.capabilities || {})
+            };
+            if (base.id === 'methodology') {
+                capabilities.project_regeneration = true;
+                capabilities.section_regeneration = true;
+            }
             return {
                 ...base,
                 ...profile,
-                capabilities: {
-                    ...base.capabilities,
-                    ...(profile.capabilities || {})
-                },
+                capabilities,
                 gates: Array.isArray(profile.gates) ? profile.gates : base.gates,
                 stages: Array.isArray(profile.stages) ? profile.stages : base.stages
             };
@@ -140,6 +145,7 @@
         lastKnownGenerationProgress: 0,
         lastKnownGenerationAgent: 'Инициализация...',
         currentGenerationStatus: 'idle',
+        lastGenerationError: null,
     });
 
     const resultStore = createStore({

@@ -54,6 +54,41 @@ flowchart TD
     assert "\n    B -.->|контроль| H[Диагностика]\n" in normalized
 
 
+def test_normalize_mermaid_repairs_unicode_arrows_and_flat_labeled_edges():
+    md = """```mermaid
+flowchart TD A[Риск выявлен] → B{Что он затрагивает?} B -->|Срок| C[Добавить резерв времени] B →|Ресурс| E[Скорректировать загрузку] C —> H[Диаграмма Ганта]
+```"""
+
+    normalized = normalize_flattened_mermaid_fences(md)
+
+    assert "→" not in normalized
+    assert "—>" not in normalized
+    assert "\n    A[Риск выявлен] --> B{Что он затрагивает?}\n" in normalized
+    assert "\n    B -->|Срок| C[Добавить резерв времени]\n" in normalized
+    assert "\n    B -->|Ресурс| E[Скорректировать загрузку]\n" in normalized
+    assert "\n    C --> H[Диаграмма Ганта]\n" in normalized
+
+
+def test_normalize_mermaid_repairs_flattened_sequence_diagram():
+    md = """```mermaid
+sequenceDiagram Клиент participant S as Сервер C->>S: Отправка запроса с данными S->>S: Проверка формата и логики alt Запрос корректен S-->>C: Ответ 2xx с JSON else Ошибка на сервере S-->>C: Ответ 5xx end
+```"""
+
+    normalized = normalize_flattened_mermaid_fences(md)
+
+    assert "\nsequenceDiagram\n" in normalized
+    assert "\n    participant C as Клиент\n" in normalized
+    assert "\n    participant S as Сервер\n" in normalized
+    assert "\n    C->>S: Отправка запроса с данными\n" in normalized
+    assert "\n    S->>S: Проверка формата и логики\n" in normalized
+    assert "\n    alt Запрос корректен\n" in normalized
+    assert "\n    S-->>C: Ответ 2xx с JSON\n" in normalized
+    assert "\n    else Ошибка на сервере\n" in normalized
+    assert "\n    S-->>C: Ответ 5xx\n" in normalized
+    assert "\n    end\n" in normalized
+    assert "participant S as Сервер C->>S" not in normalized
+
+
 def test_normalize_markdown_display_blocks_removes_stray_caption_dot():
     md = (
         "*Структурирует обмен по слоям.*\n\n"

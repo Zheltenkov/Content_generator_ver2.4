@@ -1557,6 +1557,26 @@ body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspa
   overflow: auto;
 }
 
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-generated-content,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-generated-content p,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-generated-content dd,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-generated-content li,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-generated-content span,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-story-summary,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-story-summary dd,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-story-summary dt,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-context-text-block,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-context-text-block p {
+  color: var(--s21-ink, #0f1419) !important;
+  opacity: 1 !important;
+}
+
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-context-text-block h4,
+body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-task-flow h4 {
+  color: var(--s21-muted, #6b6f78) !important;
+  opacity: 1 !important;
+}
+
 body.s21-product.page-generate.generation-stage-review #methodologyReviewWorkspace .methodology-readme-fragment-section .methodology-markdown-preview {
   min-height: min(900px, var(--methodology-fragment-height));
   max-height: var(--methodology-fragment-height);
@@ -2128,5 +2148,38 @@ body.s21-product.page-generate .result-markdown.markdown-preview pre {
 
 .result-panel-body {
   padding: 34px 44px 52px;
+}
+
+/* Final readability guard for methodology checkpoints.
+   This file is loaded last on /app/generate, so keep contrast-critical text here. */
+body.s21-product .methodology-review-workspace .methodology-generated-content,
+body.s21-product .methodology-review-workspace .methodology-generated-content p,
+body.s21-product .methodology-review-workspace .methodology-generated-content li,
+body.s21-product .methodology-review-workspace .methodology-generated-content dd,
+body.s21-product .methodology-review-workspace .methodology-generated-content span,
+body.s21-product .methodology-review-workspace .methodology-generated-content strong,
+body.s21-product .methodology-review-workspace .methodology-context-text-block p,
+body.s21-product .methodology-review-workspace .methodology-context-text-block li,
+body.s21-product .methodology-review-workspace .methodology-context-text-block dd,
+body.s21-product .methodology-review-workspace .methodology-context-text-block span,
+body.s21-product .methodology-review-workspace .methodology-story-summary dd,
+body.s21-product .methodology-review-workspace .methodology-story-summary span,
+body.s21-product .methodology-review-workspace .methodology-context-facts dd,
+body.s21-product .methodology-review-workspace .methodology-task-flow li,
+body.s21-product .methodology-review-workspace .methodology-task-flow span,
+body.s21-product .methodology-review-workspace .methodology-task-flow strong {
+  color: #0f1419 !important;
+  -webkit-text-fill-color: #0f1419 !important;
+  opacity: 1 !important;
+}
+
+body.s21-product .methodology-review-workspace .methodology-context-text-block h4,
+body.s21-product .methodology-review-workspace .methodology-context-list-block h4,
+body.s21-product .methodology-review-workspace .methodology-story-summary dt,
+body.s21-product .methodology-review-workspace .methodology-context-facts dt,
+body.s21-product .methodology-review-workspace .methodology-task-flow h4 {
+  color: #4f5d6c !important;
+  -webkit-text-fill-color: #4f5d6c !important;
+  opacity: 1 !important;
 }
 

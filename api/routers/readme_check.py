@@ -1,4 +1,4 @@
-"""Endpoint для отдельной проверки пользовательского README по рубрике."""
+﻿"""Endpoint для отдельной проверки пользовательского README по рубрике."""
 
 import asyncio
 import re
@@ -59,7 +59,7 @@ class CheckReadmeRequest(BaseModel):
 
     markdown: str = Field(..., description="Содержимое README в формате Markdown")
     language: str = Field("ru", description="Язык README (ru/en/...)")
-    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Field(
+    llm_provider: Literal["openrouter", "openai", "deepseek", "gigachat"] | None = Field(
         default=None,
         description="Предпочитаемый LLM provider для AI-критериев",
     )

@@ -10,11 +10,12 @@ def test_standard_profile_keeps_project_regeneration_enabled() -> None:
     assert profile.gates == []
 
 
-def test_methodology_profile_disables_regeneration_and_enables_stage_review() -> None:
+def test_methodology_profile_keeps_regeneration_and_enables_stage_review() -> None:
     profile = resolve_workflow_profile({"methodology_human_review": "true"})
 
     assert profile.id == "methodology"
-    assert profile.capabilities.project_regeneration is False
+    assert profile.capabilities.project_regeneration is True
+    assert profile.capabilities.section_regeneration is True
     assert profile.capabilities.methodology_assistant is True
     assert profile.capabilities.stage_review is True
     assert {gate.after_stage for gate in profile.gates}
@@ -24,7 +25,8 @@ def test_profile_payload_is_api_serializable() -> None:
     payload = workflow_profile_payload(resolve_workflow_profile({"workflow_profile_id": "methodology"}))
 
     assert payload["id"] == "methodology"
-    assert payload["capabilities"]["project_regeneration"] is False
+    assert payload["capabilities"]["project_regeneration"] is True
+    assert payload["capabilities"]["section_regeneration"] is True
     assert payload["gates"][0]["action"] == "approve_or_revise"
 
 

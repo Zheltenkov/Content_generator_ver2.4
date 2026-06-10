@@ -55,7 +55,7 @@ def test_theory_volume_counts_prose_without_tables_or_mermaid() -> None:
     assert lo_item.details["coverage_percent"] >= 50
 
 
-def test_lo_coverage_reports_missing_evidence_without_llm() -> None:
+def test_learning_outcome_coverage_reports_missing_evidence_without_llm() -> None:
     ch2 = f"""
 ### 2.1. Бэклог
 {_prose("Бэклог")}
@@ -72,4 +72,25 @@ def test_lo_coverage_reports_missing_evidence_without_llm() -> None:
     lo_item = next(item for item in items if item.id == "2.4.5")
     assert lo_item.score == 0
     assert lo_item.details["missing"]
-    assert "Недостаточно evidence" in lo_item.comments[0]
+    assert "Недостаточно evidence по образовательным результатам" in lo_item.comments[0]
+
+
+def test_learning_outcome_coverage_is_optional_without_context() -> None:
+    ch2 = f"""
+### 2.1. Бэклог
+{_prose("Бэклог")}
+
+### 2.2. Дорожная карта
+{_prose("Дорожная карта")}
+
+### 2.3. Диаграмма Ганта
+{_prose("Диаграмма Ганта")}
+"""
+
+    items = _checker().check(ch2, learning_outcomes=[])
+
+    lo_item = next(item for item in items if item.id == "2.4.5")
+    assert lo_item.score == 1
+    assert lo_item.title == "Проверка соответствия образовательным результатам"
+    assert lo_item.comments == []
+    assert lo_item.details["mode"] == "skipped"

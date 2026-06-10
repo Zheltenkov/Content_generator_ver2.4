@@ -660,39 +660,48 @@
         
         #practiceCriticIssues li {
             margin-bottom: 0.6rem;
-            padding: 0.4rem 0.6rem;
-            border-radius: 6px;
-            background: rgba(20, 25, 50, 0.6);
-            border-left: 4px solid rgba(118, 75, 162, 0.6);
-            font-size: 0.9rem;
+            padding: 0.85rem 1rem;
+            border: 1px solid var(--s21-border, #e6e5e0);
+            border-left: 4px solid var(--s21-info, #2a5d8f);
+            border-radius: var(--s21-radius-sm, 8px);
+            background: var(--s21-surface-2, #f7f7f5);
+            color: var(--s21-ink, #0f1419);
+            font-size: 0.95rem;
+            line-height: 1.45;
+            box-shadow: var(--s21-shadow-1, 0 1px 2px rgba(15, 20, 25, 0.04));
         }
         
         #practiceCriticIssues li .issue-header {
             display: flex;
+            gap: 1rem;
             justify-content: space-between;
-            margin-bottom: 0.2rem;
-            color: #e0e6ed;
+            margin-bottom: 0.35rem;
+            color: var(--s21-ink, #0f1419);
+            font-weight: 700;
         }
         
         #practiceCriticIssues li .issue-message {
-            color: #e0e6ed;
+            color: var(--s21-ink, #0f1419);
         }
         
         #practiceCriticIssues li .issue-suggestion {
-            color: #a0aec0;
-            margin-top: 0.2rem;
+            margin-top: 0.45rem;
+            padding: 0.45rem 0.55rem;
+            border-radius: var(--s21-radius-xs, 6px);
+            background: var(--s21-accent-soft, #e1f6ec);
+            color: var(--s21-muted, #6b6f78);
         }
         
         #practiceCriticIssues li.severity-critical {
-            border-left-color: #f56565;
+            border-left-color: var(--s21-danger, #b54a3b);
         }
         
         #practiceCriticIssues li.severity-major {
-            border-left-color: #ed8936;
+            border-left-color: var(--s21-warn, #a76a14);
         }
         
         #practiceCriticIssues li.severity-warning {
-            border-left-color: #ecc94b;
+            border-left-color: var(--s21-warn, #a76a14);
         }
 
         .methodology-panel {
@@ -2116,8 +2125,8 @@
         /* Единый стандарт диаграмм: ширина как у текстового блока, без хаотичных масштабов. */
         .markdown-preview figure.diagram-figure {
             width: 100% !important;
-            max-width: 900px !important;
-            margin: 1.7rem auto 2.3rem !important;
+            max-width: 960px !important;
+            margin: 1.45rem auto 2rem !important;
             text-align: center !important;
             clear: both !important;
         }
@@ -2132,12 +2141,12 @@
             align-items: flex-start !important;
             justify-content: center !important;
             width: 100% !important;
-            max-width: 900px !important;
-            min-height: var(--diagram-min-height, 220px) !important;
+            max-width: min(var(--diagram-box-width, 920px), 100%) !important;
+            min-height: min(var(--diagram-min-height, 220px), 520px) !important;
             margin: 0 auto !important;
-            padding: 1.15rem !important;
-            overflow: visible !important;
-            max-height: none !important;
+            padding: 1rem !important;
+            overflow: auto !important;
+            max-height: min(560px, calc(100vh - 260px)) !important;
             background: #f7faf6 !important;
             border: 1px solid #dfe5df !important;
             border-radius: 8px !important;
@@ -2154,7 +2163,7 @@
         .markdown-preview .mermaid[data-diagram-overflow="scroll"] {
             justify-content: center !important;
             overflow-x: auto !important;
-            overflow-y: hidden !important;
+            overflow-y: auto !important;
         }
 
         .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-size="compact"],
@@ -2164,8 +2173,8 @@
 
         .markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-size="tall"],
         .markdown-preview .mermaid[data-diagram-size="tall"] {
-            max-height: none !important;
-            overflow-y: visible !important;
+            max-height: min(560px, calc(100vh - 260px)) !important;
+            overflow-y: auto !important;
         }
 
         .markdown-preview figure.diagram-figure .mermaid-diagram svg,
@@ -2174,7 +2183,7 @@
         .markdown-preview .diagram-image-surface img,
         .markdown-preview .mermaid svg {
             flex: 0 0 auto !important;
-            width: var(--diagram-width, 760px) !important;
+            width: var(--diagram-width, 720px) !important;
             max-width: 100% !important;
             height: auto !important;
             margin: 0 auto !important;
@@ -2227,7 +2236,11 @@
         .markdown-preview .mermaid-diagram .messageLine0,
         .markdown-preview .mermaid-diagram .messageLine1 {
             stroke: #334238 !important;
-            stroke-width: 2.2px !important;
+            stroke-width: 1.45px !important;
+            vector-effect: non-scaling-stroke !important;
+            stroke-linecap: round !important;
+            stroke-linejoin: round !important;
+            fill: none !important;
             opacity: 1 !important;
         }
 
@@ -2235,6 +2248,7 @@
         .markdown-preview .mermaid-diagram marker path {
             fill: #334238 !important;
             stroke: #334238 !important;
+            stroke-width: 1px !important;
             opacity: 1 !important;
         }
 
@@ -2255,10 +2269,40 @@
             color: #111820 !important;
             fill: #111820 !important;
             text-align: center !important;
-            line-height: 1.28 !important;
-            font-size: var(--diagram-font-size, 16px) !important;
+            line-height: 1.22 !important;
+            font-size: var(--diagram-font-size, 14px) !important;
             font-weight: 600 !important;
             white-space: normal !important;
+        }
+
+        .markdown-preview .mermaid foreignObject,
+        .markdown-preview .mermaid-diagram foreignObject {
+            overflow: visible !important;
+        }
+
+        .markdown-preview .mermaid foreignObject div,
+        .markdown-preview .mermaid foreignObject span,
+        .markdown-preview .mermaid-diagram foreignObject div,
+        .markdown-preview .mermaid-diagram foreignObject span {
+            width: 100% !important;
+            height: 100% !important;
+            min-height: 100% !important;
+            box-sizing: border-box !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            padding: 0 6px !important;
+        }
+
+        .markdown-preview .mermaid .nodeLabel p,
+        .markdown-preview .mermaid .flowchart-label p,
+        .markdown-preview .mermaid .label p,
+        .markdown-preview .mermaid-diagram .nodeLabel p,
+        .markdown-preview .mermaid-diagram .flowchart-label p,
+        .markdown-preview .mermaid-diagram .label p {
+            margin: 0 !important;
+            text-align: center !important;
+            line-height: 1.22 !important;
         }
 
         .markdown-preview .mermaid .edgeLabel,
@@ -2377,6 +2421,27 @@
             white-space: pre-wrap;
             word-break: normal;
             overflow-wrap: anywhere;
+        }
+
+        body.s21-product .methodology-generated-content,
+        body.s21-product .methodology-generated-content .methodology-stage-meta,
+        body.s21-product .methodology-generated-content .methodology-stage-meta strong,
+        body.s21-product .methodology-context-text-block p,
+        body.s21-product .methodology-context-list-block li,
+        body.s21-product .methodology-context-facts dd,
+        body.s21-product .methodology-story-summary dd,
+        body.s21-product .methodology-task-flow li,
+        body.s21-product .methodology-task-flow span,
+        body.s21-product .methodology-task-flow strong {
+            color: #111820 !important;
+        }
+
+        body.s21-product .methodology-context-text-block h4,
+        body.s21-product .methodology-context-list-block h4,
+        body.s21-product .methodology-context-facts dt,
+        body.s21-product .methodology-story-summary dt,
+        body.s21-product .methodology-task-flow h4 {
+            color: #4f5d6c !important;
         }
  
         /* Подсветка полей при валидации */

@@ -130,13 +130,11 @@ def _sanitize_theory_prose_chunk(text: str, title: str, seed: ProjectSeed, ancho
     compact = _compact_sentences(filtered)
 
     anchor_hit = any(anchor in compact.lower() for anchor in anchors[:10]) if anchors else False
-    if not anchor_hit:
-        project_hint = re.sub(r"\s+", " ", (seed.project_description or "").strip()).rstrip(".")
-        if project_hint:
-            compact = (
-                compact.rstrip()
-                + f" Для этого проекта важно понять {title.lower()}, потому что от этого зависит {project_hint[:140].lower()}."
-            ).strip()
+    if not anchor_hit and (seed.project_description or "").strip():
+        compact = (
+            compact.rstrip()
+            + f" Для этого проекта важно понять {title.lower()}, чтобы связать теорию с практическими решениями, артефактами и критериями проверки."
+        ).strip()
 
     words = count_words(compact, seed.language)
     if words > hi:

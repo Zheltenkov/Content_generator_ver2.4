@@ -156,7 +156,7 @@ body.s21-product.page-checker .checker-result-panel {
 }
 
 .checker-score-hero .s21-score-ring {
-  --score-color: #b06d10;
+  --score-color: var(--s21-success);
   width: 118px;
   height: 118px;
   background:
@@ -244,6 +244,51 @@ body.s21-product.page-checker .checker-result-panel {
 
 .checker-tab-body {
   padding: 22px 24px 26px;
+}
+
+body.s21-product.page-checker .checker-tab-body > .result-markdown.markdown-preview {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  min-height: calc(100vh - 315px);
+  padding: 34px 44px 52px !important;
+  overflow-x: hidden;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: var(--s21-surface) !important;
+  color: var(--s21-ink) !important;
+  box-shadow: none !important;
+}
+
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure {
+  max-width: min(900px, 100%) !important;
+}
+
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure .mermaid-diagram,
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure .diagram-image-surface,
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid-diagram,
+body.s21-product.page-checker .result-markdown.markdown-preview .diagram-image-surface,
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid {
+  max-width: min(860px, 100%) !important;
+}
+
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure .diagram-image-surface img,
+body.s21-product.page-checker .result-markdown.markdown-preview .diagram-image-surface img {
+  width: min(860px, 100%) !important;
+  max-height: 540px !important;
+}
+
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-overflow="scroll"],
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid-diagram[data-diagram-overflow="scroll"],
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid[data-diagram-overflow="scroll"] {
+  overflow-x: auto !important;
+  overflow-y: auto !important;
+}
+
+body.s21-product.page-checker .result-markdown.markdown-preview figure.diagram-figure .mermaid-diagram[data-diagram-overflow="scroll"] svg,
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid-diagram[data-diagram-overflow="scroll"] svg,
+body.s21-product.page-checker .result-markdown.markdown-preview .mermaid[data-diagram-overflow="scroll"] svg {
+  max-width: none !important;
 }
 
 .checker-metrics-view {
@@ -602,6 +647,10 @@ body.s21-product.page-checker.checker-generating-assignment #checkerImprovementR
 
   .checker-tab-body {
     padding: 18px 14px 24px;
+  }
+
+  body.s21-product.page-checker .checker-tab-body > .result-markdown.markdown-preview {
+    padding: 24px 18px 36px !important;
   }
 
   .checker-improvement-modal {

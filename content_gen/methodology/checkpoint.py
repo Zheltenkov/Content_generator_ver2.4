@@ -301,9 +301,17 @@ class HumanApprovalCheckpointPolicy:
     @staticmethod
     def _practice_checkpoint(context: dict[str, Any]) -> HumanApprovalCheckpoint:
         practice_tasks = [_task_summary(task) for task in context.get("practice_tasks") or []]
+        bonus_tasks = [_task_summary(task, bonus=True) for task in context.get("bonus_tasks") or []]
+        all_practice_tasks = practice_tasks + bonus_tasks
+        markdown = str(context.get("markdown") or "")
         chapter_markdown = normalize_markdown_display_blocks(
-            _markdown_section(str(context.get("markdown") or ""), "глава 3")
+            _markdown_section(markdown, "глава 3")
         )
+        bonus_markdown = ""
+        if re.search(r"^#{1,6}\s+Бонус\b", markdown, flags=re.IGNORECASE | re.MULTILINE):
+            bonus_markdown = normalize_markdown_display_blocks(_markdown_section(markdown, "бонус"))
+        if bonus_markdown and bonus_markdown not in chapter_markdown:
+            chapter_markdown = "\n\n".join(part for part in [chapter_markdown, bonus_markdown] if part).strip()
         dataset_files = [
             {
                 "path": str(item.get("path") or ""),
@@ -314,8 +322,8 @@ class HumanApprovalCheckpointPolicy:
         ]
         artifact = {
             "title": str(context.get("title") or ""),
-            "summary": f"Сгенерировано задач: {len(practice_tasks)}, materials-файлов: {len(dataset_files)}",
-            "practice_tasks": practice_tasks,
+            "summary": f"Сгенерировано задач: {len(all_practice_tasks)}, materials-файлов: {len(dataset_files)}",
+            "practice_tasks": all_practice_tasks,
             "dataset_files": dataset_files,
             "requirements_matrix": build_requirement_matrix(context, str(context.get("markdown") or "")),
             "markdown_excerpt": chapter_markdown,
@@ -554,11 +562,14 @@ def _part_summary(part: Any) -> dict[str, Any]:
     }
 
 
-def _task_summary(task: Any) -> dict[str, Any]:
+def _task_summary(task: Any, *, bonus: bool = False) -> dict[str, Any]:
     title = _get_value(task, "title") or _get_value(task, "name") or _get_value(task, "task_title")
     objective = _get_value(task, "objective") or _get_value(task, "goal") or _get_value(task, "description")
+    normalized_title = str(title or "Практическая задача")
+    if bonus and "бонус" not in normalized_title.casefold():
+        normalized_title = f"Бонусное задание: {normalized_title}"
     return {
-        "title": str(title or "Практическая задача"),
+        "title": normalized_title,
         "objective": _truncate_text(str(objective or ""), 220),
     }
 

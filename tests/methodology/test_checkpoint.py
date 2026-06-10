@@ -381,6 +381,32 @@ def test_human_checkpoint_policy_pauses_after_practice_with_materials() -> None:
     assert checkpoint["artifact"]["markdown_sections"][0]["title"] == "Задача 1. Собрать артефакт"
 
 
+def test_practice_checkpoint_includes_bonus_tasks_and_bonus_excerpt() -> None:
+    policy = HumanApprovalCheckpointPolicy({"practice"})
+    context = {
+        "title": "Проект",
+        "markdown": (
+            "## Глава 3. Практический блок\n\n"
+            "### Задача 1. Собрать артефакт\n\n"
+            "Текст основной задачи.\n\n"
+            "## Бонус\n\n"
+            "### Бонусная задача 1. Усилить решение\n\n"
+            "Текст бонусного задания."
+        ),
+        "practice_tasks": [SimpleNamespace(title="Задача 1", objective="Собрать артефакт")],
+        "bonus_tasks": [SimpleNamespace(title="Усилить решение", objective="Добавить проверку")],
+    }
+
+    with pytest.raises(MethodologyGateInterrupt):
+        policy.maybe_raise("practice", context)
+
+    checkpoint = context["human_approval_checkpoint"]
+    assert checkpoint["artifact"]["summary"].startswith("Сгенерировано задач: 2")
+    assert checkpoint["artifact"]["practice_tasks"][1]["title"] == "Бонусное задание: Усилить решение"
+    assert "## Бонус" in checkpoint["artifact"]["markdown_excerpt"]
+    assert checkpoint["artifact"]["markdown_sections"][-1]["title"] == "Бонусная задача 1. Усилить решение"
+
+
 def test_quality_checkpoint_keeps_full_readme_preview() -> None:
     markdown = _full_readme_with_late_practice()
     context = {

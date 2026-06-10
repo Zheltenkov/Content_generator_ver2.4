@@ -41,6 +41,41 @@ _EDGE_SOURCE_RE = re.compile(
     r"((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+"
     r"(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-\.->|-\.|==>|--|==))"
 )
+_SEQUENCE_ARROW_PATTERN = r"(?:-{1,2}|={1,2})(?:>>|>|x|\))[+x-]?"
+_SEQUENCE_PARTICIPANT_BOUNDARY_RE = re.compile(
+    r"\s+(?=(?:participant|actor)\s+[A-Za-z][A-Za-z0-9_]*\b)",
+    re.IGNORECASE,
+)
+_SEQUENCE_MESSAGE_BOUNDARY_RE = re.compile(
+    rf"\s+(?=[A-Za-z][A-Za-z0-9_]*\s*{_SEQUENCE_ARROW_PATTERN}\s*"
+    r"[A-Za-z][A-Za-z0-9_]*\s*:)"
+)
+_SEQUENCE_CONTROL_BOUNDARY_RE = re.compile(
+    r"\s+(?=(?:alt|else|opt|loop|par|and|critical|break|end)\b)",
+    re.IGNORECASE,
+)
+_SEQUENCE_NOTE_BOUNDARY_RE = re.compile(
+    r"\s+(?=Note\s+(?:over|left of|right of)\b)",
+    re.IGNORECASE,
+)
+_SEQUENCE_MESSAGE_LINE_RE = re.compile(
+    rf"^([A-Za-z][A-Za-z0-9_]*)\s*{_SEQUENCE_ARROW_PATTERN}\s*"
+    r"([A-Za-z][A-Za-z0-9_]*)\s*:"
+)
+_SEQUENCE_PARTICIPANT_LINE_RE = re.compile(
+    r"^(?:participant|actor)\s+([A-Za-z][A-Za-z0-9_]*)\b",
+    re.IGNORECASE,
+)
+_SEQUENCE_STATEMENT_RE = re.compile(
+    rf"^(?:participant\b|actor\b|autonumber\b|activate\b|deactivate\b|destroy\b|"
+    rf"rect\b|opt\b|alt\b|else\b|loop\b|par\b|and\b|critical\b|break\b|end\b|"
+    rf"Note\s+(?:over|left of|right of)\b|"
+    rf"[A-Za-z][A-Za-z0-9_]*\s*{_SEQUENCE_ARROW_PATTERN}\s*"
+    rf"[A-Za-z][A-Za-z0-9_]*\s*:)",
+    re.IGNORECASE,
+)
+_UNICODE_MERMAID_EDGE_RE = re.compile(r"\s*(?:[–—−]+\s*>|[-–—−]?\s*→)\s*")
+_SINGLE_ASCII_ARROW_RE = re.compile(r"(^|[^-.])-\s*>(?!>)")
 _MERMAID_NODE_TOKEN = (
     r"[A-Za-z][A-Za-z0-9_]*"
     r"(?:\s*(?:\[[^\]\n]*\]|\([^\)\n]*\)|\{[^\}\n]*\}))?"
@@ -124,11 +159,13 @@ def _normalize_mermaid_code(code: str) -> str:
 
     init_directives = _unique_preserve_order(_MERMAID_INIT_RE.findall(raw))
     body = _MERMAID_INIT_RE.sub(" ", raw)
+    body = _normalize_mermaid_arrow_syntax(body)
     body = re.sub(r"[ \t]+", " ", body).strip()
 
     # A flattened flowchart usually looks like: "flowchart TD A[...] --> B[...]".
     # Mermaid requires the diagram declaration and statements on separate lines.
     body = _GRAPH_DECL_RE.sub(r"\1\n    ", body, count=1)
+    body = _normalize_sequence_mermaid_statements(body)
     body = _SINGLE_DECL_RE.sub(r"\1\n    ", body, count=1)
 
     # Split consecutive statements: "... B[Label] B --> C[Label]".
@@ -145,6 +182,96 @@ def _normalize_mermaid_code(code: str) -> str:
             lines.append(cleaned if cleaned.startswith("%%{") else f"    {cleaned}" if lines and not cleaned.startswith(("flowchart", "graph", "sequenceDiagram", "stateDiagram", "classDiagram", "erDiagram", "journey", "gantt", "pie")) else cleaned)
 
     return "\n".join(lines).strip()
+
+
+def _normalize_sequence_mermaid_statements(code: str) -> str:
+    """Restore sequenceDiagram statements flattened into one physical line."""
+    text = code or ""
+    if not re.match(r"^\s*sequenceDiagram\b", text, re.IGNORECASE):
+        return text
+
+    text = re.sub(
+        r"\bsequenceDiagram\b\s*(?=\S)",
+        "sequenceDiagram\n    ",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    text = _SEQUENCE_PARTICIPANT_BOUNDARY_RE.sub("\n    ", text)
+    text = _SEQUENCE_NOTE_BOUNDARY_RE.sub("\n    ", text)
+    text = _SEQUENCE_CONTROL_BOUNDARY_RE.sub("\n    ", text)
+    text = _SEQUENCE_MESSAGE_BOUNDARY_RE.sub("\n    ", text)
+    return _repair_sequence_leading_alias(text)
+
+
+def _repair_sequence_leading_alias(text: str) -> str:
+    """Turn a stray leading participant label into an explicit participant."""
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    declaration_index = next(
+        (
+            index
+            for index, line in enumerate(lines)
+            if re.match(r"^\s*sequenceDiagram\b", line, re.IGNORECASE)
+        ),
+        None,
+    )
+    if declaration_index is None:
+        return text
+
+    statement_index = next(
+        (
+            index
+            for index in range(declaration_index + 1, len(lines))
+            if lines[index].strip()
+        ),
+        None,
+    )
+    if statement_index is None:
+        return text
+
+    candidate = lines[statement_index].strip()
+    if (
+        not candidate
+        or len(candidate) > 80
+        or _SEQUENCE_STATEMENT_RE.match(candidate)
+        or any(token in candidate for token in ("->", "--", "=>", ":", "[", "]", "{", "}", "|"))
+    ):
+        return text
+
+    participant_ids = {
+        match.group(1)
+        for line in lines[declaration_index + 1 :]
+        if (match := _SEQUENCE_PARTICIPANT_LINE_RE.match(line.strip()))
+    }
+
+    for line in lines[statement_index + 1 :]:
+        match = _SEQUENCE_MESSAGE_LINE_RE.match(line.strip())
+        if not match:
+            continue
+        source_id = match.group(1)
+        if source_id in participant_ids:
+            lines[statement_index] = f"    %% {candidate}"
+        else:
+            lines[statement_index] = f"    participant {source_id} as {candidate}"
+        return "\n".join(lines)
+
+    return text
+
+
+def _normalize_mermaid_arrow_syntax(code: str) -> str:
+    """Convert LLM-friendly unicode arrows to Mermaid edge syntax."""
+    text = code or ""
+    text = _UNICODE_MERMAID_EDGE_RE.sub(" --> ", text)
+    text = re.sub(r"\s*⇒\s*", " ==> ", text)
+    text = _SINGLE_ASCII_ARROW_RE.sub(r"\1 --> ", text)
+    text = re.sub(r"--\s+>", "-->", text)
+    text = re.sub(r"==\s+>", "==>", text)
+    text = re.sub(r"-\.\s+>", "-.->", text)
+    text = re.sub(r"(-->|==>|-\.->)\s+\|", r"\1|", text)
+    return text
 
 
 def _clean_mermaid_edge_label(label: str) -> str:

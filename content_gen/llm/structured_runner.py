@@ -143,12 +143,16 @@ def supports_structured_outputs(model_name: str | None) -> bool:
     supported_models = {
         "gpt-4o",
         "gpt-4o-mini",
+        "gpt-5.4-mini",
         "o1",
         "o1-mini",
         "o1-preview",
         "o1-mini-preview",
     }
     normalized = str(model_name or "").lower()
+    for provider_prefix in ("openrouter/", "openai/"):
+        if normalized.startswith(provider_prefix):
+            normalized = normalized.removeprefix(provider_prefix)
     return any(normalized.startswith(supported.lower()) for supported in supported_models)
 
 

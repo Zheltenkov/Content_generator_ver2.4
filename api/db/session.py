@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from fastapi import HTTPException, status
 from sqlalchemy import create_engine
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 load_dotenv()
@@ -90,7 +91,7 @@ def check_database_connection() -> None:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
         set_database_status(True)
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         set_database_status(False, exc)
         raise
 
@@ -111,7 +112,7 @@ def get_db_session() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         set_database_status(False, exc)
         raise
     finally:
@@ -146,7 +147,7 @@ def init_db(auto_create: bool | None = None) -> None:
         else:
             check_database_connection()
         set_database_status(True)
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         set_database_status(False, exc)
         raise
 

@@ -5,10 +5,89 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def test_checker_loads_mermaid_for_markdown_preview():
+def test_markdown_preview_loads_heavy_vendors_lazily_from_local_static():
     html = (ROOT / "static" / "checker.html").read_text(encoding="utf-8")
+    renderer = (ROOT / "static" / "js" / "modules" / "markdownRendering.js").read_text(encoding="utf-8")
 
-    assert "mermaid.min.js" in html
+    assert "/static/vendor/mermaid/mermaid.min.js" not in html
+    assert "/static/vendor/marked/marked.min.js" not in html
+    assert "/static/vendor/mathjax/tex-mml-chtml.js" not in html
+    assert "/static/vendor/mermaid/mermaid.min.js" in renderer
+    assert "/static/vendor/marked/marked.min.js" in renderer
+    assert "/static/vendor/mathjax/tex-mml-chtml.js" in renderer
+    assert "function ensureMermaidLoaded" in renderer
+    assert "await ensureMarkedLoaded()" in renderer
+
+
+def test_app_pages_enable_safe_navigation_prefetch():
+    prefetch_js = (ROOT / "static" / "js" / "utils" / "pagePrefetch.js").read_text(encoding="utf-8")
+    for page_name in ["app.html", "index.html", "checker.html", "translator.html", "instruction.html"]:
+        html = (ROOT / "static" / page_name).read_text(encoding="utf-8")
+        assert "/static/js/utils/pagePrefetch.js?v=20260518-page-prefetch" in html
+        assert "defer" in html
+
+    assert "requestIdleCallback" in prefetch_js
+    assert "pointerenter" in prefetch_js
+    assert "X-ContentGen-Prefetch" in prefetch_js
+    assert "cache: options.priority ? 'reload' : 'force-cache'" in prefetch_js
+
+
+def test_protected_pages_use_central_auth_session_guard():
+    auth_js = (ROOT / "static" / "js" / "utils" / "authSession.js").read_text(encoding="utf-8")
+    for page_name in ["app.html", "index.html", "checker.html", "translator.html", "instruction.html"]:
+        html = (ROOT / "static" / page_name).read_text(encoding="utf-8")
+        assert "/static/js/utils/authSession.js?v=20260518-auth-session" in html
+
+    assert "window.fetch = authFetch" in auth_js
+    assert "/auth/me" in auth_js
+    assert "response.status === 401" in auth_js
+    assert "clearAuthState" in auth_js
+    assert "window.location.replace('/')" in auth_js
+
+
+def test_markdown_renderer_cache_version_matches_diagram_fit():
+    for page_name in ["index.html", "checker.html", "translator.html"]:
+        html = (ROOT / "static" / page_name).read_text(encoding="utf-8")
+        assert "/static/js/modules/markdownRendering.js?v=20260520-methodology-diagram-stability" in html
+
+
+def test_upload_cards_do_not_reopen_file_picker_from_bubbled_input_clicks():
+    generator_html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    checker_html = (ROOT / "static" / "checker.html").read_text(encoding="utf-8")
+    translator_html = (ROOT / "static" / "translator.html").read_text(encoding="utf-8")
+
+    for input_id, html in [
+        ("curriculumFile", generator_html),
+        ("readmeFile", checker_html),
+        ("checkerCurriculumFile", checker_html),
+        ("translationFile", translator_html),
+        ("translationVideoFile", translator_html),
+    ]:
+        assert f"if (event.target.tagName !== 'INPUT') document.getElementById('{input_id}').click()" in html
+        assert f'id="{input_id}"' in html
+        assert 'onclick="event.stopPropagation()"' in html
+
+
+def test_translator_target_language_badge_tracks_selected_language():
+    html = (ROOT / "static" / "translator.html").read_text(encoding="utf-8")
+    js = (ROOT / "static" / "js" / "modules" / "translationPage.js").read_text(encoding="utf-8")
+
+    assert 'id="translationTargetLanguageBadge"' in html
+    assert "/static/js/modules/translationPage.js?v=" in html
+    assert "function syncTranslationLanguageBadges" in js
+    assert "setTranslationText('translationTargetLanguageBadge', `✓ ${language} · ПЕРЕВОД`)" in js
+    assert "setTranslationText('translationSummaryLanguage', `RU → ${language}`)" in js
+    assert "targetBadge.textContent = `✓ ${language} · ПЕРЕВОД`" in html
+    assert "summaryLanguage.textContent = `RU → ${language}`" in html
+    assert "ПЕРЕВОД ДОКУМЕНТА · RU → EN';" not in js
+
+
+def test_translator_polling_reports_missing_translation_job():
+    js = (ROOT / "static" / "js" / "modules" / "translationPage.js").read_text(encoding="utf-8")
+
+    assert "if (!statusResponse.ok)" in js
+    assert "Задача перевода не найдена. Запустите перевод заново." in js
+    assert "updateTranslationSummary(isVideoMode ? 'video' : 'document', 'Ошибка обработки')" in js
 
 
 def test_dashboard_parses_backend_timestamps_as_utc_and_blocks_terminal_runs():
@@ -178,6 +257,30 @@ def test_checker_heading_uses_generic_readme_copy():
     assert "Проверка собственного README" not in html
 
 
+def test_checker_result_controls_are_not_duplicated_and_use_green_score_ring():
+    html = (ROOT / "static" / "checker.html").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "s21-checker.css").read_text(encoding="utf-8")
+
+    assert html.count("Очистить результат") == 1
+    assert 'id="clearResultsBtn"' not in html
+    assert "/static/css/s21-checker.css?v=20260518-diagram-polish" in html
+    assert "--score-color: var(--s21-success);" in css
+    assert "#b06d10" not in css
+
+
+def test_metrics_filters_keep_state_without_generation_runtime():
+    checker_html = (ROOT / "static" / "checker.html").read_text(encoding="utf-8")
+    generator_html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    js = (ROOT / "static" / "js" / "modules" / "metricsView.js").read_text(encoding="utf-8")
+
+    assert "/static/js/modules/metricsView.js?v=20260518-checker-filter-state" in checker_html
+    assert "/static/js/modules/metricsView.js?v=20260518-checker-filter-state" in generator_html
+    assert "let activeMetricFilter = 'all';" in js
+    assert "window.currentMetricFilter || activeMetricFilter || 'all'" in js
+    assert "activeMetricFilter = filter;" in js
+    assert "window.currentMetricFilter = filter;" in js
+
+
 def test_main_exports_shared_markdown_renderer_for_checker():
     js = (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
 
@@ -185,6 +288,26 @@ def test_main_exports_shared_markdown_renderer_for_checker():
     assert "window.renderMarkdownPreview = renderMarkdownPreview;" in js
     assert "window.normalizeMarkdownForDisplay = normalizeMarkdownForDisplay;" in js
     assert "window.renderMermaidDiagrams = renderMermaidDiagrams;" in js
+
+
+def test_checker_readme_preview_uses_checker_diagram_fit_context():
+    html = (ROOT / "static" / "checker.html").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "css" / "s21-checker.css").read_text(encoding="utf-8")
+    renderer = (ROOT / "static" / "js" / "modules" / "markdownRendering.js").read_text(encoding="utf-8")
+    preview_js = (ROOT / "static" / "js" / "modules" / "checkerReadmePreview.js").read_text(encoding="utf-8")
+
+    assert "/static/js/modules/checkerReadmePreview.js?v=20260518-checker-diagram-fit" in html
+    assert "function markdownRenderOptionsForContainer" in renderer
+    assert "diagramContext: 'checker'" in renderer
+    assert "const isChecker = renderContext === 'checker';" in renderer
+    assert "baseWidth: 680" in renderer
+    assert "boxWidth: 860" in renderer
+    assert "maxEstimatedHeight: 520" in renderer
+    assert ".result-markdown.markdown-preview figure.diagram-figure" in css
+    assert "max-width: min(900px, 100%) !important;" in css
+    assert "max-width: min(860px, 100%) !important;" in css
+    assert "max-height: 540px !important;" in css
+    assert 'id="improvedReadmePreview" class="markdown-preview result-markdown"' in preview_js
 
 
 def test_generator_results_tabs_have_data_tab_without_methodologist_tab():
@@ -296,6 +419,16 @@ def test_generation_runtime_split_modules_are_loaded():
     assert "async function loadGenerationState" in persistence_js
     assert "async function pollGenerationStatus" not in main_js
     assert "async function loadGenerationState" not in main_js
+
+
+def test_generation_restore_keeps_seed_for_active_runs():
+    persistence_js = (ROOT / "static" / "js" / "modules" / "generationPersistence.js").read_text(encoding="utf-8")
+
+    assert "function extractProjectSeedFromStatusData" in persistence_js
+    assert "workflowMetadata.project_seed_payload" in persistence_js
+    assert "function restoreSeedIntoForm" in persistence_js
+    assert "restoreSeedIntoForm(restoredSeed);" in persistence_js
+    assert "window.showGenerationRunView?.(latest.currentSeed || {}, {" in persistence_js
 
 
 def test_methodology_assistant_chat_is_split_from_main():
@@ -553,31 +686,50 @@ def test_mermaid_diagram_contract_is_scrollable_and_shared_with_images():
     assert "function wrapDiagramImages" in js
     assert "mermaid.parse(code)" in js
     assert "function normalizeMermaidEdgeLabelLine" in js
+    assert "function normalizeMermaidArrowSyntax" in js
+    assert "function normalizeSequenceMermaidStatements" in js
+    assert "\\u2192" in js
+    assert "\\u2014" in js
+    assert "function looksLikeMermaidCode" in js
+    assert "function getMermaidCodeBlocks" in js
+    assert "root.querySelectorAll('pre code')" in js
+    assert "root.querySelectorAll('pre')" in js
+    assert "looksLikeMermaidCode(codeBlock.textContent || '')" in js
     assert "function normalizeStrayLeadingSentenceDots" in js
     assert "function mermaidCodeMetrics" in js
+    assert "function stabilizeRenderedMermaid" in js
     assert "function diagramRenderContext" in js
     assert "function openDiagramLightbox" in js
     assert "function diagramLightboxWidth" in js
-    assert "sourceWidth * 4 / 3" in js
+    assert "sourceWidth * 1.12" in js
     assert "--diagram-lightbox-media-width" in js
     assert "function enableDiagramZoom" in js
     assert "enableDiagramZoom(holder, svgEl" in js
     assert "enableDiagramZoom(surface, img" in js
     assert "holder.dataset.diagramContext = renderContext" in js
-    assert "renderMermaidDiagrams(container, options)" in js
+    assert "renderMermaidDiagrams(container, renderOptions)" in js
+    assert "function beginMarkdownRender" in js
+    assert "function isMarkdownRenderCurrent" in js
+    assert "function ignoreStaleRenderError" in js
+    assert "container.dataset.markdownRenderToken" in js
+    assert "await Promise.all(renderTasks)" in js
+    assert "typesetMathJax(container, renderToken)" in js
     assert "holder.dataset.diagramOverflow = isWide ? 'scroll' : 'fit';" in js
     assert "holder.style.setProperty('--diagram-font-size', isWide ? profile.wideFontSize : profile.normalFontSize);" in js
-    assert "fontSize: '18px'" in (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
+    assert "fontSize: '14px'" in (ROOT / "static" / "js" / "main.js").read_text(encoding="utf-8")
     assert "diagramContext: 'methodology'" in panel_js
+    assert "function isVisibleMarkdownPreview" in panel_js
     assert ".diagram-image-surface" in css
-    assert "min-height: var(--diagram-min-height, 220px)" in css
+    assert "min-height: min(var(--diagram-min-height, 220px), 520px)" in css
     assert "data-diagram-overflow=\"scroll\"" in css
-    assert "max-width: min(var(--diagram-box-width, 1080px), 100%)" in s21_css
+    assert "max-width: min(var(--diagram-box-width, 920px), 100%)" in s21_css
     assert ".methodology-markdown-preview.markdown-preview .mermaid-diagram[data-diagram-size=\"tall\"]" in s21_css
-    assert "max-height: min(760px, calc(100vh - 280px))" in s21_css
+    assert ".methodology-markdown-preview.markdown-preview .mermaid-diagram[data-diagram-context=\"methodology\"] svg" in s21_css
+    assert "max-height: min(600px, calc(100vh - 260px))" in s21_css
     assert ".diagram-zoom-control" in s21_css
     assert ".diagram-lightbox" in s21_css
-    assert "width: var(--diagram-lightbox-media-width, 1013px) !important;" in s21_css
+    assert "width: var(--diagram-lightbox-media-width, 806px) !important;" in s21_css
+    assert "body.s21-product .diagram-lightbox-media .node rect" in s21_css
     assert "cursor: zoom-in" in s21_css
 
 
@@ -684,7 +836,7 @@ def test_generator_ui_uses_state_stores_before_split_modules():
     assert "workflowProfileStore" in stores_js
     assert "STANDARD_WORKFLOW_PROFILE" in stores_js
     assert "METHODOLOGY_WORKFLOW_PROFILE" in stores_js
-    assert "project_regeneration: false" in stores_js
+    assert "project_regeneration: true" in stores_js
     assert "bindLegacyWindowState" in stores_js
     assert "window.ContentGenStores" in main_js
 
@@ -725,18 +877,18 @@ def test_generator_markdown_tables_task_lists_and_mermaid_stay_light_and_readabl
     assert "body.s21-product.page-generate #readmeContent" in generate_css
     assert "body.s21-product .markdown-preview mjx-container" in css
     assert "body.s21-product .methodology-markdown-preview mjx-container svg path" in css
-    assert "width: min(1120px, 100%) !important;" in css
+    assert "width: min(920px, 100%) !important;" in css
     assert "methodology-readme-fragment-section .methodology-markdown-preview" in generate_css
     assert "width: max-content;" in css
     assert "min-width: 220px;" in css
     assert "body.s21-product .markdown-preview table th *" in css
-    assert "font-size: var(--diagram-font-size, 18px)" in css
+    assert "font-size: var(--diagram-font-size, 14px)" in css
     assert "function sentenceCaseCaption" in markdown_js
     assert r"^(?:табл\.?|таблица)(?:\s|\d|[:.—-]|$)" in markdown_js
     assert "const isDiagramAlt" in markdown_js
     assert "диаграмма|схема|процесс|алгоритм" in markdown_js
-    assert "width: min(1120px, 100%) !important;" in css
-    assert "max-height: 780px !important;" in css
+    assert "width: min(920px, 100%) !important;" in css
+    assert "max-height: 560px !important;" in css
     assert "body.s21-product .markdown-preview li.task-list-item" in css
     assert "grid-template-columns: 18px minmax(0, 1fr);" in css
     assert "min-width: 16px !important;" in css
@@ -746,7 +898,12 @@ def test_generator_markdown_tables_task_lists_and_mermaid_stay_light_and_readabl
     assert "grid-column: 2;" in css
     assert "overflow-wrap: anywhere !important;" in css
     assert "fill: var(--s21-surface) !important;" in css
-    assert "stroke-width: 2.2px !important;" in css
+    assert "stroke-width: 1.45px !important;" in css
+    assert "stroke-width: 1.25px !important;" in css
+    assert "vector-effect: non-scaling-stroke !important;" in css
+    assert "overflow-y: auto !important;" in css
+    assert "body.s21-product .diagram-lightbox-media foreignObject div" in css
+    assert "align-items: center !important;" in css
     assert ".flowchart-label" in css
 
 

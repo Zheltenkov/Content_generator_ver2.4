@@ -314,7 +314,7 @@ function fillFormFromData(data) {
         function getSelectedGenerationProvider() {
             return typeof window.getSelectedLlmProvider === 'function'
                 ? window.getSelectedLlmProvider()
-                : 'openai';
+                : 'openrouter';
         }
 
         function applySelectedCurriculumProject(seed) {

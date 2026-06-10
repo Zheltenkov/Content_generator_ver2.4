@@ -574,6 +574,23 @@
                 } else if (typeof window.showMethodologyReviewActions === 'function') {
                     window.showMethodologyReviewActions(state.currentRequestId, message);
                 }
+                const panel = window.methodologyPanel;
+                if (typeof panel?.previewChanges === 'function') {
+                    try {
+                        appendMessage('assistant', 'Готовлю сравнение, чтобы правка сразу была видна в основном окне.');
+                        const previewData = await panel.previewChanges();
+                        latestReviewState = {
+                            ...(latestReviewState || {}),
+                            ...(previewData || {}),
+                        };
+                        refreshReviewControls(latestReviewState);
+                        appendMessage('assistant', previewData?.preview_has_rejections
+                            ? 'Правка сохранена, но часть изменений отклонена валидатором. Посмотрите предупреждения в основном окне.'
+                            : 'Правка готова в основном окне.');
+                    } catch (previewError) {
+                        appendMessage('assistant', `Правка сохранена, но предпросмотр не удалось подготовить: ${previewError.message}. Нажмите «Сравнить», чтобы повторить.`);
+                    }
+                }
             } catch (error) {
                 if (fromQueue) {
                     queuePendingCommand(text, state.currentRequestId);

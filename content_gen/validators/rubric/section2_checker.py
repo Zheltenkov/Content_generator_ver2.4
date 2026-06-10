@@ -42,7 +42,7 @@ class Section2Checker:
         
         Args:
             md: Markdown документ
-            learning_outcomes: Список образовательных результатов (ЗУНов)
+            learning_outcomes: Список образовательных результатов
         
         Returns:
             Список CriteriaItem для раздела 2

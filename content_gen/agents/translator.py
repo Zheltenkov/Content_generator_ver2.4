@@ -132,12 +132,20 @@ _LATIN_WORD_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9_+/#.-]{2,}\b")
 _SCRIPT_LATIN_ALLOWLIST = {
     "api",
     "backend",
+    "bin",
+    "bool",
+    "boolean",
+    "char",
     "bus",
+    "cli",
     "css",
     "devops",
     "docx",
+    "double",
     "excel",
     "factor",
+    "false",
+    "float",
     "frontend",
     "git",
     "github",
@@ -146,15 +154,31 @@ _SCRIPT_LATIN_ALLOWLIST = {
     "html",
     "http",
     "https",
+    "input",
+    "int",
     "json",
+    "main",
     "markdown",
+    "nbsp",
+    "null",
+    "output",
     "pdf",
     "pjm",
+    "printf",
     "readme",
     "sermon",
+    "scanf",
     "sjm",
     "sql",
+    "src",
+    "stderr",
+    "stdin",
+    "stdout",
+    "string",
+    "true",
     "url",
+    "utf",
+    "void",
     "vtt",
     "yaml",
     "yml",
@@ -186,8 +210,62 @@ class TranslatorAgent:
     @staticmethod
     def _extract_text_content(md: str) -> str:
         """Извлекает чистый текст из markdown, убирая структурные элементы."""
-        text = _MARKDOWN_STRIP_RE.sub(" ", md)
+        text = md or ""
+        # Сначала сохраняем видимый текст ссылок. Валидатор языкового покрытия
+        # сравнивает именно пользовательский текст, а не URL/якоря; если выбросить
+        # label из `[текст](url)`, оглавления превращаются в одинаковый набор
+        # номеров и дают ложный similarity=1.00.
+        text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
+        text = re.sub(r"\[([^\]]+)\]\([^)]*\)", r" \1 ", text)
+        text = _MARKDOWN_STRIP_RE.sub(" ", text)
         return re.sub(r"\s+", " ", text).strip()
+
+    @staticmethod
+    def _looks_like_technical_token(token: str) -> bool:
+        """Определяет токены, которые не являются переводимым prose-сигналом."""
+        value = token.strip().lower()
+        if not value:
+            return True
+        if value in _SCRIPT_LATIN_ALLOWLIST:
+            return True
+        if any(ch.isdigit() for ch in value):
+            return True
+        if any(ch in value for ch in ("_", "/", "\\", ".", "%", "#", "+", "-")):
+            return True
+        if value in {"br", "html", "loading", "error", "kill", "me", "double", "float", "int"}:
+            return True
+        return False
+
+    @classmethod
+    def _has_translation_language_signal(cls, text: str) -> bool:
+        """Проверяет, есть ли в секции достаточно естественного текста для language gate.
+
+        Секции с ожидаемым выводом, числовыми таблицами, путями и служебными
+        маркерами часто должны оставаться почти неизменными. Для них similarity
+        не является признаком плохого перевода, поэтому валидатор должен их
+        пропускать и не запускать бессмысленный repair.
+        """
+        compact = (text or "").strip()
+        if len(compact) < 20:
+            return False
+
+        alpha_count = sum(1 for ch in compact if ch.isalpha())
+        if alpha_count < 30:
+            return False
+
+        alpha_ratio = alpha_count / max(len(compact), 1)
+        words = _CYRILLIC_WORD_RE.findall(compact) + _LATIN_WORD_RE.findall(compact)
+        prose_words = [
+            word for word in words
+            if len(word) >= 3 and not cls._looks_like_technical_token(word)
+        ]
+
+        if len(prose_words) < 4:
+            return False
+        if alpha_ratio < 0.25 and len(prose_words) < 12:
+            return False
+
+        return True
 
     @classmethod
     def _detect_source_language(cls, markdown: str) -> str | None:
@@ -247,6 +325,7 @@ class TranslatorAgent:
         """Оставляет переводимый prose-текст и убирает технические контейнеры."""
         text = re.sub(r"```.*?```", " ", markdown or "", flags=re.DOTALL)
         text = re.sub(r"`[^`]+`", " ", text)
+        text = re.sub(r"&[A-Za-z][A-Za-z0-9]+;", " ", text)
         text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", text)
         text = re.sub(r"\[[^\]]*\]\([^)]*\)", " ", text)
         text = re.sub(r"https?://\S+", " ", text)
@@ -568,7 +647,7 @@ class TranslatorAgent:
             o_text = self._extract_text_content(o_body)
             t_text = self._extract_text_content(t_body)
 
-            if len(o_text) < 20:
+            if not self._has_translation_language_signal(o_text):
                 continue
 
             ratio = SequenceMatcher(None, o_text, t_text).ratio()

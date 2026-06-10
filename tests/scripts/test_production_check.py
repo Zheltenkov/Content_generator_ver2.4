@@ -124,6 +124,43 @@ def test_optional_provider_keys_do_not_warn_when_provider_is_not_enabled() -> No
         shutil.rmtree(project_root, ignore_errors=True)
 
 
+def test_openrouter_provider_key_satisfies_llm_check() -> None:
+    project_root = _make_case_dir()
+    (project_root / ".env.example").write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://content_user:change_me@localhost:5432/content_generator",
+                "JWT_SECRET_KEY=change_me",
+                "LLM_PROVIDER=openrouter",
+                "OPEN_ROUTER_API_KEY=",
+                "OPENAI_API_KEY=",
+                "DEEPSEEK_API_KEY=",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (project_root / ".env").write_text(
+        "\n".join(
+            [
+                "DATABASE_URL=postgresql://content_user:pass123@localhost:5432/content_generator",
+                "JWT_SECRET_KEY=real-secret",
+                "LLM_PROVIDER=openrouter",
+                "OPEN_ROUTER_API_KEY=real-openrouter-key",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    report = production_check.CheckReport()
+
+    try:
+        production_check.check_env_files(report, project_root)
+
+        assert not report.errors
+        assert not report.warnings
+    finally:
+        shutil.rmtree(project_root, ignore_errors=True)
+
+
 def test_dedupe_env_preserves_last_values_and_removes_stale_keys() -> None:
     project_root = _make_case_dir()
     (project_root / ".env.example").write_text(

@@ -184,6 +184,44 @@ def test_reset_password_requires_server_side_minimum_length() -> None:
 
 
 @pytest.mark.asyncio
+async def test_login_unknown_user_returns_registration_hint(monkeypatch) -> None:
+    session_factory = _session_factory()
+    db = session_factory()
+    monkeypatch.setattr(auth, "ALLOWED_EMAIL_DOMAIN", "21-school.ru")
+
+    login = _route_handler(auth.login)
+    with pytest.raises(HTTPException) as exc_info:
+        await login(
+            auth.LoginRequest(email="unknown@21-school.ru", password="password-123"),
+            http_request=SimpleNamespace(client=None, headers={}),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == auth.UNREGISTERED_LOGIN_MESSAGE
+    db.close()
+
+
+@pytest.mark.asyncio
+async def test_login_rejects_non_school_domain_with_registration_hint(monkeypatch) -> None:
+    session_factory = _session_factory()
+    db = session_factory()
+    monkeypatch.setattr(auth, "ALLOWED_EMAIL_DOMAIN", "21-school.ru")
+
+    login = _route_handler(auth.login)
+    with pytest.raises(HTTPException) as exc_info:
+        await login(
+            auth.LoginRequest(email="unknown@example.com", password="password-123"),
+            http_request=SimpleNamespace(client=None, headers={}),
+            db=db,
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == auth.UNREGISTERED_LOGIN_MESSAGE
+    db.close()
+
+
+@pytest.mark.asyncio
 async def test_get_current_user_rejects_revoked_session() -> None:
     session_factory = _session_factory()
     db = session_factory()
@@ -223,6 +261,27 @@ async def test_get_current_user_rejects_revoked_session() -> None:
     assert exc_info.value.status_code == 401
 
     db.close()
+
+
+@pytest.mark.asyncio
+async def test_current_user_profile_returns_safe_session_payload() -> None:
+    result = await auth.current_user_profile(
+        user={
+            "id": "user_1",
+            "username": "methodologist",
+            "email": "methodologist@21-school.ru",
+            "role": "user",
+            "session_token": "secret-session-token",
+        }
+    )
+
+    assert result == {
+        "id": "user_1",
+        "username": "methodologist",
+        "email": "methodologist@21-school.ru",
+        "role": "user",
+    }
+    assert "session_token" not in result
 
 
 @pytest.mark.asyncio

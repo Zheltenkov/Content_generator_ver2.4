@@ -265,29 +265,8 @@ class Chapter2Checker:
                 details={"issues": definitions_issues}
             ))
 
-        # 2.4.5: Проверка соответствия ЗУНам проекта (hybrid: evidence + AI fallback)
-        if learning_outcomes:
-            lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_content, learning_outcomes)
-            items.append(CriteriaItem(
-                id="2.4.5",
-                title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
-                check_method=CheckMethod.HYBRID if used_ai else CheckMethod.SCRIPT,
-                score=1 if lo_ok else 0,
-                comments=[] if lo_ok else lo_comments,
-                parent_id="2.4",
-                details=lo_details,
-            ))
-        else:
-            items.append(CriteriaItem(
-                id="2.4.5",
-                title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
-                check_method=CheckMethod.AI_AGENT,
-                score=0,
-                comments=["ЗУНы не предоставлены"],
-                parent_id="2.4"
-            ))
+        # 2.4.5 остается опциональной проверкой: отсутствие образовательных результатов не снижает оценку.
+        items.append(self._learning_outcomes_coverage_item(ch2_content, learning_outcomes))
 
         # 2.4.6: Проверка наличия примера/кейса (ИИ)
         example_issues = []
@@ -496,28 +475,7 @@ class Chapter2Checker:
             details={} if not definitions_issues else {"issues": definitions_issues},
         ))
 
-        if learning_outcomes:
-            lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_text, learning_outcomes)
-            items.append(CriteriaItem(
-                id="2.4.5",
-                title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
-                check_method=CheckMethod.HYBRID if used_ai else CheckMethod.SCRIPT,
-                score=1 if lo_ok else 0,
-                comments=[] if lo_ok else lo_comments,
-                parent_id="2.4",
-                details=lo_details,
-            ))
-        else:
-            items.append(CriteriaItem(
-                id="2.4.5",
-                title="Проверка соответствия ЗУНам проекта",
-                description="Содержимое теоретических разделов коррелирует с заявленными ЗУНами",
-                check_method=CheckMethod.AI_AGENT,
-                score=0,
-                comments=["ЗУНы не предоставлены"],
-                parent_id="2.4",
-            ))
+        items.append(self._learning_outcomes_coverage_item(ch2_text, learning_outcomes))
 
         example_issues: list[str] = []
         for i, part in enumerate(parts, 1):
@@ -634,8 +592,45 @@ class Chapter2Checker:
         except:
             return False
 
+    def _learning_outcomes_coverage_item(
+        self,
+        ch2_content: str,
+        learning_outcomes: list[str] | None,
+    ) -> CriteriaItem:
+        """Собирает критерий 2.4.5 без штрафа за отсутствующий опциональный контекст."""
+        title = "Проверка соответствия образовательным результатам"
+        description = "Содержимое теоретических разделов связано с заявленными образовательными результатами"
+        if not learning_outcomes:
+            return CriteriaItem(
+                id="2.4.5",
+                title=title,
+                description=description,
+                check_method=CheckMethod.SCRIPT,
+                score=1,
+                comments=[],
+                parent_id="2.4",
+                details={
+                    "mode": "skipped",
+                    "reason": "Образовательные результаты не переданы; критерий не снижает оценку.",
+                },
+                strictness=StrictnessLevel.SOFT,
+            )
+
+        lo_ok, lo_comments, lo_details, used_ai = self._check_lo_coverage(ch2_content, learning_outcomes)
+        return CriteriaItem(
+            id="2.4.5",
+            title=title,
+            description=description,
+            check_method=CheckMethod.HYBRID if used_ai else CheckMethod.SCRIPT,
+            score=1 if lo_ok else 0,
+            comments=[] if lo_ok else lo_comments,
+            parent_id="2.4",
+            details=lo_details,
+            strictness=StrictnessLevel.SOFT,
+        )
+
     def _check_lo_coverage(self, ch2_content: str, learning_outcomes: list[str]) -> tuple[bool, list[str], dict[str, Any], bool]:
-        """Проверяет покрытие ЗУНов через evidence-first эвристику и AI fallback."""
+        """Проверяет покрытие образовательных результатов через evidence-first эвристику и AI fallback."""
         prose = clean_markdown_prose_for_counting(ch2_content)
         evidence = self._script_lo_coverage(prose, learning_outcomes)
 
@@ -652,15 +647,15 @@ class Chapter2Checker:
 
         if not self.llm:
             missing = [item["learning_outcome"] for item in evidence if not item["covered"]]
-            return False, [f"Недостаточно evidence по ЗУНам: покрыто {coverage_percent:.0f}%"], {
+            return False, [f"Недостаточно evidence по образовательным результатам: покрыто {coverage_percent:.0f}%"], {
                 **details,
                 "missing": missing[:5],
             }, False
 
         try:
-            prompt = f"""Проверь, соответствует ли содержимое Главы 2 заявленным образовательным результатам (ЗУНам).
+            prompt = f"""Проверь, соответствует ли содержимое Главы 2 заявленным образовательным результатам.
 
-ЗУНы:
+Образовательные результаты:
 {chr(10).join(f'- {lo}' for lo in learning_outcomes[:5])}
 
 Содержимое Главы 2 без таблиц, диаграмм и code blocks:
@@ -670,7 +665,7 @@ class Chapter2Checker:
 {{
   "covers_los": true/false,
   "coverage_percent": 0-100,
-  "covered": ["краткий evidence по покрытым ЗУНам"],
+  "covered": ["краткий evidence по покрытым образовательным результатам"],
   "missing": ["что не покрыто или покрыто слабо"],
   "reason": "краткое объяснение"
 }}"""
@@ -696,16 +691,16 @@ class Chapter2Checker:
                     "ai_reason": data.get("reason", ""),
                 })
                 comments = [] if ok else [
-                    data.get("reason") or f"Содержимое покрывает только {ai_percent:.0f}% заявленных ЗУНов"
+                    data.get("reason") or f"Содержимое покрывает только {ai_percent:.0f}% заявленных образовательных результатов"
                 ]
                 return ok, comments, details, True
         except Exception as exc:
             details["ai_error"] = str(exc)
 
-        return False, [f"Недостаточно evidence по ЗУНам: покрыто {coverage_percent:.0f}%"], details, True
+        return False, [f"Недостаточно evidence по образовательным результатам: покрыто {coverage_percent:.0f}%"], details, True
 
     def _script_lo_coverage(self, prose: str, learning_outcomes: list[str]) -> list[dict[str, Any]]:
-        """Детерминированно собирает evidence по ключевым терминам ЗУНов."""
+        """Детерминированно собирает evidence по ключевым терминам образовательных результатов."""
         prose_lower = prose.lower()
         evidence: list[dict[str, Any]] = []
 
@@ -724,7 +719,7 @@ class Chapter2Checker:
         return evidence
 
     def _meaningful_tokens(self, text: str) -> list[str]:
-        """Выделяет доменные токены из ЗУНа без служебных педагогических слов."""
+        """Выделяет доменные токены из образовательного результата без служебных педагогических слов."""
         tokens = re.findall(r"[А-Яа-яЁёA-Za-z]{4,}", text.lower())
         result: list[str] = []
         seen: set[str] = set()

@@ -4,6 +4,7 @@
 let generationTimerHandle = null;
 let agentPollIntervalHandle = null;
 let statusPollIntervalHandle = null;
+const RECOVERABLE_STATUS_ERRORS = new Set([404, 502, 503, 504]);
 
 function getGenerationPollingRuntime() {
     return window.ContentGenGenerationRuntime || {};
@@ -309,7 +310,6 @@ async function pollGenerationStatus(requestId) {
                 await handleStatusHttpError(response);
                 return;
             }
-
             const data = await parseStatusResponse(response);
             if (!data) return;
 
@@ -362,10 +362,17 @@ async function pollGenerationStatus(requestId) {
 }
 
 async function handleStatusHttpError(response) {
-    if (response.status === 404) {
-        stopGenerationTracking();
-        setLogContent('Запрос генерации не найден (404)');
-        setGenerateButton(false);
+    if (RECOVERABLE_STATUS_ERRORS.has(response.status)) {
+        const state = getGenerationPollingState();
+        const message = response.status === 404
+            ? 'Сервер временно не нашёл запуск (404). Локальное состояние сохранено, продолжаю проверять статус.'
+            : `Сервер временно недоступен (${response.status}). Локальное состояние сохранено, продолжаю проверять статус.`;
+        setGenerationPollingState({
+            currentGenerationStatus: state.currentGenerationStatus || 'in_progress',
+            lastGenerationError: message
+        });
+        window.saveGenerationState?.();
+        setLogContent(message, 'info');
         return;
     }
 
@@ -555,11 +562,17 @@ function validateGenerationResult(result) {
 }
 
 function handleFailedGeneration(data) {
+    const message = `Ошибка генерации: ${data.error || 'Неизвестная ошибка'}`;
+    setGenerationPollingState({
+        currentGenerationStatus: 'failed',
+        lastGenerationError: message,
+    });
+    window.saveGenerationState?.();
     stopGenerationTracking();
     setGenerationStatusActive(false);
     window.finishGenerationRun?.('failed', data.error ? `Генерация остановилась с ошибкой: ${data.error}` : '');
     hideCancelButton();
-    setLogContent(`Ошибка генерации: ${data.error || 'Неизвестная ошибка'}`);
+    setLogContent(message);
     setGenerateButton(false);
 }
 

@@ -1,4 +1,4 @@
-"""Endpoints для перевода произвольных документов и видео (субтитры).
+﻿"""Endpoints для перевода произвольных документов и видео (субтитры).
 
 Модуль реализует сервисы «Перевод документа» и «Перевод субтитров по видео».
 POST /translate/readme, POST /translate/document или POST /translate/video возвращают request_id;
@@ -6,6 +6,7 @@ POST /translate/readme, POST /translate/document или POST /translate/video в
 """
 
 import asyncio
+import json
 import re
 import os
 import tempfile
@@ -13,6 +14,7 @@ import time
 import uuid
 import threading
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from io import BytesIO
@@ -38,8 +40,10 @@ from api.utils.result_cache import (
 )
 from content_gen.agents.translator import TranslatorAgent
 from content_gen.llm.factory import create_llm_client
+from content_gen.agents.base.llm_client import LLMClientProtocol
 from content_gen.models.schemas import ProjectSeed
 from content_gen.subtitles.burned_pipeline import run_burned_subs_pipeline
+from content_gen.utils.translation_languages import get_translation_language_profile
 
 logger = get_logger("readme-translate")
 router = APIRouter()
@@ -51,6 +55,15 @@ TRANSLATION_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt", ".html", ".htm", 
 MARKDOWN_DOCUMENT_EXTENSIONS = {".md", ".markdown"}
 TEXT_DOCUMENT_EXTENSIONS = {".md", ".markdown", ".txt"}
 HTML_DOCUMENT_EXTENSIONS = {".html", ".htm"}
+DOCX_WORD_NAMESPACE = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
+DOCX_TRANSLATABLE_XML_RE = re.compile(
+    r"^word/(?:document|header\d+|footer\d+|footnotes|endnotes|comments)\.xml$",
+)
+MAX_DOCX_TRANSLATION_BATCH_CHARS = int(os.getenv("MAX_DOCX_TRANSLATION_BATCH_CHARS", "9000"))
+
+ElementTree.register_namespace("w", DOCX_WORD_NAMESPACE)
+ElementTree.register_namespace("xml", XML_NAMESPACE)
 
 STAGE_PROGRESS = {
     "queued": 0,
@@ -87,6 +100,17 @@ class ExtractedTranslationDocument:
     filename: str
     extension: str
     title_seed: str
+    content: bytes
+
+
+@dataclass(frozen=True)
+class DocxTextUnit:
+    """Один переводимый текстовый блок внутри DOCX."""
+
+    unit_id: str
+    xml_path: str
+    paragraph_index: int
+    text: str
 
 
 class _PlainHtmlTextExtractor(HTMLParser):
@@ -199,6 +223,268 @@ def _extract_text_from_docx(content: bytes) -> str:
     return _normalize_extracted_text("\n".join(paragraphs))
 
 
+def _is_docx_translatable_xml(path: str) -> bool:
+    """Возвращает True для XML-частей Word, где реально хранится пользовательский текст."""
+    return bool(DOCX_TRANSLATABLE_XML_RE.match(path))
+
+
+def _iter_docx_text_units(content: bytes) -> list[DocxTextUnit]:
+    """Собирает переводимые абзацы DOCX без изменения исходного архива."""
+    try:
+        with zipfile.ZipFile(BytesIO(content)) as archive:
+            xml_paths = [name for name in archive.namelist() if _is_docx_translatable_xml(name)]
+            units: list[DocxTextUnit] = []
+            unit_index = 1
+            for xml_path in xml_paths:
+                try:
+                    root = ElementTree.fromstring(archive.read(xml_path))
+                except ElementTree.ParseError as exc:
+                    raise HTTPException(status_code=400, detail=f"Не удалось разобрать {xml_path} внутри DOCX") from exc
+
+                for paragraph_index, paragraph in enumerate(
+                    root.findall(f".//{{{DOCX_WORD_NAMESPACE}}}p")
+                ):
+                    text_nodes = [
+                        node
+                        for node in paragraph.iter()
+                        if node.tag == f"{{{DOCX_WORD_NAMESPACE}}}t"
+                    ]
+                    text = "".join(node.text or "" for node in text_nodes)
+                    if not text.strip():
+                        continue
+                    units.append(
+                        DocxTextUnit(
+                            unit_id=f"{unit_index:04d}",
+                            xml_path=xml_path,
+                            paragraph_index=paragraph_index,
+                            text=text,
+                        )
+                    )
+                    unit_index += 1
+            return units
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="DOCX-файл поврежден или имеет неверный формат") from exc
+
+
+def _extract_json_object(raw_text: str) -> dict:
+    """Достаёт JSON-объект из ответа модели, даже если вокруг появились служебные фразы."""
+    raw = (raw_text or "").strip()
+    if not raw:
+        raise ValueError("Пустой ответ модели")
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        parsed = json.loads(raw[start : end + 1])
+    if not isinstance(parsed, dict):
+        raise ValueError("Ответ модели не является JSON-объектом")
+    return parsed
+
+
+def _docx_translation_batches(units: list[DocxTextUnit]) -> list[list[DocxTextUnit]]:
+    """Группирует абзацы DOCX так, чтобы один запрос к LLM оставался управляемым."""
+    batches: list[list[DocxTextUnit]] = []
+    current: list[DocxTextUnit] = []
+    current_chars = 0
+    for unit in units:
+        unit_cost = len(unit.text) + 80
+        if current and current_chars + unit_cost > MAX_DOCX_TRANSLATION_BATCH_CHARS:
+            batches.append(current)
+            current = []
+            current_chars = 0
+        current.append(unit)
+        current_chars += unit_cost
+    if current:
+        batches.append(current)
+    return batches
+
+
+def _translate_docx_units(
+    llm_client: LLMClientProtocol,
+    units: list[DocxTextUnit],
+    target_language: str,
+    progress_callback: Callable[[str], None] | None = None,
+) -> dict[str, str]:
+    """Переводит DOCX блоками через строгий JSON-контракт id -> translated_text."""
+    if not units:
+        return {}
+
+    target_profile = get_translation_language_profile(target_language)
+    system_prompt = (
+        "Ты переводишь текстовые фрагменты DOCX-документа. "
+        "Нужно вернуть только JSON без Markdown и пояснений. "
+        "Сохраняй смысл, числа, имена файлов, пути, технические термины, формулы и сокращения. "
+        f"Язык перевода: {target_profile.prompt_label}. "
+        f"Письменность: {target_profile.script_instruction}."
+    )
+    translations: dict[str, str] = {}
+    batches = _docx_translation_batches(units)
+
+    for batch_index, batch in enumerate(batches, 1):
+        if progress_callback:
+            progress_callback("translate")
+        payload = {
+            "target_language": target_profile.prompt_label,
+            "script_instruction": target_profile.script_instruction,
+            "fragments": [{"id": unit.unit_id, "text": unit.text} for unit in batch],
+        }
+        user_prompt = (
+            "Переведи каждый фрагмент отдельно и верни JSON строго такого вида:\n"
+            '{"translations":{"0001":"перевод фрагмента"}}\n'
+            "Не объединяй фрагменты, не меняй id, не добавляй новые ключи.\n\n"
+            f"Входные данные:\n{json.dumps(payload, ensure_ascii=False)}"
+        )
+
+        raw_response = ""
+        try:
+            raw_response = llm_client.complete(
+                system=system_prompt,
+                user=user_prompt,
+                response_format="json_object",
+                temperature=0.1,
+            )
+        except Exception:
+            raw_response = llm_client.complete(
+                system=system_prompt,
+                user=user_prompt,
+                temperature=0.1,
+            )
+
+        try:
+            parsed = _extract_json_object(raw_response)
+        except Exception:
+            raw_response = llm_client.complete(
+                system=system_prompt,
+                user=user_prompt,
+                temperature=0.1,
+            )
+            parsed = _extract_json_object(raw_response)
+        batch_translations = parsed.get("translations")
+        if not isinstance(batch_translations, dict):
+            raise RuntimeError("Модель вернула DOCX-перевод без объекта translations")
+
+        missing_ids: list[str] = []
+        for unit in batch:
+            translated = batch_translations.get(unit.unit_id)
+            if translated is None:
+                missing_ids.append(unit.unit_id)
+                continue
+            translations[unit.unit_id] = str(translated).strip()
+        if missing_ids:
+            raise RuntimeError(
+                "Модель не вернула перевод для DOCX-фрагментов: " + ", ".join(missing_ids[:10])
+            )
+
+        logger.info(
+            "DOCX translation batch done: batch=%s/%s units=%s",
+            batch_index,
+            len(batches),
+            len(batch),
+        )
+
+    return translations
+
+
+def _nearest_space_cut(text: str, target: int, start: int) -> int:
+    """Выбирает границу чанка около пробела, чтобы не резать слова при распределении по run."""
+    if target <= start:
+        return start
+    if target >= len(text):
+        return len(text)
+    window = max(20, min(80, len(text) // 8))
+    left = max(start, target - window)
+    right = min(len(text), target + window)
+    candidates = [m.end() for m in re.finditer(r"\s+", text[left:right])]
+    if not candidates:
+        return target
+    absolute = [left + candidate for candidate in candidates]
+    return min(absolute, key=lambda cut: abs(cut - target))
+
+
+def _split_text_for_docx_runs(translated_text: str, original_parts: list[str]) -> list[str]:
+    """Распределяет перевод по исходным run примерно пропорционально, сохраняя inline-стили."""
+    if not original_parts:
+        return []
+    if len(original_parts) == 1:
+        return [translated_text]
+
+    weights = [max(len(part or ""), 1) for part in original_parts]
+    total_weight = sum(weights) or len(original_parts)
+    chunks: list[str] = []
+    cursor = 0
+    cumulative_weight = 0
+    for index, weight in enumerate(weights[:-1]):
+        cumulative_weight += weight
+        target = round(len(translated_text) * cumulative_weight / total_weight)
+        cut = _nearest_space_cut(translated_text, target, cursor)
+        chunks.append(translated_text[cursor:cut])
+        cursor = cut
+    chunks.append(translated_text[cursor:])
+    return chunks
+
+
+def _apply_text_to_docx_paragraph(paragraph: ElementTree.Element, translated_text: str) -> None:
+    """Заменяет текст абзаца, не трогая стили, таблицы, списки и другие OOXML-узлы."""
+    text_nodes = [
+        node
+        for node in paragraph.iter()
+        if node.tag == f"{{{DOCX_WORD_NAMESPACE}}}t"
+    ]
+    if not text_nodes:
+        return
+    original_parts = [node.text or "" for node in text_nodes]
+    chunks = _split_text_for_docx_runs(translated_text, original_parts)
+    for node, chunk in zip(text_nodes, chunks, strict=False):
+        node.text = chunk
+        if chunk[:1].isspace() or chunk[-1:].isspace():
+            node.set(f"{{{XML_NAMESPACE}}}space", "preserve")
+    for node in text_nodes[len(chunks):]:
+        node.text = ""
+
+
+def _build_translated_docx(
+    content: bytes,
+    units: list[DocxTextUnit],
+    translations: dict[str, str],
+) -> bytes:
+    """Создаёт DOCX-копию с переведёнными текстовыми узлами и исходным форматированием."""
+    lookup = {
+        (unit.xml_path, unit.paragraph_index): translations[unit.unit_id]
+        for unit in units
+        if unit.unit_id in translations
+    }
+    input_buffer = BytesIO(content)
+    output_buffer = BytesIO()
+    try:
+        with zipfile.ZipFile(input_buffer, "r") as source_archive:
+            with zipfile.ZipFile(output_buffer, "w") as target_archive:
+                for info in source_archive.infolist():
+                    file_bytes = source_archive.read(info.filename)
+                    if not _is_docx_translatable_xml(info.filename):
+                        target_archive.writestr(info, file_bytes)
+                        continue
+
+                    root = ElementTree.fromstring(file_bytes)
+                    for paragraph_index, paragraph in enumerate(
+                        root.findall(f".//{{{DOCX_WORD_NAMESPACE}}}p")
+                    ):
+                        translated = lookup.get((info.filename, paragraph_index))
+                        if translated is not None:
+                            _apply_text_to_docx_paragraph(paragraph, translated)
+                    target_archive.writestr(
+                        info,
+                        ElementTree.tostring(root, encoding="utf-8", xml_declaration=True),
+                    )
+    except zipfile.BadZipFile as exc:
+        raise HTTPException(status_code=400, detail="DOCX-файл поврежден или имеет неверный формат") from exc
+    except ElementTree.ParseError as exc:
+        raise HTTPException(status_code=400, detail="Не удалось разобрать XML внутри DOCX") from exc
+    return output_buffer.getvalue()
+
+
 def _extract_text_from_pdf(content: bytes) -> str:
     """Извлекает текстовый слой PDF через pypdf."""
     try:
@@ -275,7 +561,28 @@ async def _read_uploaded_translation_document(file: UploadFile) -> ExtractedTran
         filename=filename,
         extension=extension,
         title_seed=Path(filename).stem[:160] or "Перевод документа",
+        content=content,
     )
+
+
+def _safe_download_stem(filename: str) -> str:
+    """Готовит компактное имя скачиваемого файла без путей и управляющих символов."""
+    stem = Path(filename or "document").stem or "document"
+    stem = re.sub(r"[^\wА-Яа-яЁё.-]+", "_", stem, flags=re.UNICODE).strip("._-")
+    return stem[:120] or "document"
+
+
+def _write_translation_artifact(request_id: str, filename: str, content: bytes) -> str:
+    """Сохраняет бинарный артефакт перевода в рабочее хранилище и возвращает имя файла."""
+    safe_filename = Path(filename).name
+    if not safe_filename or safe_filename in FORBIDDEN_FILENAMES:
+        raise RuntimeError("Недопустимое имя файла артефакта перевода")
+    output_dir = os.path.join(STORAGE_DIR, "translations", request_id)
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, safe_filename)
+    with open(output_path, "wb") as target:
+        target.write(content)
+    return safe_filename
 
 
 async def _save_uploaded_video_to_temp(file: UploadFile, *, suffix: str) -> str:
@@ -307,7 +614,10 @@ async def _save_uploaded_video_to_temp(file: UploadFile, *, suffix: str) -> str:
 
 def _translation_job_for_user(request_id: str, user: dict) -> dict:
     """Возвращает задачу перевода только её владельцу."""
-    job = _translation_job_for_user(request_id, user)
+    job = get_translation_job(request_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Задача перевода не найдена")
+
     current_user_id = user.get("id")
     owner_id = get_translation_job_owner(request_id)
     if owner_id and current_user_id and owner_id != current_user_id:
@@ -322,7 +632,7 @@ class TranslateReadmeRequest(BaseModel):
 
     markdown: str
     target_language: str
-    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = None
+    llm_provider: Literal["openrouter", "openai", "deepseek", "gigachat"] | None = None
     translation_mode: str | None = "literal"  # "literal" | "combined"
     thematic_block: str | None = None
     title_seed: str | None = None
@@ -352,6 +662,39 @@ class TranslateReadmeStatusResponse(BaseModel):
     result_links: dict[str, str] | None = None
     source_filename: str | None = None
     source_format: str | None = None
+
+
+def _build_translation_seed(
+    *,
+    llm_provider: str | None,
+    thematic_block: str | None,
+    title_seed: str | None,
+    project_description: str,
+) -> ProjectSeed:
+    """Собирает минимальный ProjectSeed для переводческого LLM-контекста."""
+    return ProjectSeed(
+        language="ru",
+        llm_provider=llm_provider,
+        project_type="individual",
+        thematic_block=thematic_block or "GEN",
+        audience_level="base",
+        required_tools=[],
+        title_seed=title_seed or "",
+        project_description=project_description[:1000],
+        learning_outcomes=[],
+        skills=[],
+        tasks_count=None,
+        task_complexity=None,
+        bonus_wish=None,
+        context_track_dir=None,
+        last_known_order=None,
+        group_size=None,
+        repo_base_url=None,
+        repo_path_template=None,
+        is_programming_project=None,
+        target_languages=None,
+        zun=None,
+    )
 
 
 def _run_translation(
@@ -420,6 +763,115 @@ def _run_translation(
             title=_markdown_title(markdown),
             result_url=f"/api/v1/translate/status/{request_id}",
             metadata={"target_language": target_language, "translation_mode": translation_mode, "error": str(e)},
+        )
+
+
+def _run_document_translation(
+    request_id: str,
+    user_id: str,
+    document: ExtractedTranslationDocument,
+    target_language: str,
+    translation_mode: str,
+    seed: ProjectSeed,
+) -> None:
+    """Переводит загруженный документ; для DOCX дополнительно собирает DOCX-артефакт."""
+
+    def progress_callback(phase: str) -> None:
+        set_translation_phase(request_id, phase)
+
+    llm_client = create_llm_client(
+        provider=seed.llm_provider,
+        default_role="translator",
+        enable_cache=True,
+        enable_batching=True,
+        user_id=user_id,
+        run_id=request_id,
+    )
+    try:
+        result_links: dict[str, str] | None = None
+        if document.extension == ".docx":
+            units = _iter_docx_text_units(document.content)
+            if target_language == "ru":
+                translations = {unit.unit_id: unit.text for unit in units}
+            else:
+                translations = _translate_docx_units(
+                    llm_client,
+                    units,
+                    target_language,
+                    progress_callback=progress_callback,
+                )
+            translated_md = _normalize_extracted_text(
+                "\n".join(translations.get(unit.unit_id, unit.text) for unit in units)
+            )
+            progress_callback("build_docx")
+            translated_docx = _build_translated_docx(document.content, units, translations)
+            docx_filename = f"{_safe_download_stem(document.filename)}_{target_language}.docx"
+            stored_filename = _write_translation_artifact(request_id, docx_filename, translated_docx)
+            result_links = {"docx": stored_filename}
+        else:
+            translator = TranslatorAgent(llm_client)
+            translated_md = translator.translate(
+                document.text,
+                target_language,
+                seed,
+                translation_mode=translation_mode,
+                progress_callback=progress_callback,
+                strict=True,
+            )
+
+        set_translation_job(
+            request_id=request_id,
+            status="completed",
+            user_id=user_id,
+            phase="build_docx" if document.extension == ".docx" else ("combine" if translation_mode == "combined" else "translate"),
+            original_markdown=document.text,
+            translated_markdown=translated_md,
+            target_language=target_language,
+            job_type="document",
+            result_links=result_links,
+            source_filename=document.filename,
+            source_format=document.extension.lstrip("."),
+        )
+        upsert_user_run(
+            request_id=request_id,
+            user_id=user_id,
+            kind="translation",
+            status="completed",
+            title=document.title_seed,
+            result_url=f"/api/v1/translate/status/{request_id}",
+            metadata={
+                "target_language": target_language,
+                "translation_mode": translation_mode,
+                "source_format": document.extension.lstrip("."),
+                "has_docx_artifact": bool(result_links and result_links.get("docx")),
+            },
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Ошибка при переводе документа: %s", e, exc_info=True)
+        set_translation_job(
+            request_id=request_id,
+            status="failed",
+            user_id=user_id,
+            original_markdown=document.text,
+            target_language=target_language,
+            error=str(e),
+            job_type="document",
+            source_filename=document.filename,
+            source_format=document.extension.lstrip("."),
+        )
+        upsert_user_run(
+            request_id=request_id,
+            user_id=user_id,
+            kind="translation",
+            status="failed",
+            title=document.title_seed,
+            result_url=f"/api/v1/translate/status/{request_id}",
+            metadata={
+                "target_language": target_language,
+                "translation_mode": translation_mode,
+                "source_format": document.extension.lstrip("."),
+                "error": str(e),
+            },
         )
 
 
@@ -618,28 +1070,11 @@ async def translate_readme_start(
     )
 
     try:
-        seed = ProjectSeed(
-            language="ru",
+        seed = _build_translation_seed(
             llm_provider=payload.llm_provider,
-            project_type="individual",
-            thematic_block=payload.thematic_block or "GEN",
-            audience_level="base",
-            required_tools=[],
-            title_seed=payload.title_seed or "",
-            project_description=markdown[:1000],
-            learning_outcomes=[],
-            skills=[],
-            tasks_count=None,
-            task_complexity=None,
-            bonus_wish=None,
-        context_track_dir=None,
-            last_known_order=None,
-            group_size=None,
-            repo_base_url=None,
-            repo_path_template=None,
-            is_programming_project=None,
-            target_languages=None,
-            zun=None,
+            thematic_block=payload.thematic_block,
+            title_seed=payload.title_seed,
+            project_description=markdown,
         )
     except Exception as e:  # noqa: BLE001
         logger.error("Ошибка валидации ProjectSeed для перевода: %s", e, exc_info=True)
@@ -692,34 +1127,115 @@ async def translate_document_start(
     file: UploadFile = File(...),
     target_language: str = Form(...),
     translation_mode: str = Form("literal"),
-    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Form(None),
+    llm_provider: Literal["openrouter", "openai", "deepseek", "gigachat"] | None = Form(None),
     user: dict = Depends(get_current_user),
 ) -> TranslateReadmeStartResponse:
     """Загружает TXT/Markdown/HTML/DOCX/PDF, извлекает текст и запускает перевод в фоне."""
     document = await _read_uploaded_translation_document(file)
-    payload = TranslateReadmeRequest(
-        markdown=document.text,
-        target_language=target_language,
-        llm_provider=llm_provider,
-        translation_mode=translation_mode,
-        thematic_block="GEN",
-        title_seed=document.title_seed,
+
+    target_language = (target_language or "").lower().strip()
+    if target_language not in SUPPORTED_LANGUAGES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Неподдерживаемый язык перевода: {target_language!r}",
+        )
+
+    translation_mode = (translation_mode or "literal").lower().strip()
+    if translation_mode not in ("literal", "combined"):
+        translation_mode = "literal"
+
+    detected_lang = TranslatorAgent._detect_source_language(document.text)
+    if detected_lang and detected_lang == target_language:
+        language_names = {"en": "английский", "kg": "киргизский", "uz": "узбекский", "tg": "таджикский"}
+        lang_name = language_names.get(target_language, target_language)
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Документ уже на целевом языке ({lang_name}). "
+                f"Подайте оригинальный документ на русском языке."
+            ),
+        )
+
+    try:
+        seed = _build_translation_seed(
+            llm_provider=llm_provider,
+            thematic_block="GEN",
+            title_seed=document.title_seed,
+            project_description=document.text,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.error("Ошибка валидации ProjectSeed для перевода документа: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Ошибка подготовки контекста для перевода: {e}",
+        )
+
+    request_id = str(uuid.uuid4())
+    user_id = user.get("id", "anonymous")
+    set_request_id(request_id)
+    set_user_id(user_id)
+
+    await write_log_async(
+        request_id=request_id,
+        level="INFO",
+        message="Старт перевода документа",
+        user_id=user_id,
+        phase="translate_document_start",
+        metadata={
+            "target_language": target_language,
+            "llm_provider": llm_provider,
+            "translation_mode": translation_mode,
+            "source_filename": document.filename,
+            "source_format": document.extension.lstrip("."),
+            "document_chars": len(document.text),
+        },
     )
-    response = await translate_readme_start(payload, user=user)
-    job = get_translation_job(response.request_id) or {}
+
     set_translation_job(
-        request_id=response.request_id,
-        status=job.get("status", "in_progress"),
-        user_id=user.get("id", "anonymous"),
-        phase=job.get("phase", "translate"),
-        original_markdown=job.get("original_markdown") or document.text,
-        translated_markdown=job.get("translated_markdown"),
-        target_language=job.get("target_language") or (target_language or "").lower().strip(),
+        request_id=request_id,
+        status="in_progress",
+        user_id=user_id,
+        phase="translate",
+        original_markdown=document.text,
+        target_language=target_language,
         job_type="document",
         source_filename=document.filename,
         source_format=document.extension.lstrip("."),
     )
-    return response
+    await asyncio.to_thread(
+        upsert_user_run,
+        request_id=request_id,
+        user_id=user_id,
+        kind="translation",
+        status="in_progress",
+        title=document.title_seed,
+        result_url=f"/api/v1/translate/status/{request_id}",
+        metadata={
+            "target_language": target_language,
+            "translation_mode": translation_mode,
+            "source_format": document.extension.lstrip("."),
+        },
+    )
+
+    asyncio.create_task(
+        asyncio.to_thread(
+            _run_document_translation,
+            request_id,
+            user_id,
+            document,
+            target_language,
+            translation_mode,
+            seed,
+        )
+    )
+
+    logger.info(
+        "Document translation started (request_id=%s, target_language=%s, source_format=%s)",
+        request_id,
+        target_language,
+        document.extension,
+    )
+    return TranslateReadmeStartResponse(request_id=request_id)
 
 
 @router.post("/translate/video", response_model=TranslateReadmeStartResponse)
@@ -728,7 +1244,7 @@ async def translate_video_start(
     target_language: str = Form(...),
     output_mode: str = Form("burned_video"),  # burned_video | subtitles_only | both
     subtitle_style: str = Form("boxed"),  # boxed | outline
-    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Form(None),
+    llm_provider: Literal["openrouter", "openai", "deepseek", "gigachat"] | None = Form(None),
     user: dict = Depends(get_current_user),
 ) -> TranslateReadmeStartResponse:
     """Загружает видео, транскрибирует RU (gpt-4o-transcribe), переводит, выдаёт VTT/SRT/ASS и опционально MP4 с вожёнными субтитрами."""
@@ -847,7 +1363,7 @@ async def download_translated_subtitles(
 
 
 async def _stream_download(request_id: str, file_type: str, job: dict):
-    """Отдаёт файл из STORAGE_DIR/translations/{request_id}/ по type (video|vtt|srt|ass|transcript)."""
+    """Отдаёт файл из STORAGE_DIR/translations/{request_id}/ по type."""
     result_links = job.get("result_links") or {}
     filename = result_links.get(file_type)
     if not filename:
@@ -862,6 +1378,7 @@ async def _stream_download(request_id: str, file_type: str, job: dict):
         "srt": "text/plain",
         "ass": "text/x-ssa",
         "transcript": "application/json",
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     }
     return FileResponse(
         path=file_path,
@@ -873,16 +1390,20 @@ async def _stream_download(request_id: str, file_type: str, job: dict):
 @router.get("/translate/download/{request_id}")
 async def download_translation_artifact(
     request_id: str,
-    type: str = Query(..., alias="type"),  # video | vtt | srt | ass | transcript
+    type: str = Query(..., alias="type"),  # video | vtt | srt | ass | transcript | docx
     user: dict = Depends(get_current_user),
 ):
-    """Скачивает артефакт перевода видео: video, vtt, srt, ass, transcript."""
+    """Скачивает артефакт перевода: видео-файлы или DOCX для переведённого документа."""
     job = _translation_job_for_user(request_id, user)
-    if job.get("job_type") != "video":
-        raise HTTPException(status_code=400, detail="Запрос не является задачей перевода видео")
     kind = (type or "").lower().strip()
-    if kind not in ("video", "vtt", "srt", "ass", "transcript"):
-        raise HTTPException(status_code=400, detail="type должен быть: video, vtt, srt, ass, transcript")
+    if job.get("job_type") == "video":
+        if kind not in ("video", "vtt", "srt", "ass", "transcript"):
+            raise HTTPException(status_code=400, detail="type должен быть: video, vtt, srt, ass, transcript")
+    elif job.get("job_type") == "document":
+        if kind != "docx":
+            raise HTTPException(status_code=400, detail="Для документа доступен только type=docx")
+    else:
+        raise HTTPException(status_code=400, detail="Для этой задачи нет файлов для скачивания")
     return await _stream_download(request_id, kind, job)
 
 

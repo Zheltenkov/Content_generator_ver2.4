@@ -86,6 +86,7 @@ class ProjectFlowState(BaseModel):
     rubric_json: dict[str, Any] | None = None
     practice_critic_issues: list[Any] | None = None
     practice_tasks: list[Any] = Field(default_factory=list)
+    bonus_tasks: list[Any] = Field(default_factory=list)
     methodology_reviews: list[StageReviewResult] = Field(default_factory=list)
     methodology_repairs: list[StageRepairResult] = Field(default_factory=list)
     methodology_gate_decisions: list[Any] = Field(default_factory=list)

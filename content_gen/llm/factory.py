@@ -14,6 +14,7 @@ def create_llm_client(
     *,
     model: str | None = None,
     provider: str | None = None,
+    strict_provider: bool | None = None,
     default_role: str = "default",
     enable_cache: bool | None = None,
     enable_batching: bool | None = None,
@@ -27,6 +28,7 @@ def create_llm_client(
     return LLMGateway(
         model=model,
         provider=provider,
+        strict_provider=(provider is not None if strict_provider is None else strict_provider),
         default_role=default_role,
         enable_cache=enable_cache,
         enable_batching=enable_batching,

@@ -18,9 +18,9 @@ class ProjectSeed(BaseModel):
     """Входные данные от методолога для генерации проекта."""
 
     language: Language
-    llm_provider: Literal["openai", "deepseek", "gigachat"] | None = Field(
+    llm_provider: Literal["openrouter", "openai", "deepseek", "gigachat"] | None = Field(
         default=None,
-        description="Предпочитаемый LLM provider для запуска: openai, deepseek или gigachat",
+        description="Предпочитаемый LLM provider для запуска: openrouter, openai, deepseek или gigachat",
     )
     project_type: ProjectType
 
@@ -75,7 +75,7 @@ class ProjectSeed(BaseModel):
     )
     zun: str | None = Field(
         default=None,
-        description="ЗУНы (Знания, Умения, Навыки) - дополнительная информация для генерации (опционально)"
+        description="Дополнительный учебный контекст для генерации (опционально)"
     )
 
     # === НОВЫЕ ПОЛЯ ИЗ УЧЕБНОГО ПЛАНА ===

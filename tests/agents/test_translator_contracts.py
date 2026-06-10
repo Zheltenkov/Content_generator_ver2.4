@@ -117,3 +117,132 @@ def test_translation_script_validator_flags_wrong_script() -> None:
         "Бу ҳужжат ҳали ҳам кириллда қолган ва ўзбек лотинига ўтмаган.",
         "uz",
     )
+
+
+def test_translation_script_validator_allows_programming_io_tokens_for_tajik() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    translated = """# Exam_07_03. Ҳазфи фосилаҳои зиёдатӣ
+
+| Майдон | Қимат |
+| ------ | ------ |
+| Директория барои ҳал | src/ |
+| Файли ҳал | main.c |
+| Маълумоти воридшаванда | Ҷараёни стандартии ворид stdin |
+| Маълумоти баромад | Ҷараёни стандартии баромад stdout |
+
+Барномае навис, ки фосилаҳои зиёдатиро тоза мекунад ва натиҷаро ба stdout мебарорад.
+Вуруд аз stdin хонда мешавад. Намуна: 1&nbsp;&nbsp;&nbsp;2&nbsp;&nbsp;3.
+"""
+
+    assert agent._validate_script_coverage(translated, "tg") == []
+
+
+def test_language_coverage_preserves_markdown_link_labels_for_toc() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# D01T01: Знакомство с Linux и Git-системой
+
+## Contents
+
+1. [Введение](#введение)
+2. [Chapter I](#chapter-i)
+    2.1. [Level 1. Room 1](#level-1-room-1)
+3. [Quest 1. Clone](#quest-1-clone)
+"""
+    translated = """# D01T01: Linux жана Git системасы менен таанышуу
+
+## Мазмуну
+
+1. [Киришүү](#введение)
+2. [I бөлүм](#chapter-i)
+    2.1. [1-деңгээл. 1-бөлмө](#level-1-room-1)
+3. [1-тапшырма. Клондоо](#quest-1-clone)
+"""
+
+    assert agent._extract_text_content(original).count("Введение") == 1
+    assert agent._extract_text_content(translated).count("Киришүү") == 1
+    assert agent._validate_language_coverage(original, translated) == []
+
+
+def test_language_coverage_still_flags_untranslated_toc_labels() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# D01T01: Знакомство с Linux и Git-системой
+
+## Contents
+
+1. [Введение](#введение)
+2. [Chapter I](#chapter-i)
+    2.1. [Level 1. Room 1](#level-1-room-1)
+3. [Quest 1. Clone](#quest-1-clone)
+"""
+    translated = """# D01T01: Linux жана Git системасы менен таанышуу
+
+## Мазмуну
+
+1. [Введение](#введение)
+2. [Chapter I](#chapter-i)
+    2.1. [Level 1. Room 1](#level-1-room-1)
+3. [Quest 1. Clone](#quest-1-clone)
+"""
+
+    untranslated = agent._validate_language_coverage(original, translated)
+
+    assert untranslated
+    assert untranslated[0][0] == 1
+    assert "Мазмуну" in untranslated[0][1]
+
+
+def test_language_coverage_ignores_technical_numeric_output_sections() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# Проект
+
+#### Все значения записываются с точностью до 7 знаков после запятой
+
+Результат:
+
+-3.1415927 | 0.0919997 | - | 0.1013212<br/>
+-2.9883442 | 0.1007029 | - | 0.1119796<br/>
+...............e.r.r.o.r.......................................................
+
+`src/data/door_data.txt`
+
+***LOADING...***
+"""
+    translated = """# Лоиҳа
+
+#### Ҳамаи қиматҳо бо дақиқии то 7 рақам пас аз вергул навишта мешаванд
+
+Натиҷа:
+
+-3.1415927 | 0.0919997 | - | 0.1013212<br/>
+-2.9883442 | 0.1007029 | - | 0.1119796<br/>
+...............e.r.r.o.r.......................................................
+
+`src/data/door_data.txt`
+
+***LOADING...***
+"""
+
+    assert agent._validate_language_coverage(original, translated) == []
+
+
+def test_language_coverage_still_flags_untranslated_prose_section() -> None:
+    agent = TranslatorAgent(RecordingTranslationLLM(""))
+    original = """# Проект
+
+## Введение
+
+Это задание поможет тебе познакомиться с терминалом, командами и системой Git.
+Сначала ты разберешь структуру проекта, затем выполнишь последовательность шагов.
+"""
+    translated = """# Лоиҳа
+
+## Муқаддима
+
+Это задание поможет тебе познакомиться с терминалом, командами и системой Git.
+Сначала ты разберешь структуру проекта, затем выполнишь последовательность шагов.
+"""
+
+    untranslated = agent._validate_language_coverage(original, translated)
+
+    assert untranslated
+    assert untranslated[0][0] == 1

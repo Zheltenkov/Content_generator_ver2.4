@@ -36,7 +36,13 @@ _whisper_model_cache = None
 def _resolve_subtitle_translate_model() -> str | None:
     """Resolve optional subtitle translation model without leaking OpenAI defaults to other providers."""
     provider = resolve_configured_provider()
-    provider_override = os.getenv(f"{provider.upper()}_TRANSLATE_SUBTITLES_MODEL", "").strip()
+    if provider == "openrouter":
+        provider_override = (
+            os.getenv("OPEN_ROUTER_TRANSLATE_SUBTITLES_MODEL", "").strip()
+            or os.getenv("OPENROUTER_TRANSLATE_SUBTITLES_MODEL", "").strip()
+        )
+    else:
+        provider_override = os.getenv(f"{provider.upper()}_TRANSLATE_SUBTITLES_MODEL", "").strip()
     if provider_override:
         return provider_override
     generic_override = os.getenv("TRANSLATE_SUBTITLES_MODEL", "").strip()

@@ -41,6 +41,48 @@ function setGenerationButtonState(disabled, text = 'Сгенерировать')
     button.textContent = text;
 }
 
+function isPlainGenerationObject(value) {
+    return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+function seedHasMeaningfulGenerationData(seed) {
+    if (!isPlainGenerationObject(seed)) return false;
+    const ignoredKeys = new Set(['language']);
+    return Object.entries(seed).some(([key, value]) => {
+        if (ignoredKeys.has(key)) return false;
+        if (Array.isArray(value)) return value.length > 0;
+        if (value && typeof value === 'object') return Object.keys(value).length > 0;
+        return value !== null && value !== undefined && String(value).trim() !== '';
+    });
+}
+
+function extractProjectSeedFromStatusData(statusData = {}, savedState = {}) {
+    const workflowMetadata = isPlainGenerationObject(statusData.workflow?.metadata)
+        ? statusData.workflow.metadata
+        : {};
+    const candidates = [
+        savedState.seed,
+        statusData.project_seed,
+        statusData.project_seed_payload,
+        workflowMetadata.project_seed_payload,
+        workflowMetadata.raw_input,
+        workflowMetadata.seed,
+        statusData.methodology?.project_seed,
+    ];
+    return candidates.find(seedHasMeaningfulGenerationData) || null;
+}
+
+function restoreSeedIntoForm(seed) {
+    if (!seedHasMeaningfulGenerationData(seed)) return false;
+    if (typeof window.fillFormFromData === 'function') {
+        window.fillFormFromData(seed);
+    }
+    if (typeof window.restoreFormData === 'function') {
+        window.restoreFormData(seed);
+    }
+    return true;
+}
+
 function saveGenerationState() {
     try {
         const state = getGenerationPersistenceState();
@@ -60,6 +102,7 @@ function saveGenerationState() {
             lastKnownGenerationProgress: state.lastKnownGenerationProgress,
             lastKnownGenerationAgent: state.lastKnownGenerationAgent,
             currentGenerationStatus: state.currentGenerationStatus,
+            lastGenerationError: state.lastGenerationError || null,
             workflowProfile: state.workflowProfile || null,
             timestamp: Date.now()
         };
@@ -98,8 +141,15 @@ async function loadGenerationState() {
             lastKnownGenerationProgress: Number(savedState.lastKnownGenerationProgress || 0),
             lastKnownGenerationAgent: savedState.lastKnownGenerationAgent || 'Инициализация...',
             currentGenerationStatus: savedState.currentGenerationStatus || 'idle',
+            lastGenerationError: savedState.lastGenerationError || null,
             workflowProfile: savedState.workflowProfile || undefined
         });
+
+        const restoredSeed = extractProjectSeedFromStatusData({}, savedState);
+        if (restoredSeed) {
+            setGenerationPersistenceState({ currentSeed: restoredSeed });
+            restoreSeedIntoForm(restoredSeed);
+        }
 
         let state = getGenerationPersistenceState();
         if (state.currentRequestId) {
@@ -157,18 +207,33 @@ async function reconcileSavedGenerationWithServer(savedState, requestId) {
 
         if (response.status === 404) {
             console.log('⚠️ Запрос генерации не найден на сервере');
-            clearGenerationState();
-            return false;
+            const message = 'Сервер временно не нашёл сохранённый запуск (404). Локальное состояние сохранено, можно обновить статус позже.';
+            setGenerationPersistenceState({
+                currentGenerationStatus: savedState.currentGenerationStatus || 'in_progress',
+                lastGenerationError: message
+            });
+            setLogError(message);
+            saveGenerationState();
+            return true;
         }
         if (!response.ok) return null;
 
         const statusData = await response.json();
         const status = statusData.status;
         const workflowMeta = window.workflowUiOptions ? window.workflowUiOptions(statusData) : {};
-        setGenerationPersistenceState({
+        const restoredSeed = extractProjectSeedFromStatusData(statusData, savedState);
+        const statePatch = {
             currentGenerationStatus: status || 'idle',
             workflowProfile: statusData.workflow_profile || undefined
-        });
+        };
+        if (restoredSeed) {
+            statePatch.currentSeed = restoredSeed;
+        }
+        setGenerationPersistenceState(statePatch);
+        if (restoredSeed) {
+            restoreSeedIntoForm(restoredSeed);
+            saveGenerationState();
+        }
 
         if (status === 'pending' || status === 'in_progress') {
             console.log('🔄 Генерация еще идет, возобновляем polling...');
@@ -216,9 +281,15 @@ async function reconcileSavedGenerationWithServer(savedState, requestId) {
 
         if (status === 'failed') {
             console.log('❌ Генерация завершилась с ошибкой');
-            setLogError(`Ошибка генерации: ${statusData.error || 'Неизвестная ошибка'}`);
-            clearGenerationState();
-            return false;
+            const message = `Ошибка генерации: ${statusData.error || 'Неизвестная ошибка'}`;
+            setGenerationPersistenceState({
+                currentGenerationStatus: 'failed',
+                lastGenerationError: message,
+                workflowProfile: statusData.workflow_profile || undefined
+            });
+            setLogError(message);
+            saveGenerationState();
+            return true;
         }
 
         if (status === 'completed') {
@@ -339,6 +410,7 @@ function clearGenerationState() {
             lastKnownGenerationProgress: 0,
             lastKnownGenerationAgent: 'Инициализация...',
             currentGenerationStatus: 'idle',
+            lastGenerationError: null,
             workflowProfile: 'standard'
         });
         window.finishGenerationRun?.('idle');

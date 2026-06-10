@@ -1,15 +1,21 @@
 (function () {
     const STORAGE_KEY = 'selected_model';
-    const MODELS = new Set(['gpt', 'deepseek', 'gigachat']);
+    const MODELS = new Set(['openrouter', 'deepseek', 'gigachat']);
+    const MODEL_ALIASES = {
+        gpt: 'openrouter',
+        openai: 'openrouter',
+        open_router: 'openrouter',
+    };
     const PROVIDER_BY_MODEL = {
-        gpt: 'openai',
+        openrouter: 'openrouter',
         deepseek: 'deepseek',
         gigachat: 'gigachat',
     };
 
     function normalizeModel(value) {
-        const normalized = String(value || '').trim().toLowerCase();
-        return MODELS.has(normalized) ? normalized : 'gpt';
+        const raw = String(value || '').trim().toLowerCase();
+        const normalized = MODEL_ALIASES[raw] || raw;
+        return MODELS.has(normalized) ? normalized : 'openrouter';
     }
 
     function closeModelMenus(exceptPicker = null) {

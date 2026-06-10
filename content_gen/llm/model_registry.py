@@ -18,37 +18,44 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parents[2] / "config" / "model_registry.yaml"
 
 PROVIDER_ALIASES = {
-    "gpt": "openai",
+    "gpt": "openrouter",
     "openai": "openai",
+    "openrouter": "openrouter",
+    "open_router": "openrouter",
     "azure": "azure",
     "azure_openai": "azure",
     "deepseek": "deepseek",
     "giga": "gigachat",
     "gigachat": "gigachat",
 }
-SUPPORTED_PROVIDERS = {"openai", "azure", "deepseek", "gigachat"}
+SUPPORTED_PROVIDERS = {"openrouter", "openai", "azure", "deepseek", "gigachat"}
 
 DEFAULT_MODEL_BY_PROVIDER = {
-    "openai": "gpt-4o-mini",
+    "openrouter": "openai/gpt-5.4-mini",
+    "openai": "gpt-5.4-mini",
     "azure": "gpt-4o-mini",
     "deepseek": "deepseek-chat",
     "gigachat": "GigaChat-2-Pro",
 }
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_GIGACHAT_BASE_URL = "https://gigachat.devices.sberbank.ru/api/v1"
 DEFAULT_MODEL_ENV_BY_PROVIDER = {
+    "openrouter": "OPEN_ROUTER_MODEL",
     "openai": "OPENAI_MODEL",
     "azure": "AZURE_OPENAI_DEPLOYMENT_NAME",
     "deepseek": "DEEPSEEK_MODEL",
     "gigachat": "GIGACHAT_MODEL",
 }
 DEFAULT_API_KEY_ENV_BY_PROVIDER = {
+    "openrouter": "OPEN_ROUTER_API_KEY",
     "openai": "OPENAI_API_KEY",
     "azure": "AZURE_OPENAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "gigachat": "GIGACHAT_CREDENTIALS",
 }
 DEFAULT_BASE_URL_ENV_BY_PROVIDER = {
+    "openrouter": "OPEN_ROUTER_BASE_URL",
     "openai": "OPENAI_BASE_URL",
     "azure": "AZURE_OPENAI_ENDPOINT",
     "deepseek": "DEEPSEEK_BASE_URL",
@@ -56,9 +63,30 @@ DEFAULT_BASE_URL_ENV_BY_PROVIDER = {
 }
 
 
+def _openrouter_env_aliases(env_name: str | None) -> list[str]:
+    """Return env aliases for both OPEN_ROUTER_* and OPENROUTER_* spellings."""
+    if not env_name:
+        return []
+    names = [env_name]
+    if env_name.startswith("OPEN_ROUTER_"):
+        names.append("OPENROUTER_" + env_name.removeprefix("OPEN_ROUTER_"))
+    elif env_name.startswith("OPENROUTER_"):
+        names.append("OPEN_ROUTER_" + env_name.removeprefix("OPENROUTER_"))
+    return list(dict.fromkeys(names))
+
+
+def _first_env(names: list[str]) -> str:
+    """Read the first non-empty env value from a list of candidate names."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def normalize_provider(provider: str | None) -> str:
     """Return a canonical provider name or raise a clear configuration error."""
-    raw = (provider or "openai").strip().lower()
+    raw = (provider or "openrouter").strip().lower()
     normalized = PROVIDER_ALIASES.get(raw, raw)
     if normalized not in SUPPORTED_PROVIDERS:
         supported = ", ".join(sorted(SUPPORTED_PROVIDERS))
@@ -68,12 +96,22 @@ def normalize_provider(provider: str | None) -> str:
 
 def resolve_configured_provider(provider: str | None = None) -> str:
     """Resolve explicit provider or LLM_PROVIDER to a canonical registry provider."""
-    return normalize_provider(provider or os.getenv("LLM_PROVIDER") or "openai")
+    return normalize_provider(provider or os.getenv("LLM_PROVIDER") or "openrouter")
 
 
 def get_llm_provider_summary(provider: str | None = None) -> dict[str, Any]:
     """Return password-safe diagnostics for the currently configured provider."""
     resolved = resolve_configured_provider(provider)
+    if resolved == "openrouter":
+        model_env = _first_env(_openrouter_env_aliases("OPEN_ROUTER_MODEL"))
+        base_url = _first_env(_openrouter_env_aliases("OPEN_ROUTER_BASE_URL")) or DEFAULT_OPENROUTER_BASE_URL
+        return {
+            "provider": resolved,
+            "available": bool(_first_env(_openrouter_env_aliases("OPEN_ROUTER_API_KEY"))),
+            "model": model_env or DEFAULT_MODEL_BY_PROVIDER["openrouter"],
+            "base_url": base_url,
+            "credential_env": "OPEN_ROUTER_API_KEY",
+        }
     if resolved == "openai":
         return {
             "provider": resolved,
@@ -136,7 +174,10 @@ class ModelRoute(BaseModel):
     def resolved_model(self) -> str:
         """Resolve model name using env override first, then configured fallback."""
         env_name = self.model_env or DEFAULT_MODEL_ENV_BY_PROVIDER.get(self.provider)
-        env_value = os.getenv(env_name or "", "").strip()
+        if self.provider == "openrouter":
+            env_value = _first_env(_openrouter_env_aliases(env_name))
+        else:
+            env_value = os.getenv(env_name or "", "").strip()
         return env_value or self.model or DEFAULT_MODEL_BY_PROVIDER[self.provider]
 
     def resolved_api_key_env(self) -> str:
@@ -145,6 +186,8 @@ class ModelRoute(BaseModel):
 
     def resolved_api_key(self) -> str | None:
         """Read this route credential without exposing it in summaries."""
+        if self.provider == "openrouter":
+            return _first_env(_openrouter_env_aliases(self.api_key_env or "OPEN_ROUTER_API_KEY")) or None
         if self.provider == "gigachat":
             return (
                 os.getenv(self.api_key_env or "GIGACHAT_CREDENTIALS")
@@ -155,6 +198,12 @@ class ModelRoute(BaseModel):
     def resolved_base_url(self) -> str | None:
         """Read base URL from route config or env."""
         env_name = self.base_url_env or DEFAULT_BASE_URL_ENV_BY_PROVIDER.get(self.provider)
+        if self.provider == "openrouter":
+            return (
+                self.base_url
+                or _first_env(_openrouter_env_aliases(env_name))
+                or DEFAULT_OPENROUTER_BASE_URL
+            )
         return self.base_url or os.getenv(env_name or "", "").strip() or None
 
     def is_configured(self) -> bool:
@@ -172,6 +221,8 @@ class ModelRoute(BaseModel):
         model = self.resolved_model()
         if self.provider == "deepseek":
             return f"deepseek/{model}"
+        if self.provider == "openrouter":
+            return model if model.startswith("openrouter/") else f"openrouter/{model}"
         if self.provider == "azure":
             return f"azure/{model}"
         if self.provider == "gigachat":
@@ -235,7 +286,7 @@ class ModelRegistry(BaseModel):
             roles={
                 "default": ModelRoleConfig(
                     fallback_chain=[
-                        ModelRoute(provider="openai", model_env="OPENAI_MODEL", model="gpt-4o-mini"),
+                        ModelRoute(provider="openrouter", model_env="OPEN_ROUTER_MODEL", model="openai/gpt-5.4-mini"),
                         ModelRoute(provider="deepseek", model_env="DEEPSEEK_MODEL", model="deepseek-chat"),
                         ModelRoute(provider="gigachat", model_env="GIGACHAT_MODEL", model="GigaChat-2-Pro"),
                     ]
@@ -259,6 +310,7 @@ class ModelRegistry(BaseModel):
         *,
         preferred_provider: str | None = None,
         preferred_model: str | None = None,
+        strict_provider: bool = False,
     ) -> list[ModelRoute]:
         """Return configured, de-duplicated routes for a role.
 
@@ -266,13 +318,18 @@ class ModelRegistry(BaseModel):
         explicit constructor arguments. Registry routes then provide fallbacks.
         """
         role_config = self.role_config(role)
-        raw_provider = preferred_provider or os.getenv("LLM_PROVIDER") or "openai"
+        raw_provider = preferred_provider or os.getenv("LLM_PROVIDER") or "openrouter"
+        normalized_preferred = normalize_provider(raw_provider)
         preferred = ModelRoute(
             provider=raw_provider,
             model=preferred_model,
-            model_env=DEFAULT_MODEL_ENV_BY_PROVIDER.get(normalize_provider(raw_provider)),
+            model_env=DEFAULT_MODEL_ENV_BY_PROVIDER.get(normalized_preferred),
         )
-        chain = [preferred, *role_config.fallback_chain]
+        fallback_chain = role_config.fallback_chain
+        if strict_provider and preferred_provider:
+            fallback_chain = [route for route in fallback_chain if route.provider == normalized_preferred]
+
+        chain = [preferred, *fallback_chain]
         seen: set[tuple[str, str]] = set()
         resolved: list[ModelRoute] = []
         for route in chain:

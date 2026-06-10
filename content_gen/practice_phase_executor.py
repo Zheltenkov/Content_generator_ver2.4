@@ -347,6 +347,7 @@ class PracticePhaseExecutor:
             markdown=markdown,
             readme_document=readme_document,
             practice_tasks=list(practice_res.tasks),
+            bonus_tasks=list(bonus_tasks),
             issues=issues,
             warnings=warnings,
             artifact_chain_plan=artifact_chain_plan,

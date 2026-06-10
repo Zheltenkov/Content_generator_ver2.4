@@ -192,6 +192,7 @@ class PracticeNodeResult(TypedNodeOutput):
     readme_document: ReadmeDocument | None = None
     practice_critic_issues: list[Any] = Field(default_factory=list)
     practice_tasks: list[Any] = Field(default_factory=list)
+    bonus_tasks: list[Any] = Field(default_factory=list)
     blueprint: Any | None = None
     artifact_chain_plan: Any | None = None
     evidence_specs: list[Any] = Field(default_factory=list)
@@ -206,6 +207,7 @@ class PracticeNodeResult(TypedNodeOutput):
             "readme_document": self.readme_document,
             "practice_critic_issues": self.practice_critic_issues,
             "practice_tasks": self.practice_tasks,
+            "bonus_tasks": self.bonus_tasks,
             "blueprint": self.blueprint,
             "artifact_chain_plan": self.artifact_chain_plan,
             "evidence_specs": self.evidence_specs,

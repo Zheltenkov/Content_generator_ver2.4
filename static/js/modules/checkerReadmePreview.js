@@ -75,7 +75,7 @@
             const scrollPosition = window.scrollY || document.documentElement.scrollTop;
             
             // Создаем контейнер для markdown preview (без критериев - они отображаются во вкладке "Критерии")
-            improvedContent.innerHTML = '<div id="improvedReadmePreview" class="markdown-preview"></div><div class="s21-preview-actions"><button class="btn" onclick="downloadImprovedReadme()">📥 Скачать улучшенный README</button></div>';
+            improvedContent.innerHTML = '<div id="improvedReadmePreview" class="markdown-preview result-markdown"></div><div class="s21-preview-actions"><button class="btn" onclick="downloadImprovedReadme()">📥 Скачать улучшенный README</button></div>';
             
             // Используем displayMarkdown из main.js для правильной обработки формул MathJax
             if (typeof window.displayMarkdown === 'function') {

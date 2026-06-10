@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260518-diagram-labels">
     <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260515-dashboard-fix">
     <link rel="stylesheet" href="/static/css/s21-instruction.css?v=20260517-instruction">
     <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
+    <script src="/static/js/utils/pagePrefetch.js?v=20260518-page-prefetch-lite" defer></script>
 </head>
 <body class="s21-product page-instruction">
     <header class="dashboard-header dashboard-header--menu instruction-topbar">
@@ -29,12 +30,12 @@
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-model-picker" data-selected-model="gpt">
+            <div class="dashboard-model-picker" data-selected-model="openrouter">
                 <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
                     <span aria-hidden="true">ИИ</span>
                 </button>
                 <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
-                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="openrouter" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">openrouter</button>
                     <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
                     <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
                 </div>
@@ -70,6 +71,7 @@
                     <li>Проверить README</li>
                     <li>Перевести документ</li>
                     <li>Скачать результат</li>
+                    <li>Разобрать ошибки</li>
                 </ol>
             </aside>
 
@@ -254,31 +256,53 @@
                         </ul>
                     </div>
                 </section>
+
+                <section class="instruction-section" aria-labelledby="errorsTitle">
+                    <div class="instruction-section-head">
+                        <span class="instruction-step">08</span>
+                        <h2 id="errorsTitle">Ошибки и восстановление</h2>
+                    </div>
+                    <div class="instruction-card-grid">
+                        <article class="instruction-card">
+                            <h3>404 при возврате к запуску</h3>
+                            <p>Обычно это значит, что сервер временно не нашёл состояние запуска. Локальное состояние сохраняется: обновите статус или страницу и проверьте запуск ещё раз.</p>
+                        </article>
+                        <article class="instruction-card">
+                            <h3>502, 503 или 504</h3>
+                            <p>Это временная недоступность сервера, модели или долгого шага генерации. Подождите немного и повторите действие. Не начинайте новый проект, пока не проверили текущий запуск.</p>
+                        </article>
+                        <article class="instruction-card">
+                            <h3>Ошибка токена или лимита</h3>
+                            <p>Модель не смогла принять запрос из-за ключа, лимита или выбранного провайдера. Смените модель в переключателе ИИ или передайте ошибку администратору.</p>
+                        </article>
+                    </div>
+                    <div class="instruction-wide-card instruction-followup-card">
+                        <ul class="instruction-check-list">
+                            <li>Если правка применена, но текст не обновился, нажмите «Сравнить». Обычно сравнение появляется автоматически после сохранения правки.</li>
+                            <li>Если текст начал повторять случайную фразу из описания проекта, сузьте правку: укажите конкретный раздел, что исправить и что не трогать.</li>
+                            <li>Если критерии стали хуже после правки, не принимайте изменение сразу. Уточните запрос и попросите исправить только проблемный блок.</li>
+                            <li>Если запуск завис, откройте недавние запуски: восстановимый запуск можно продолжить, зависший можно остановить аварийной остановкой.</li>
+                        </ul>
+                    </div>
+                </section>
             </div>
         </section>
     </main>
 
+    <script src="/static/js/utils/authSession.js?v=20260518-auth-session"></script>
     <script>
         const API_URL = `${window.location.origin}/api/v1`;
 
         function getAuthHeaders() {
-            const token = localStorage.getItem('auth_token');
-            return token ? { Authorization: `Bearer ${token}` } : {};
+            return window.ContentGenAuth?.getAuthHeaders() || {};
         }
 
         function clearInstructionAuthState() {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('user_id');
-            localStorage.removeItem('username');
-            localStorage.removeItem('email');
-            localStorage.removeItem('session_id');
+            window.ContentGenAuth?.clearAuthState?.();
         }
 
         function ensureInstructionAuth() {
-            if (localStorage.getItem('auth_token')) return true;
-            clearInstructionAuthState();
-            window.location.replace('/');
-            return false;
+            return window.ContentGenAuth?.ensureAuthPresent?.() ?? false;
         }
 
         function resolveInstructionDisplayName() {
@@ -326,3 +350,4 @@
     </script>
 </body>
 </html>
+

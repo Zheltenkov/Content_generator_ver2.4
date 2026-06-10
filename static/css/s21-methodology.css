@@ -140,11 +140,15 @@ body.s21-product .methodology-structure-title {
 }
 
 body.s21-product .methodology-summary-label,
-body.s21-product .methodology-stage-meta,
 body.s21-product .methodology-form-hint,
 body.s21-product .methodology-field-hint,
 body.s21-product .methodology-structure-hint {
   color: var(--s21-muted) !important;
+}
+
+body.s21-product .methodology-stage-meta,
+body.s21-product .methodology-stage-meta strong {
+  color: var(--s21-ink) !important;
 }
 
 body.s21-product .methodology-artifact-text {

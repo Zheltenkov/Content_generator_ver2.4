@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -7,8 +7,6 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <script>
         window.MathJax = window.MathJax || {
             tex: {
@@ -26,19 +24,19 @@
             }
         };
     </script>
-    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <link rel="stylesheet" href="/static/css/styles.css?v=20260508-mvp-light-ui3">
+    <link rel="stylesheet" href="/static/css/styles.css?v=20260518-diagram-labels">
     <link rel="stylesheet" href="/static/css/s21-tokens.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-base.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-forms.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-buttons.css?v=20260514-split2">
     <link rel="stylesheet" href="/static/css/s21-badges.css?v=20260514-split2">
-    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260514-split2">
+    <link rel="stylesheet" href="/static/css/s21-markdown.css?v=20260520-methodology-diagram-stability">
     <link rel="stylesheet" href="/static/css/s21-design.css?v=20260514-split">
     <link rel="stylesheet" href="/static/css/s21-dashboard.css?v=20260514-header-fix">
     <link rel="stylesheet" href="/static/css/s21-workflow.css?v=20260514-split3">
     <link rel="stylesheet" href="/static/css/s21-translation.css?v=20260517-compare-width">
     <script src="/static/js/modules/modelSelector.js?v=20260514-header-fix"></script>
+    <script src="/static/js/utils/pagePrefetch.js?v=20260518-page-prefetch-lite" defer></script>
     <script src="/static/js/utils/sanitize.js"></script>
     <script src="/static/js/utils/toast.js?v=20260508-polish-ui"></script>
     <script src="/static/js/utils/modal.js?v=20260508-polish-ui"></script>
@@ -63,12 +61,12 @@
         </nav>
 
         <div class="dashboard-header-actions">
-            <div class="dashboard-model-picker" data-selected-model="gpt">
+            <div class="dashboard-model-picker" data-selected-model="openrouter">
                 <button class="dashboard-model-button" type="button" aria-label="Выбрать модель ИИ" aria-haspopup="listbox" aria-expanded="false" onclick="toggleDashboardModelMenu(this)" title="Модель ИИ">
                     <span aria-hidden="true">ИИ</span>
                 </button>
                 <div class="dashboard-model-menu" role="listbox" aria-label="Модель ИИ" hidden>
-                    <button type="button" role="option" data-model="gpt" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">gpt</button>
+                    <button type="button" role="option" data-model="openrouter" aria-selected="true" onclick="setDashboardModel(this.dataset.model)">openrouter</button>
                     <button type="button" role="option" data-model="deepseek" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">deepseek</button>
                     <button type="button" role="option" data-model="gigachat" aria-selected="false" onclick="setDashboardModel(this.dataset.model)">gigachat</button>
                 </div>
@@ -111,8 +109,8 @@
             <div class="translate-document-toolbar">
                 <div class="translate-field wide">
                     <label>Источник</label>
-                    <div class="translate-file-pill" onclick="document.getElementById('translationFile').click()">
-                        <input type="file" id="translationFile" accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf" onchange="handleTranslationFileSelect(event)">
+                    <div class="translate-file-pill" onclick="if (event.target.tagName !== 'INPUT') document.getElementById('translationFile').click()">
+                        <input type="file" id="translationFile" accept=".md,.markdown,.txt,.html,.htm,.docx,.pdf" onclick="event.stopPropagation()" onchange="handleTranslationFileSelect(event)">
                         <span class="translate-file-icon">▤</span>
                         <strong id="translationSourceFileTitle">Загрузить README или документ</strong>
                         <small id="translationFileName">Документ для перевода</small>
@@ -185,7 +183,7 @@
 
                     <article id="translationTabTranslated" class="tab-content s21-translation-pane translate-document-pane">
                         <div class="s21-pane-head">
-                            <span class="badge success">✓ EN · ПЕРЕВОД</span>
+                            <span class="badge success" id="translationTargetLanguageBadge">✓ EN · ПЕРЕВОД</span>
                             <div class="translate-pane-actions">
                                 <span id="translationTranslatedMeta">4 102 слов</span>
                                 <button class="btn btn-secondary btn-sm" type="button" onclick="downloadTranslatedMarkdown()" id="downloadTranslatedMarkdownBtn">↓ Скачать</button>
@@ -208,8 +206,8 @@
         <section id="translationVideoScreen" class="translate-video-screen" style="display: none;">
             <div class="translate-video-layout">
                 <div>
-                    <div class="translate-video-card" onclick="document.getElementById('translationVideoFile').click()">
-                        <input type="file" id="translationVideoFile" accept=".mp4,.webm,.mov,.avi,.mkv,.m4v" onchange="handleTranslationVideoSelect(event)">
+                    <div class="translate-video-card" onclick="if (event.target.tagName !== 'INPUT') document.getElementById('translationVideoFile').click()">
+                        <input type="file" id="translationVideoFile" accept=".mp4,.webm,.mov,.avi,.mkv,.m4v" onclick="event.stopPropagation()" onchange="handleTranslationVideoSelect(event)">
                         <div class="translate-video-preview">
                             <span id="translationVideoPreviewName">Выберите видео</span>
                             <div class="translate-video-play">▶</div>
@@ -284,7 +282,7 @@
         </section>
     </main>
 
-    <script src="/static/js/modules/markdownRendering.js?v=20260514-split"></script>
+    <script src="/static/js/modules/markdownRendering.js?v=20260520-methodology-diagram-stability"></script>
     <script src="/static/js/modules/generationRunView.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPolling.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationPersistence.js?v=20260514-split"></script>
@@ -292,15 +290,15 @@
     <script src="/static/js/modules/generationResultTabs.js?v=20260514-split"></script>
     <script src="/static/js/modules/generationFormState.js?v=20260514-model-switch"></script>
     <script src="/static/js/modules/metricsView.js?v=20260514-split"></script>
-    <script src="/static/js/modules/translationPage.js?v=20260514-document-upload"></script>
-    <script src="/static/js/main.js?v=20260514-model-switch"></script>
+    <script src="/static/js/utils/authSession.js?v=20260518-auth-session"></script>
+    <script src="/static/js/modules/translationPage.js?v=20260520-docx-output"></script>
+    <script src="/static/js/main.js?v=20260518-diagram-compact"></script>
     <script>
         (function () {
-            const token = localStorage.getItem('auth_token');
-            if (!token) {
-                window.location.replace('/');
+            if (!window.ContentGenAuth?.ensureAuthPresent?.()) {
                 return;
             }
+            window.ContentGenAuth.ensureValidSession();
             hydrateTranslationUser();
             toggleTranslationSourceMode();
         })();
@@ -339,9 +337,13 @@
             const badge = document.getElementById('translationBrandBadge');
             const mark = document.getElementById('translationBrandMark');
             const title = document.getElementById('translationSubbarTitle');
+            const targetBadge = document.getElementById('translationTargetLanguageBadge');
+            const summaryLanguage = document.getElementById('translationSummaryLanguage');
             if (badge) badge.setAttribute('data-step', isVideo ? '05.2' : '05.1');
             if (mark) mark.textContent = isVideo ? 'ПЕРЕВОД ВИДЕО' : `ПЕРЕВОД ДОКУМЕНТА · RU → ${language}`;
             if (title) title.textContent = isVideo ? 'Перевод · Видео' : 'Перевод';
+            if (targetBadge) targetBadge.textContent = `✓ ${language} · ПЕРЕВОД`;
+            if (summaryLanguage) summaryLanguage.textContent = `RU → ${language}`;
             const mirror = document.getElementById('translationLanguageMirror');
             if (mirror && mirror.value !== document.getElementById('translationLanguage')?.value) {
                 mirror.value = document.getElementById('translationLanguage')?.value || 'en';
@@ -454,3 +456,4 @@
     </script>
 </body>
 </html>
+
