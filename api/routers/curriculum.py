@@ -38,10 +38,13 @@ CURRICULUM_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     "block_goals": ("цели блока",),
     "order": ("№",),
-    "title": ("название проекта",),
-    "description": ("краткое описание проекта",),
+    "title": ("название проекта", "название контентной единицы"),
+    "description": ("краткое описание проекта", "краткое описание"),
     "expert_notes": ("что нужно разработать эксперту",),
-    "learning_outcomes": ("образовательные результаты (знает, понимает, умеет)",),
+    "learning_outcomes": (
+        "образовательные результаты (знает, понимает, умеет)",
+        "образовательные результаты",
+    ),
     "skills": ("список навыков",),
     "audience_level": ("уровень аудитории",),
     "required_tools": ("обязательные инструменты (через запятую)", "обязательные инструменты"),
@@ -57,16 +60,16 @@ CURRICULUM_COLUMN_ALIASES: dict[str, tuple[str, ...]] = {
         "storytelling_type",
     ),
     "format": ("формат",),
-    "additional_materials": ("дополнительные материалы",),
+    "additional_materials": ("дополнительные материалы", "дополнительные материалы для генерации"),
     "group_size": ("кол-во в группе",),
     "workload_hours": ("трудоемкость, астр.часы",),
     "workload_days": ("трудоемкость, дни",),
     "total_workload_days": ("общая трудоемкость, дни",),
     "xp": ("xp за проект",),
     "passing_threshold": ("% прохождения проекта",),
-    "required_software": ("необходимое по/веб",),
+    "required_software": ("необходимое по/веб", "необходимое по"),
     "platform_name": ("название проекта на платформе и в gitlab",),
-    "gitlab_link": ("ссылки на gitlab/google docs",),
+    "gitlab_link": ("ссылки на gitlab/google docs", "ссылки на gitlab"),
 }
 
 
@@ -117,6 +120,21 @@ def _resolve_column(headers: list[str], aliases: tuple[str, ...], *, allow_blank
     return None
 
 
+def _resolve_columns(headers: list[str], aliases: tuple[str, ...]) -> list[int]:
+    """Находит все индексы колонок по списку допустимых названий.
+
+    В паспортах программы встречаются повторяющиеся колонки с одним названием,
+    например несколько колонок «Образовательные результаты». Для таких полей
+    нужно сохранить все значения, а не только первое совпадение.
+    """
+    normalized_aliases = {_normalize_column_name(alias) for alias in aliases}
+    return [
+        index
+        for index, header in enumerate(headers)
+        if _normalize_column_name(header) in normalized_aliases
+    ]
+
+
 def _build_column_map(headers: list[str]) -> dict[str, int | None]:
     """Строит карту field -> column index для поддерживаемых схем УП."""
     return {
@@ -135,6 +153,17 @@ def _row_value(row: list[str], columns: dict[str, int | None], field: str) -> st
     if index is None or index >= len(row):
         return ""
     return row[index].strip()
+
+
+def _row_values(row: list[str], indexes: list[int]) -> list[str]:
+    """Возвращает непустые значения строки по набору индексов колонок."""
+    values: list[str] = []
+    for index in indexes:
+        if index < len(row):
+            value = row[index].strip()
+            if value:
+                values.append(value)
+    return values
 
 
 def _merge_unique(values: list[str], extra_values: list[str]) -> list[str]:
@@ -183,13 +212,21 @@ def _build_curriculum_plan(
     if direction_code == "UNK" and blocks_dict:
         first_block_name = next(iter(blocks_dict))
         direction_code = detect_direction_from_block_name(first_block_name)
+        if direction_code == "UNK":
+            first_projects = blocks_dict[first_block_name].get("projects", [])
+            if first_projects:
+                first_project = first_projects[0]
+                direction_code = detect_direction_from_platform_name(
+                    first_project.platform_name or first_project.title or "",
+                )
 
     blocks = []
     for block_data in blocks_dict.values():
         code = direction_code
         if block_data["projects"]:
-            platform_name = block_data["projects"][0].platform_name or ""
-            detected = detect_direction_from_platform_name(platform_name)
+            first_project = block_data["projects"][0]
+            platform_or_title = first_project.platform_name or first_project.title or ""
+            detected = detect_direction_from_platform_name(platform_or_title)
             if detected != "UNK":
                 code = detected
 
@@ -216,9 +253,13 @@ def _parse_header_curriculum(text: str) -> CurriculumPlan | None:
 
     headers = rows[0]
     columns = _build_column_map(headers)
+    learning_outcome_indexes = _resolve_columns(
+        headers,
+        CURRICULUM_COLUMN_ALIASES["learning_outcomes"],
+    )
     logger.info("CSV columns: %s", headers)
 
-    if columns.get("order") is None or columns.get("title") is None:
+    if columns.get("title") is None:
         return None
 
     if any(len(row) != len(headers) for row in rows[1:]):
@@ -229,15 +270,23 @@ def _parse_header_curriculum(text: str) -> CurriculumPlan | None:
     current_block_name: str | None = None
     current_block_goals: list[str] = []
     direction_code = "UNK"
+    inferred_order = 0
 
     for row in rows[1:]:
         order_str = _row_value(row, columns, "order")
         title = _row_value(row, columns, "title")
-        order = parse_int(order_str)
+        normalized_title = _normalize_column_name(title)
 
         # В шаблонах УП часто есть строка-пояснение сразу после header.
-        if order is None or not title or _normalize_column_name(title) == "название проекта":
+        if not title or normalized_title in {"название проекта", "название контентной единицы"}:
             continue
+
+        order = parse_int(order_str)
+        if order is None:
+            inferred_order += 1
+            order = inferred_order
+        else:
+            inferred_order = max(inferred_order, order)
 
         block_name = _row_value(row, columns, "block_name")
         block_goals_text = _row_value(row, columns, "block_goals")
@@ -264,7 +313,9 @@ def _parse_header_curriculum(text: str) -> CurriculumPlan | None:
             order=order,
             title=title,
             description=_row_value(row, columns, "description"),
-            learning_outcomes=parse_learning_outcomes(_row_value(row, columns, "learning_outcomes")),
+            learning_outcomes=parse_learning_outcomes(_join_multiline_parts(
+                _row_values(row, learning_outcome_indexes),
+            )),
             skills=parse_skills(_row_value(row, columns, "skills")),
             audience_level=_row_value(row, columns, "audience_level") or None,
             required_tools=parse_required_tools(_row_value(row, columns, "required_tools")),
@@ -293,8 +344,10 @@ def _parse_header_curriculum(text: str) -> CurriculumPlan | None:
         else:
             blocks_dict[current_block_name]["goals"] = current_block_goals
 
-        if platform_name and direction_code == "UNK":
-            direction_code = detect_direction_from_platform_name(platform_name)
+        if direction_code == "UNK":
+            detected = detect_direction_from_platform_name(platform_name or title)
+            if detected != "UNK":
+                direction_code = detected
 
         blocks_dict[current_block_name]["projects"].append(project)
 
