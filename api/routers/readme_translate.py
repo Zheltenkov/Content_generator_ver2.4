@@ -65,6 +65,28 @@ MAX_DOCX_TRANSLATION_BATCH_CHARS = int(os.getenv("MAX_DOCX_TRANSLATION_BATCH_CHA
 ElementTree.register_namespace("w", DOCX_WORD_NAMESPACE)
 ElementTree.register_namespace("xml", XML_NAMESPACE)
 
+
+def _strip_invalid_xml_chars(text: str) -> str:
+    """Удаляет символы, которые нельзя безопасно записать в XML 1.0.
+
+    DOCX хранит текст в XML-файлах. Некоторые ответы модели могут содержать
+    невидимые управляющие символы, которые ElementTree сериализует, но Word
+    потом считает документ поврежденным.
+    """
+    if not text:
+        return text
+    return "".join(
+        char
+        for char in text
+        if (
+            char in "\t\n\r"
+            or "\x20" <= char <= "\ud7ff"
+            or "\ue000" <= char <= "\ufffd"
+            or "\U00010000" <= char <= "\U0010ffff"
+        )
+    )
+
+
 STAGE_PROGRESS = {
     "queued": 0,
     "extract_audio": 10,
@@ -428,6 +450,7 @@ def _split_text_for_docx_runs(translated_text: str, original_parts: list[str]) -
 
 def _apply_text_to_docx_paragraph(paragraph: ElementTree.Element, translated_text: str) -> None:
     """Заменяет текст абзаца, не трогая стили, таблицы, списки и другие OOXML-узлы."""
+    translated_text = _strip_invalid_xml_chars(translated_text)
     text_nodes = [
         node
         for node in paragraph.iter()

@@ -36,7 +36,11 @@ _APPROVE_RE = re.compile(
     re.IGNORECASE,
 )
 _CHANGE_MARKERS_RE = re.compile(
-    r"(?:но|исправ|измени|правк|упрост|проще|добав|пример|критер|непройден|failed|fix|change|simplify|example)",
+    r"(?:но|исправ|измени|правк|упрост|проще|добав|пример|критер|непройден|failed|fix|change|simplify|example|диаграм|mermaid|схем|таблиц|markdown\s*table|\btable\b)",
+    re.IGNORECASE,
+)
+_DISPLAY_BLOCK_RE = re.compile(
+    r"(?:диаграм|mermaid|схем|таблиц|markdown\s*table|\btable\b)",
     re.IGNORECASE,
 )
 _SIMPLIFY_RE = re.compile(r"(?:упрост|проще|simplify|make\s+.+?simpler)", re.IGNORECASE)
@@ -171,10 +175,10 @@ class MethodologyAssistantCommandParser:
             target_stage=self._target_stage(target, parse_context),
             target_selector=self._selector_for_target(target, parse_context),
             target_id=target.id if target else "",
-            scope=self._target_scope(target, command_type),
+            scope=self._target_scope(target, command_type, text),
             instruction=self._instruction_for(command_type, text, issue_codes),
             issue_codes=issue_codes,
-            forbidden_changes=self._forbidden_changes(command_type),
+            forbidden_changes=self._forbidden_changes(command_type, text),
             expected_outcome=self._expected_outcome(command_type),
             confidence=self._confidence(command_type, target),
             source="deterministic",
@@ -214,6 +218,13 @@ class MethodologyAssistantCommandParser:
         if command_type == "regenerate_section":
             hinted_stage = self._stage_from_text(text) or self._current_stage(context)
             return self._target_by_stage(registry, hinted_stage) or self._target_by_stage(registry, self._current_stage(context))
+        if self._is_display_block_request(text):
+            hinted_stage = self._stage_from_text(text) or self._current_stage(context)
+            return (
+                self._target_by_stage(registry, hinted_stage, allowed={"theory", "practice", "final", "skeleton"})
+                or self._target_by_stage(registry, self._current_stage(context))
+                or self._target_by_stage(registry, "final")
+            )
         return self._target_by_stage(registry, self._current_stage(context)) or self._target_by_stage(registry, "final")
 
     def _registry(self, context: MethodologyAssistantParseContext) -> SectionTargetRegistry:
@@ -292,7 +303,14 @@ class MethodologyAssistantCommandParser:
     def _workflow_node_for_stage(self, stage: str) -> str:
         return _STAGE_TO_WORKFLOW_NODE.get(self._normalize_stage(stage), "evaluation")
 
-    def _target_scope(self, target: SectionTarget | None, command_type: MethodologyAssistantCommandType) -> ChangeScope:
+    def _target_scope(
+        self,
+        target: SectionTarget | None,
+        command_type: MethodologyAssistantCommandType,
+        text: str = "",
+    ) -> ChangeScope:
+        if self._is_display_block_request(text):
+            return "local_section_only"
         if command_type == "simplify_task":
             return "task_only"
         if target and target.scope in _SCOPES:
@@ -333,13 +351,22 @@ class MethodologyAssistantCommandParser:
             return f"Исправь непройденные критерии{code_text}: {text}"
         if command_type == "regenerate_section":
             return f"Перегенерируй выбранный раздел с учетом комментария методолога: {text}"
+        if self._is_display_block_request(text):
+            return (
+                "Исправь таблицы и/или Mermaid-диаграммы в выбранном фрагменте. "
+                "Если проблема в диаграмме, убери ручные темы и стили Mermaid "
+                "(%%{init}, classDef, class, style, linkStyle, fill/stroke/color/background), "
+                "оставь корректную структуру диаграммы и читаемые подписи. "
+                "Если проблема в таблице, сохрани Markdown-таблицу и исправь только нужные строки/колонки. "
+                f"Комментарий методолога: {text}"
+            )
         return text
 
-    def _forbidden_changes(self, command_type: MethodologyAssistantCommandType) -> list[str]:
+    def _forbidden_changes(self, command_type: MethodologyAssistantCommandType, text: str = "") -> list[str]:
         if command_type == "approve":
             return []
         base = ["не менять соседние разделы"]
-        if command_type in {"simplify_task", "fix_failed_criteria"}:
+        if command_type in {"simplify_task", "fix_failed_criteria"} and not self._is_display_block_request(text):
             base.append("не добавлять готовые ответы")
         if command_type == "regenerate_section":
             base.append("не менять входные параметры проекта")
@@ -474,10 +501,14 @@ class MethodologyAssistantCommandParser:
                 "target_stage": self._target_stage(target, context),
                 "target_selector": self._selector_for_target(target, context) if target else command.target_selector[:300],
                 "target_id": target.id if target else command.target_id,
-                "scope": self._target_scope(target, command.command),
+                "scope": self._target_scope(target, command.command, command.raw_text),
                 "instruction": command.instruction or self._instruction_for(command.command, command.raw_text, issue_codes),
                 "issue_codes": issue_codes,
-                "forbidden_changes": command.forbidden_changes or self._forbidden_changes(command.command),
+                "forbidden_changes": command.forbidden_changes or self._forbidden_changes(command.command, command.raw_text),
                 "expected_outcome": command.expected_outcome or self._expected_outcome(command.command),
             }
         )
+
+    @staticmethod
+    def _is_display_block_request(text: str) -> bool:
+        return bool(_DISPLAY_BLOCK_RE.search(text or ""))

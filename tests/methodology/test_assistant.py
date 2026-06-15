@@ -122,3 +122,34 @@ def test_assistant_parser_regenerate_section_targets_workflow_node() -> None:
     assert command.target_stage == "theory"
     assert command.target_id == "theory.chapter"
     assert command.workflow_node_id == "theory"
+
+
+def test_assistant_parser_routes_diagram_fix_to_current_section() -> None:
+    parser = MethodologyAssistantCommandParser()
+    registry = SectionTargetRegistry(
+        targets=[
+            SectionTarget(
+                id="theory.chapter",
+                kind="markdown_section",
+                label="Глава 2. Теоретический блок",
+                stage="theory",
+                selector="chapter_2",
+                scope="local_section_only",
+            )
+        ]
+    )
+
+    command = parser.parse(
+        "Поправь диаграмму: блоки черные, сделай светлыми и читаемыми",
+        MethodologyAssistantParseContext(
+            checkpoint={"id": "theory-review", "stage": "theory", "node_id": "theory"},
+            target_registry=registry,
+        ),
+    )
+
+    assert command.command == "request_changes"
+    assert command.target_stage == "theory"
+    assert command.target_id == "theory.chapter"
+    assert command.scope == "local_section_only"
+    assert "Mermaid" in command.instruction
+    assert "classDef" in command.instruction

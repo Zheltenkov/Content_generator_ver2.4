@@ -17,10 +17,24 @@ MarkdownEditFn = Callable[[str], str]
 class MarkdownBlockContract:
     """Protect fenced blocks before LLM editing and validate them after restore."""
 
-    def protect(self, markdown: str) -> tuple[str, list[BlockInfo]]:
+    def protect(
+        self,
+        markdown: str,
+        *,
+        protect_code: bool = True,
+        protect_mermaid: bool = True,
+        protect_formulas: bool = True,
+        protect_tables: bool = True,
+    ) -> tuple[str, list[BlockInfo]]:
         """Normalize and hide fenced code, mermaid and block formulas from editors."""
         normalized = normalize_markdown_display_blocks(markdown or "")
-        return protect_blocks(normalized)
+        return protect_blocks(
+            normalized,
+            protect_code=protect_code,
+            protect_mermaid=protect_mermaid,
+            protect_formulas=protect_formulas,
+            protect_tables=protect_tables,
+        )
 
     def restore(self, markdown: str, blocks: list[BlockInfo]) -> str:
         """Restore protected blocks and run display-block normalization."""
@@ -55,10 +69,21 @@ class MarkdownBlockContract:
             raise
 
     @staticmethod
-    def protection_instruction(blocks: list[BlockInfo]) -> str:
+    def protection_instruction(
+        blocks: list[BlockInfo],
+        *,
+        allow_display_block_edit: bool = False,
+    ) -> str:
         """Instruction appended to editor prompts when placeholders are present."""
         if not blocks:
             return ""
+        if allow_display_block_edit:
+            return (
+                "\n\nВАЖНО: маркеры вида [[[BLOCK_0]]] и комментарии PROTECTED_BLOCK "
+                "обозначают защищённые кодовые блоки или формулы. "
+                "Сохрани эти маркеры без изменений. Mermaid-диаграммы и Markdown-таблицы "
+                "можно редактировать только если это прямо требуется инструкцией."
+            )
         return (
             "\n\nВАЖНО: маркеры вида [[[BLOCK_0]]] и комментарии PROTECTED_BLOCK "
             "обозначают защищённые таблицы, диаграммы, формулы или код. "

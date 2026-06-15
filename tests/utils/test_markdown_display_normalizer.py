@@ -21,12 +21,36 @@ def test_normalize_flattened_mermaid_fence_restores_graph_lines():
     normalized = normalize_flattened_mermaid_fences(md)
 
     assert "```mermaid\n" in normalized
-    assert normalized.count("%%{init:") == 1
+    assert normalized.count("%%{init:") == 0
+    assert '"theme":"dark"' not in normalized
     assert "flowchart TD\n" in normalized
     assert "\n    A[Сбор данных] --> B[Проверка качества]\n" in normalized
     assert "\n    B --> C[Планирование действий]\n" in normalized
     assert "<div>\n```mermaid" in normalized
     assert "\n```" in normalized
+
+
+def test_normalize_mermaid_removes_model_visual_styling():
+    md = """```mermaid
+%%{init: {"theme":"dark","themeVariables":{"primaryColor":"#0f1419"}}}%%
+flowchart TD
+    A[Клиент] --> B[Сервер]
+    classDef dark fill:#0f1419,color:#0f1419,stroke:#0f1419
+    class A,B dark
+    style B fill:#000,color:#000
+    linkStyle 0 stroke:#000,color:#000
+```"""
+
+    normalized = normalize_markdown_display_blocks(md)
+
+    assert "```mermaid\nflowchart TD" in normalized
+    assert "%%{init:" not in normalized
+    assert "classDef" not in normalized
+    assert "class A" not in normalized
+    assert "style B" not in normalized
+    assert "linkStyle" not in normalized
+    assert "#0f1419" not in normalized
+    assert "\n    A[Клиент] --> B[Сервер]\n" in normalized
 
 
 def test_normalize_mermaid_splits_unlabeled_node_statement_chains():

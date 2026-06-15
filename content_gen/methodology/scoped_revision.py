@@ -22,6 +22,10 @@ from .target_registry import SectionTarget, build_section_target_registry
 
 RevisionStatus = Literal["applied", "skipped", "rejected"]
 RevisionTargetKind = Literal["field", "markdown_section", "material_file", "unsupported"]
+_DISPLAY_BLOCK_REQUEST_RE = re.compile(
+    r"(?:диаграм|mermaid|схем|таблиц|markdown\s*table|\btable\b)",
+    re.IGNORECASE,
+)
 
 
 class ScopedRevisionResult(BaseModel):
@@ -507,7 +511,20 @@ class ScopedRevisionExecutor:
         target_label: str,
     ) -> tuple[str, list[str]]:
         original = text or ""
-        protected, blocks = self.block_contract.protect(original)
+        allow_display_block_edit = self._allows_display_block_edit(request)
+        protected, blocks = self.block_contract.protect(
+            original,
+            protect_mermaid=not allow_display_block_edit,
+            protect_tables=not allow_display_block_edit,
+        )
+        display_block_instruction = (
+            "Если инструкция касается Mermaid-диаграммы или Markdown-таблицы, исправь только этот блок "
+            "внутри выбранного фрагмента. Для Mermaid запрещены %%{init}, classDef, class, style, "
+            "linkStyle и ручные fill/stroke/color/background-стили: приложение само задаёт светлое "
+            "оформление. Для Markdown-таблиц сохраняй строку заголовков, строку-разделитель и формат | ... |."
+            if allow_display_block_edit
+            else ""
+        )
         system = (
             "Ты редактор учебного контента. Исправляй только переданный фрагмент или файл. "
             "Верни только обновленный markdown/text без комментариев. "
@@ -522,7 +539,11 @@ class ScopedRevisionExecutor:
                 f"Instruction: {request.instruction}",
                 f"Expected outcome: {request.expected_outcome or '-'}",
                 f"Forbidden changes: {', '.join(request.forbidden_changes or []) or '-'}",
-                self.block_contract.protection_instruction(blocks).strip(),
+                display_block_instruction,
+                self.block_contract.protection_instruction(
+                    blocks,
+                    allow_display_block_edit=allow_display_block_edit,
+                ).strip(),
                 "",
                 "ФРАГМЕНТ ДЛЯ ПРАВКИ:",
                 protected,
@@ -542,6 +563,19 @@ class ScopedRevisionExecutor:
         if validation_issues:
             return original, validation_issues
         return restored, []
+
+    @staticmethod
+    def _allows_display_block_edit(request: MethodologistChangeRequest) -> bool:
+        """Allow Mermaid/table edits only when the methodologist explicitly asks for them."""
+        haystack = " ".join(
+            [
+                request.instruction or "",
+                request.target_selector or "",
+                request.expected_outcome or "",
+                " ".join(request.issue_codes or []),
+            ]
+        )
+        return bool(_DISPLAY_BLOCK_REQUEST_RE.search(haystack))
 
     def _revise_field(
         self,

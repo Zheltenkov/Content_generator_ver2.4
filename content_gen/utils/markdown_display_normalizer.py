@@ -25,6 +25,11 @@ _MERMAID_BOUNDARY_RE = re.compile(
     re.IGNORECASE,
 )
 _MERMAID_INIT_RE = re.compile(r"%%\{init:[\s\S]*?\}%%", re.IGNORECASE)
+_MERMAID_STYLE_LINE_RE = re.compile(
+    r"^\s*(?:classDef|style|linkStyle)\b",
+    re.IGNORECASE,
+)
+_MERMAID_CLASS_STYLE_LINE_RE = re.compile(r"^\s*class\b", re.IGNORECASE)
 _HTML_CENTER_CAPTION_RE = re.compile(
     r"\s*<p\b[^>]*text-align\s*:\s*center[^>]*>([\s\S]*?)</p>\s*(?:</div>\s*)*",
     re.IGNORECASE,
@@ -138,29 +143,21 @@ def _strip_html_tags(value: str) -> str:
     return re.sub(r"<[^>]+>", "", value or "").strip()
 
 
-def _unique_preserve_order(values: list[str]) -> list[str]:
-    """Return unique values while preserving first occurrence order."""
-    seen: set[str] = set()
-    unique: list[str] = []
-    for value in values:
-        key = re.sub(r"\s+", "", value.lower())
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append(value)
-    return unique
-
-
 def _normalize_mermaid_code(code: str) -> str:
-    """Restore Mermaid code line boundaries and remove duplicate init blocks."""
+    """Restore Mermaid code line boundaries and strip model-provided visual styling."""
     raw = (code or "").strip()
     if not raw:
         return ""
 
-    init_directives = _unique_preserve_order(_MERMAID_INIT_RE.findall(raw))
     body = _MERMAID_INIT_RE.sub(" ", raw)
     body = _normalize_mermaid_arrow_syntax(body)
     body = re.sub(r"[ \t]+", " ", body).strip()
+    body = re.sub(
+        r"\s+(?=(?:classDef|class|style|linkStyle)\b)",
+        "\n    ",
+        body,
+        flags=re.IGNORECASE,
+    )
 
     # A flattened flowchart usually looks like: "flowchart TD A[...] --> B[...]".
     # Mermaid requires the diagram declaration and statements on separate lines.
@@ -170,15 +167,18 @@ def _normalize_mermaid_code(code: str) -> str:
 
     # Split consecutive statements: "... B[Label] B --> C[Label]".
     body = _EDGE_SOURCE_RE.sub(r"\1\n    ", body)
+    is_class_diagram = bool(re.search(r"^\s*classDiagram\b", body, flags=re.IGNORECASE | re.MULTILINE))
 
     lines: list[str] = []
-    if init_directives:
-        lines.append(init_directives[0].strip())
 
     for line in body.splitlines():
         cleaned = line.strip()
         if cleaned:
             cleaned = _normalize_mermaid_edge_label_line(cleaned)
+            if _MERMAID_STYLE_LINE_RE.match(cleaned) or (
+                not is_class_diagram and _MERMAID_CLASS_STYLE_LINE_RE.match(cleaned)
+            ):
+                continue
             lines.append(cleaned if cleaned.startswith("%%{") else f"    {cleaned}" if lines and not cleaned.startswith(("flowchart", "graph", "sequenceDiagram", "stateDiagram", "classDiagram", "erDiagram", "journey", "gantt", "pie")) else cleaned)
 
     return "\n".join(lines).strip()

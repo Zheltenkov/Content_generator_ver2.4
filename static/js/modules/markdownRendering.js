@@ -86,6 +86,22 @@
                                 lineColor: '#0f1419',
                                 secondaryColor: '#f7f7f5',
                                 tertiaryColor: '#f3f3f0',
+                                background: '#ffffff',
+                                mainBkg: '#ffffff',
+                                secondBkg: '#eef4ef',
+                                textColor: '#0f1419',
+                                actorBkg: '#ffffff',
+                                actorBorder: '#9aa79d',
+                                actorTextColor: '#0f1419',
+                                actorLineColor: '#334238',
+                                signalColor: '#334238',
+                                signalTextColor: '#0f1419',
+                                labelBoxBkgColor: '#ffffff',
+                                labelBoxBorderColor: '#9aa79d',
+                                noteBkgColor: '#f7faf6',
+                                noteTextColor: '#0f1419',
+                                activationBkgColor: '#eef4ef',
+                                activationBorderColor: '#9aa79d',
                                 fontFamily: 'Inter, Arial, sans-serif',
                                 fontSize: '14px',
                             },
@@ -349,15 +365,19 @@
 
             let body = raw.replace(/%%\{init:[\s\S]*?\}%%/gi, ' ');
             body = normalizeMermaidArrowSyntax(body).replace(/[ \t]+/g, ' ').trim();
+            body = body.replace(/\s+(?=(?:classDef|class|style|linkStyle)\b)/gi, '\n    ');
             body = body.replace(/\b((?:flowchart|graph)\s+(?:TB|TD|BT|RL|LR))\s+(?=\S)/i, '$1\n    ');
             body = normalizeSequenceMermaidStatements(body);
             body = body.replace(/\b(sequenceDiagram|stateDiagram-v2|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\s+(?=\S)/i, '$1\n    ');
             body = body.replace(/((?:[\]\)\}]|\b[A-Za-z][A-Za-z0-9_]*))\s+(?=[A-Za-z][A-Za-z0-9_]*\s*(?:-->|---|-\.->|-\.|==>|--|==))/g, '$1\n    ');
+            const isClassDiagram = /^\s*classDiagram\b/im.test(body);
 
             const lines = [];
             body.split(/\r?\n/).forEach((line) => {
                 const cleaned = normalizeMermaidEdgeLabelLine(line.trim());
                 if (!cleaned) return;
+                if (/^(?:classDef|style|linkStyle)\b/i.test(cleaned)) return;
+                if (!isClassDiagram && /^class\b/i.test(cleaned)) return;
                 const isDeclaration = /^(flowchart|graph|sequenceDiagram|stateDiagram|classDiagram|erDiagram|journey|gantt|pie)\b/i.test(cleaned);
                 if (lines.length && !isDeclaration && !cleaned.startsWith('%%{')) {
                     lines.push(`    ${cleaned}`);

@@ -255,6 +255,7 @@ def build_theory_content_type_section(content_type: str) -> str:
 РАЗРЕШЕНО:
 - Таблицы (сравнения, чек-листы, матрицы решений)
 - Блок-схемы процессов (flowchart в mermaid, БЕЗ кода)
+- Mermaid без ручных тем и цветов: не используй %%{init...}%%, classDef, class, style, linkStyle, fill/stroke/color/background
 - Примеры из бизнеса и реальной жизни
 
 ТОН: разговорный, с историями и кейсами.

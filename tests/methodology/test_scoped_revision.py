@@ -176,6 +176,87 @@ flowchart TD
     assert "```mermaid" in context["markdown"]
 
 
+def test_scoped_revision_allows_explicit_mermaid_repair_and_sanitizes_style() -> None:
+    markdown = """# Проект
+
+## Глава 2. Теоретический блок
+
+Текст.
+
+```mermaid
+%%{init: {"theme":"dark"}}%%
+flowchart TD
+    A[Клиент] --> B[Сервер]
+    classDef dark fill:#0f1419,color:#0f1419
+    class A,B dark
+```
+"""
+    llm = FakeLLM(
+        """## Глава 2. Теоретический блок
+
+Текст.
+
+```mermaid
+%%{init: {"theme":"dark"}}%%
+flowchart TD
+    A[Клиент] --> B[Сервер]
+    classDef dark fill:#0f1419,color:#0f1419
+    class A,B dark
+```
+"""
+    )
+    context = {"markdown": markdown}
+    executor = ScopedRevisionExecutor(llm)
+    request = MethodologistChangeRequest(
+        target_stage="theory",
+        target_selector="Глава 2",
+        scope="local_section_only",
+        instruction="Поправь диаграмму: убери черные блоки.",
+    )
+
+    result = executor.apply_change_request(context, request, action_id="a1")
+
+    assert result.status == "applied"
+    assert "```mermaid\nflowchart TD" in context["markdown"]
+    assert "%%{init:" not in context["markdown"]
+    assert "classDef" not in context["markdown"]
+    assert "#0f1419" not in context["markdown"]
+    assert "Mermaid-диаграммы" in llm.prompts[0]["user"]
+
+
+def test_scoped_revision_allows_explicit_markdown_table_repair() -> None:
+    markdown = """# Проект
+
+## Глава 2. Теоретический блок
+
+| Поле | Значение |
+| --- | --- |
+| Ошибка | Старое значение |
+"""
+    llm = FakeLLM(
+        """## Глава 2. Теоретический блок
+
+| Поле | Значение |
+| --- | --- |
+| Ошибка | Новое значение |
+"""
+    )
+    context = {"markdown": markdown}
+    executor = ScopedRevisionExecutor(llm)
+    request = MethodologistChangeRequest(
+        target_stage="theory",
+        target_selector="Глава 2",
+        scope="local_section_only",
+        instruction="Поправь таблицу: обнови значение в строке ошибки.",
+    )
+
+    result = executor.apply_change_request(context, request, action_id="a1")
+
+    assert result.status == "applied"
+    assert "| Ошибка | Новое значение |" in context["markdown"]
+    assert "| Поле | Значение |" in context["markdown"]
+
+
 def test_scoped_revision_edits_only_selected_material_file() -> None:
     context = {
         "dataset_files": [

@@ -118,6 +118,17 @@ def test_build_translated_docx_replaces_text_and_keeps_package_parts() -> None:
     ElementTree.fromstring(xml_text.encode("utf-8"))
 
 
+def test_build_translated_docx_strips_invalid_xml_control_chars() -> None:
+    source = _minimal_docx(["В файлах .java"])
+    units = _iter_docx_text_units(source)
+    translated = _build_translated_docx(source, units, {"0001": "\x02java fayllarda"})
+
+    xml_text = _read_docx_document_xml(translated)
+    assert "\x02" not in xml_text
+    assert "java fayllarda" in xml_text
+    ElementTree.fromstring(xml_text.encode("utf-8"))
+
+
 def test_safe_translation_filename_rejects_unsupported_extension() -> None:
     upload = type("Upload", (), {"filename": "payload.exe"})()
 
