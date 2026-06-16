@@ -131,3 +131,65 @@ def test_build_recovery_session_without_checkpoints_uses_initial_seed(monkeypatc
     assert session["raw_input"]["title_seed"] == "Проект"
     assert session["track_paths"] == ["track.md"]
     assert session["start_index"] == 0
+
+
+def test_build_recovery_session_normalizes_legacy_init_checkpoint(monkeypatch):
+    service = GenerationWorkflowService()
+    workflow = {
+        "request_id": "req-4",
+        "user_id": "user-1",
+        "metadata": {"project_seed_payload": {"language": "ru"}, "track_paths": []},
+        "checkpoints": [
+            {
+                "checkpoint_index": 1,
+                "node_id": "init",
+                "node_name": "Legacy Init",
+                "status": "success",
+                "duration_ms": 10,
+                "validation_result": {"issues": []},
+                "context_snapshot": serialize_context({"seed": "s", "raw_input": {"language": "ru"}}),
+            },
+        ],
+    }
+    monkeypatch.setattr(service, "get", lambda request_id: workflow)
+
+    session = service.build_recovery_session(request_id="req-4")
+
+    assert session["start_index"] == 1
+    assert session["context"]["seed"] == "s"
+    assert [step.node_id for step in session["previous_steps"]] == ["context"]
+
+
+def test_build_recovery_session_retry_node_normalizes_legacy_init(monkeypatch):
+    service = GenerationWorkflowService()
+    workflow = {
+        "request_id": "req-5",
+        "user_id": "user-1",
+        "metadata": {
+            "project_seed_payload": {"language": "ru", "title_seed": "Legacy"},
+            "track_paths": [],
+        },
+        "checkpoints": [
+            {
+                "checkpoint_index": 1,
+                "node_id": "init",
+                "node_name": "Legacy Init",
+                "status": "success",
+                "duration_ms": 10,
+                "validation_result": {"issues": []},
+                "context_snapshot": serialize_context({"seed": "s", "raw_input": {"language": "ru"}}),
+            },
+        ],
+    }
+    monkeypatch.setattr(service, "get", lambda request_id: workflow)
+
+    session = service.build_recovery_session(
+        request_id="req-5",
+        command="retry_node",
+        node_id="init",
+        payload={"reason": "legacy checkpoint"},
+    )
+
+    assert session["target_node"] == "context"
+    assert session["start_index"] == 0
+    assert session["raw_input"]["title_seed"] == "Legacy"

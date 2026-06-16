@@ -503,9 +503,22 @@ class AgentFlowRunner:
 
     def _build_execution_plan(self, definition: FlowDefinition) -> list[str]:
         """Вычисляет топологический порядок исполнения."""
+        node_ids = [node.id for node in definition.nodes]
+        duplicate_ids = sorted({node_id for node_id in node_ids if node_ids.count(node_id) > 1})
+        if duplicate_ids:
+            raise RuntimeError(f"AgentFlow содержит повторяющиеся node id: {', '.join(duplicate_ids)}")
+
         indegree: dict[str, int] = {node.id: 0 for node in definition.nodes}
         adjacency: dict[str, list[str]] = {node.id: [] for node in definition.nodes}
         for edge in definition.edges:
+            if edge.source not in adjacency:
+                raise RuntimeError(
+                    f"AgentFlow edge source '{edge.source}' не найден среди узлов flow"
+                )
+            if edge.target not in indegree:
+                raise RuntimeError(
+                    f"AgentFlow edge target '{edge.target}' не найден среди узлов flow"
+                )
             adjacency[edge.source].append(edge.target)
             indegree[edge.target] += 1
 

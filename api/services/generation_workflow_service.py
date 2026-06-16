@@ -17,6 +17,13 @@ from content_gen.workflow_state import WorkflowCommand
 
 
 _SECTION_TO_NODE = {
+    "context": "context",
+    "init": "context",
+    "initialization": "context",
+    "initial_context": "context",
+    "context_phase": "context",
+    "planning": "task_planning",
+    "task_planning": "task_planning",
     "title": "title_annotation",
     "annotation": "title_annotation",
     "structure": "skeleton",
@@ -31,6 +38,14 @@ _SECTION_TO_NODE = {
     "evaluation": "evaluation",
     "final": "evaluation",
 }
+
+
+def _normalize_workflow_node_id(value: str | None) -> str | None:
+    """Map legacy UI/checkpoint ids to the current AgentFlow node ids."""
+    node_id = str(value or "").strip()
+    if not node_id:
+        return None
+    return _SECTION_TO_NODE.get(node_id.lower(), node_id)
 
 
 class GenerationWorkflowService:
@@ -70,7 +85,7 @@ class GenerationWorkflowService:
             request_id=request_id,
             user_id=user_id,
             status="running",
-            current_node=str(payload.get("node_id") or "") or None,
+            current_node=_normalize_workflow_node_id(str(payload.get("node_id") or "") or None),
             progress_current=int(payload["checkpoint_index"]) - 1 if payload.get("checkpoint_index") else None,
             progress_total=int(payload["total_nodes"]) if payload.get("total_nodes") else None,
             metadata={"current_node_name": payload.get("node_name")},
@@ -101,7 +116,7 @@ class GenerationWorkflowService:
             user_id=user_id,
             status="needs_review",
             current_node=None,
-            resume_from_node=resume_from_node,
+            resume_from_node=_normalize_workflow_node_id(resume_from_node),
             metadata=metadata or {},
         )
 
@@ -138,14 +153,15 @@ class GenerationWorkflowService:
         reason: str | None = None,
     ) -> None:
         """Record a node-level retry command."""
+        normalized_node_id = _normalize_workflow_node_id(node_id) or node_id
         self.submit_command(
             request_id=request_id,
             user_id=user_id,
             command="retry_node",
-            node_id=node_id,
+            node_id=normalized_node_id,
             payload={"reason": reason} if reason else {},
             status="resuming",
-            resume_from_node=node_id,
+            resume_from_node=normalized_node_id,
         )
 
     def mark_regenerate_section(
@@ -157,7 +173,7 @@ class GenerationWorkflowService:
         payload: dict[str, Any] | None = None,
     ) -> None:
         """Record a section regeneration command mapped onto a workflow node."""
-        node_id = _SECTION_TO_NODE.get(str(section or "").lower(), section)
+        node_id = _normalize_workflow_node_id(section) or section
         command_payload = dict(payload or {})
         command_payload["section"] = section
         self.submit_command(
@@ -186,6 +202,7 @@ class GenerationWorkflowService:
             or command_payload.get("target_stage")
             or ""
         ) or None
+        node_id = _normalize_workflow_node_id(node_id)
         self.submit_command(
             request_id=request_id,
             user_id=user_id,
@@ -216,9 +233,11 @@ class GenerationWorkflowService:
         resume_from_node: str | None = None,
     ) -> None:
         """Persist a workflow command as the single audit path for user actions."""
+        normalized_node_id = _normalize_workflow_node_id(node_id)
+        normalized_resume_from_node = _normalize_workflow_node_id(resume_from_node)
         workflow_command = WorkflowCommand(
             command=command,
-            node_id=node_id,
+            node_id=normalized_node_id,
             payload=payload or {},
             issued_by=user_id,
         )
@@ -227,7 +246,7 @@ class GenerationWorkflowService:
             user_id=user_id,
             status=status or "resuming",
             current_node=None if command == "cancel" else None,
-            resume_from_node=resume_from_node,
+            resume_from_node=normalized_resume_from_node,
             command=workflow_command.model_dump(mode="json"),
         )
 
@@ -239,11 +258,12 @@ class GenerationWorkflowService:
         payload: dict[str, Any],
     ) -> None:
         """Persist a node checkpoint emitted by AgentFlowRunner."""
+        node_id = _normalize_workflow_node_id(str(payload.get("node_id") or "") or None) or ""
         checkpoint = record_generation_workflow_checkpoint(
             request_id=request_id,
             user_id=user_id,
-            node_id=str(payload.get("node_id") or ""),
-            node_name=str(payload.get("node_name") or payload.get("node_id") or ""),
+            node_id=node_id,
+            node_name=str(payload.get("node_name") or node_id),
             status=str(payload.get("status") or "success"),
             input_hash=str(payload.get("input_hash") or ""),
             output_artifact=payload.get("output_artifact") if isinstance(payload.get("output_artifact"), dict) else {},
@@ -274,7 +294,7 @@ class GenerationWorkflowService:
             user_id=user_id,
             status=workflow_status,
             current_node=None,
-            last_completed_node=str(payload.get("node_id") or "") or None,
+            last_completed_node=node_id or None,
             progress_current=checkpoint.get("checkpoint_index") if checkpoint else payload.get("checkpoint_index"),
             error=workflow_error,
             metadata={"last_checkpoint_status": payload.get("status")},
@@ -364,12 +384,17 @@ class GenerationWorkflowService:
         command: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        target_node = _normalize_workflow_node_id(target_node) or target_node
         plan = self._execution_plan()
         if target_node not in plan:
             return self._initial_recovery_session(workflow, metadata, command=command, payload=payload)
         target_start_index = plan.index(target_node)
         target_checkpoint = next(
-            (item for item in checkpoints if item.get("node_id") == target_node),
+            (
+                item
+                for item in checkpoints
+                if _normalize_workflow_node_id(str(item.get("node_id") or "")) == target_node
+            ),
             None,
         )
         if target_checkpoint is not None:
@@ -441,7 +466,7 @@ class GenerationWorkflowService:
             issues = validation.get("issues") if isinstance(validation, dict) else []
             steps.append(
                 FlowExecutionStep(
-                    node_id=str(item.get("node_id") or ""),
+                    node_id=_normalize_workflow_node_id(str(item.get("node_id") or "")) or "",
                     node_name=str(item.get("node_name") or item.get("node_id") or ""),
                     status=str(item.get("status") or "success"),
                     duration_ms=float(item.get("duration_ms") or 0.0),
@@ -458,8 +483,8 @@ class GenerationWorkflowService:
     @staticmethod
     def _resolve_command_node(command: str, *, node_id: str | None, payload: dict[str, Any]) -> str | None:
         if node_id:
-            return _SECTION_TO_NODE.get(str(node_id).lower(), node_id)
+            return _normalize_workflow_node_id(node_id)
         if command == "regenerate_section":
             section = payload.get("section") or payload.get("target") or payload.get("target_id")
-            return _SECTION_TO_NODE.get(str(section or "").lower(), str(section or "") or None)
+            return _normalize_workflow_node_id(str(section or "") or None)
         return None

@@ -224,3 +224,18 @@ def test_flow_runner_detects_cycles():
     definition = FlowDefinition(name="cyclic", version="1", nodes=nodes, edges=edges)
     with pytest.raises(RuntimeError):
         AgentFlowRunner(definition)
+
+
+def test_flow_runner_rejects_edge_with_unknown_node_id():
+    nodes = [
+        FlowNodeConfig(id="context", name="Context", handler="context"),
+        FlowNodeConfig(id="task_planning", name="Task Planning", handler="task_planning"),
+    ]
+    edges = [
+        FlowEdgeConfig(source="init", target="task_planning"),
+    ]
+
+    definition = FlowDefinition(name="invalid", version="1", nodes=nodes, edges=edges)
+
+    with pytest.raises(RuntimeError, match="edge source 'init'"):
+        AgentFlowRunner(definition)
