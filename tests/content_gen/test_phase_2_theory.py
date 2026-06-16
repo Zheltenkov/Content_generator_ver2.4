@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from content_gen.agents.theory import TheoryResult
+from content_gen.config.loader import get_agent_config
 from content_gen.models.readme_document import ReadmeDocument
 from content_gen.models.schemas import ProjectContextMeta, ProjectSeed, TheoryPart
 from content_gen.theory_phase_executor import TheoryPhaseExecutor, _remove_static_instruction_leaks
@@ -40,6 +41,36 @@ def _invalid_part(idx: int) -> TheoryPart:
         example="",
         bridge_questions=[],
     )
+
+
+def test_theory_user_template_formats_mermaid_init_literal() -> None:
+    template = get_agent_config("theory").get_prompt("user_template")
+
+    rendered = template.format(
+        n_parts=3,
+        content_type_section="no_code",
+        formulas_code_requirements="без формул",
+        direction="PjM",
+        track="Блок",
+        project_description="Описание",
+        skills="Навык",
+        learning_outcomes="LO",
+        context_summary="Контекст",
+        narrative_anchor="Мост",
+        platform_name="Проект",
+        gitlab_link="—",
+        required_software="—",
+        workload_hours="1",
+        curriculum_context_section="Контекст УП",
+        sjm_section="SJM",
+        include_formulas=False,
+        include_tables=True,
+        include_diagrams=True,
+        i="{i}",
+    )
+
+    assert "%%{init...}%%" in rendered
+    assert "%%{{init" not in rendered
 
 
 def test_theory_executor_renders_theory_as_typed_document() -> None:
